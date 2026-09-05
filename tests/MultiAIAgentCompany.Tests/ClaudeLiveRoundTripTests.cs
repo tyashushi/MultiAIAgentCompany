@@ -19,6 +19,7 @@ namespace MultiAIAgentCompany.Tests;
 /// 承認要求を受信 → 決定を送信 → 同じ turn が再開 → <b>決定どおりに世界が変わった</b>。
 /// </para>
 /// </remarks>
+[Collection(LiveCollection.Name)]
 public sealed class ClaudeLiveRoundTripTests
 {
     [LiveTheory]

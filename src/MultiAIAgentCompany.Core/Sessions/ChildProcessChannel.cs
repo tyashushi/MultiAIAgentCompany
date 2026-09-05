@@ -130,13 +130,30 @@ public sealed class ChildProcessChannel : IAgentProcessChannel
         catch (ObjectDisposedException) { }
     }
 
-    public ValueTask DisposeAsync()
+    /// <summary>
+    /// <b>破棄は段階的な停止を含む。</b> Process オブジェクトを捨てるだけでは子は生き残る。
+    /// </summary>
+    /// <remarks>
+    /// 起動直後の失敗（握手のエラー、キャンセル）でここに来ることがあり、
+    /// そこで殺し損ねると <c>claude</c> や <c>codex app-server</c> が孤児として残る（設計 §9）。
+    /// </remarks>
+    public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
-            _process.Dispose();
-            _stopGate.Dispose();
+            return;
         }
-        return ValueTask.CompletedTask;
+
+        try
+        {
+            await StopCoreAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // 破棄の途中で投げない。落とせなかったことより、後始末を続ける方が大事。
+        }
+
+        _process.Dispose();
+        _stopGate.Dispose();
     }
 }
