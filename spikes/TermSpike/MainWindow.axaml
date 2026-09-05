@@ -1,0 +1,17 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:term="using:Iciclecreek.Terminal"
+        x:Class="TermSpike.MainWindow"
+        Title="TermSpike — A案: 表示はターミナル / 日本語は入力欄" Width="1000" Height="720">
+  <Grid RowDefinitions="*,Auto,Auto">
+    <term:TerminalControl Grid.Row="0" Name="Term" FontSize="14" BufferSize="2000" />
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="8">
+      <TextBox Grid.Column="0" Name="Input" FontSize="14"
+               Watermark="ここに日本語を入力 → Enter で送信（変換の Enter で誤送信するなら Cmd+Enter を使う）" />
+      <Button Grid.Column="1" Name="SendBtn" Content="送信" Margin="6,0,0,0" />
+      <Button Grid.Column="2" Name="FocusBtn" Content="ターミナルへ" Margin="6,0,0,0" />
+    </Grid>
+    <TextBlock Grid.Row="2" Name="Hint" Margin="8,0,8,8" FontSize="11" Foreground="#888"
+               Text="単キー（y/n、矢印、Ctrl-C）はターミナルをクリックしてから直接打つ" />
+  </Grid>
+</Window>
