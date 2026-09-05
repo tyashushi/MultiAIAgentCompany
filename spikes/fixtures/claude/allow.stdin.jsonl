@@ -1,0 +1,2 @@
+{"type": "user", "message": {"role": "user", "content": "Run exactly this shell command and nothing else: echo HELLO > /Volumes/SSD/Developer/MultiAIAgentCompany/spikes/fixtures/claude/ws-allow/hello.txt"}}
+{"type": "control_response", "response": {"subtype": "success", "request_id": "7875fc96-9466-4877-a426-dd43273375c1", "response": {"behavior": "allow", "updatedInput": {"command": "echo HELLO > /Volumes/SSD/Developer/MultiAIAgentCompany/spikes/fixtures/claude/ws-allow/hello.txt", "description": "Write HELLO to hello.txt"}}}}

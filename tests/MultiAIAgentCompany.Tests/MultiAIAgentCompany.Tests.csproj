@@ -16,4 +16,8 @@
     <ProjectReference Include="../../src/MultiAIAgentCompany.Core/MultiAIAgentCompany.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="../../spikes/fixtures/claude/**/*.jsonl" Link="fixtures/claude/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

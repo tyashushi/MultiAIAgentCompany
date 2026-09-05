@@ -1,0 +1,2 @@
+{"type": "user", "message": {"role": "user", "content": "Run exactly this shell command and nothing else: echo HELLO > /Volumes/SSD/Developer/MultiAIAgentCompany/spikes/fixtures/claude/ws-deny/hello.txt"}}
+{"type": "control_response", "response": {"subtype": "success", "request_id": "b448be8f-1cd3-430f-868f-743d3fc0b336", "response": {"behavior": "deny", "message": "captured: denied on purpose"}}}
