@@ -160,6 +160,20 @@ public sealed class TaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 日本語のnoteがエスケープされない()
+    {
+        // note は「人間に見せる1行」。既定の System.Text.Json は日本語を \uXXXX に潰す。
+        var created = Assert.IsType<TaskWriteResult.Written>(await _store.CreateAsync("feature", "実装", CancellationToken.None));
+        await _store.TransitionAsync(created.State, CoreTaskStatus.Dispatched, TransitionOrigin.Automation, "秘書が投げた", CancellationToken.None);
+
+        var json = await File.ReadAllTextAsync(_workspace.Paths.State("feature"));
+
+        Assert.Contains("秘書が投げた", json);
+        Assert.Contains("実装", json);
+        Assert.DoesNotContain("\\u", json);
+    }
+
+    [Fact]
     public async Task state_jsonの列挙は数値でなく名前で書かれる()
     {
         var created = Assert.IsType<TaskWriteResult.Written>(await _store.CreateAsync("feature", "implementation", CancellationToken.None));

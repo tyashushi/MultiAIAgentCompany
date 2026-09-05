@@ -21,6 +21,19 @@ public enum LeaseKind
     Unity,
 }
 
+/// <summary>期限切れの権利を取得時に置き換える方針。</summary>
+public enum LeaseTakeover
+{
+    /// <summary>失効した保持者がいても奪わない。既定。</summary>
+    Deny,
+
+    /// <summary>
+    /// 失効した保持者を置き換える。<b>呼び出し元が古い保持者はもう動いていないことを
+    /// 確かめてから渡す</b>。時間切れだけを根拠に渡してはいけない。
+    /// </summary>
+    AllowExpired,
+}
+
 /// <summary>1つの権利を、いま誰が持っているか。</summary>
 /// <param name="Kind">権利の種類。</param>
 /// <param name="DepartmentId">持っている部門。</param>

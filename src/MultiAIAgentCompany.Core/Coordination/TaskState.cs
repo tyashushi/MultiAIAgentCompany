@@ -94,5 +94,12 @@ public static class TaskStateJson
         // 信頼順1位の根拠（EvidenceSource.Document）が嘘をつく。
         // state.json は人間が手で直せるファイルなので、欠落は想定内の入力である。
         RespectRequiredConstructorParameters = true,
+
+        // 日本語をエスケープしない。既定では "実装" が "\u5B9F\u88C5" になる。
+        // 部門名も note も日本語なので、それでは人間が読んで直せるファイルではなくなる ——
+        // §14-1 / §14-2 はどちらも「人間が手で直せる」ことに寄りかかっている。
+        // このファイルは HTML に埋め込まない（ローカルの調整文書）ので、
+        // HTML 向けのエスケープは要らない。
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 }
