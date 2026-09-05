@@ -20,23 +20,17 @@ public interface IAgentAdapter
     /// <c>bash -lc claude</c> のようにすると macOS の <c>/bin/bash</c> 3.2 の readline が
     /// 経路に入る余地が生まれる。CLI を直接 exec すること。
     /// </summary>
+    /// <param name="departmentId">
+    /// どの部門として動かすか。<b>同じ CLI を複数の部門に割り当てられる</b>ので、
+    /// エージェントの種類だけでは足りない。
+    /// </param>
+    /// <returns>
+    /// <paramref name="mode"/> に応じて <see cref="Sessions.IStructuredSession"/> か
+    /// <see cref="Sessions.ITuiSession"/> を返す。どちらも <see cref="Sessions.IAgentSession"/>。
+    /// </returns>
     Task<Sessions.IAgentSession> StartAsync(
         Workspace.WorkspaceRef workspace,
+        string departmentId,
         DriveMode mode,
         CancellationToken ct);
-
-    /// <summary>
-    /// 承認要求の通知。(a) と (b) の両方がここを通るが、<see cref="ApprovalRequest.Kind"/> で区別できる。
-    /// </summary>
-    event EventHandler<ApprovalRequest>? ApprovalRequested;
-
-    /// <summary>
-    /// 決定を返す。<b>生の string を受けない</b>（設計 §14-4）。
-    /// <paramref name="decision"/> は <paramref name="request"/> が提示したものでなければならず、
-    /// そうでなければ <see cref="ArgumentException"/> になる。
-    /// </summary>
-    Task RespondAsync(ApprovalRequest request, ApprovalDecision decision, CancellationToken ct);
-
-    /// <summary>状態の根拠になる観測。信頼順は <see cref="Status.EvidenceSource"/> を見る。</summary>
-    event EventHandler<Status.Evidence>? Observed;
 }

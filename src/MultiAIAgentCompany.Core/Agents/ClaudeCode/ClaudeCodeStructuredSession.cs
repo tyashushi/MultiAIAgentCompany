@@ -1,0 +1,163 @@
+using System.Text.Json;
+using MultiAIAgentCompany.Core.Sessions;
+using MultiAIAgentCompany.Core.Status;
+
+namespace MultiAIAgentCompany.Core.Agents.ClaudeCode;
+
+/// <summary>Claude Code の stream-json を、実プロセスから独立したチャネル上で動かすセッション。</summary>
+public sealed class ClaudeCodeStructuredSession : IStructuredSession
+{
+    private readonly IAgentProcessChannel _channel;
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly Dictionary<string, ClaudeApprovalRequest> _approvalRequests = new(StringComparer.Ordinal);
+    private readonly Task _readLoop;
+    private readonly object _stopLock = new();
+    private Task? _stopTask;
+    private int _disposed;
+
+    public ClaudeCodeStructuredSession(IAgentProcessChannel channel, string departmentId)
+    {
+        _channel = channel ?? throw new ArgumentNullException(nameof(channel));
+        DepartmentId = departmentId ?? throw new ArgumentNullException(nameof(departmentId));
+        _channel.Exited += ChannelExited;
+        _readLoop = ReadLoopAsync();
+    }
+
+    public string DepartmentId { get; }
+    public ProcessIdentity Identity => _channel.Identity;
+    public DriveMode Mode => DriveMode.Structured;
+    public string? DetectedVersion { get; private set; }
+
+    public event EventHandler<Evidence>? Observed;
+    public event EventHandler<int>? Exited;
+    public event EventHandler<ApprovalRequest>? ApprovalRequested;
+    public event EventHandler<OutcomeVerdict>? TurnFinished;
+
+    public Task SendUserMessageAsync(string text, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return WriteAsync(JsonSerializer.Serialize(new { type = "user", message = new { role = "user", content = text } }), ct);
+    }
+
+    public async Task RespondAsync(ApprovalRequest request, ApprovalDecision decision, string? reason, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(decision);
+        if (!request.Offers(decision.Id))
+        {
+            throw new ArgumentException("要求が提示していない決定です。", nameof(decision));
+        }
+        if (!_approvalRequests.TryGetValue(request.RequestId, out var claudeRequest))
+        {
+            throw new InvalidOperationException("対応する Claude の承認要求が見つかりません。");
+        }
+
+        await WriteAsync(ClaudeControlResponse.Build(claudeRequest, decision.Id, reason), ct).ConfigureAwait(false);
+    }
+
+    private async Task WriteAsync(string line, CancellationToken ct)
+    {
+        await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+        try { await _channel.WriteLineAsync(line, ct).ConfigureAwait(false); }
+        finally { _writeGate.Release(); }
+    }
+
+    private async Task ReadLoopAsync()
+    {
+        try
+        {
+            await foreach (var line in _channel.ReadLinesAsync(CancellationToken.None).ConfigureAwait(false))
+            {
+                switch (ClaudeStreamReader.ReadLine(line))
+                {
+                    case ClaudeEvent.Init init:
+                        DetectedVersion = init.Version;
+                        var mcp = init.McpServers.Count == 0
+                            ? "MCP サーバーなし"
+                            : $"MCP サーバー: {string.Join(", ", init.McpServers.Select(server => $"{server.Name} ({server.Status ?? "状態不明"})"))}";
+                        Observe($"Claude Code 初期化。版={init.Version ?? "不明"}; {mcp}");
+                        break;
+                    case ClaudeEvent.ApprovalAsked approval:
+                        _approvalRequests[approval.Request.RequestId] = approval.Request;
+                        var request = approval.Request.ToApprovalRequest();
+                        SafeInvoke(() => ApprovalRequested?.Invoke(this, request), "ApprovalRequested");
+                        break;
+                    case ClaudeEvent.TurnFinished finished:
+                        var verdict = ClaudeTurnOutcome.ToSignals(finished)
+                            .Judge(OutcomeRequirement.For(AgentKind.ClaudeCode));
+                        SafeInvoke(() => TurnFinished?.Invoke(this, verdict), "TurnFinished");
+                        break;
+                    case ClaudeEvent.Passthrough passthrough:
+                        Observe($"Claude Code イベント: type={passthrough.Type}, subtype={passthrough.Subtype ?? "なし"}");
+                        break;
+                    case ClaudeEvent.Unknown unknown:
+                        // RawFirst200 は秘密を含み得るので Evidence に絶対に流さない。
+                        Observe($"Claude Code イベントを解釈できない: {unknown.Reason}");
+                        break;
+                }
+            }
+        }
+        catch (ObjectDisposedException) { }
+    }
+
+    /// <summary>
+    /// 購読側の例外で<b>読み取りループを止めない</b>。
+    /// </summary>
+    /// <remarks>
+    /// 止まると stdout が排出されなくなり、パイプが詰まって子プロセスが停止する
+    /// （設計 §5「読み取りを止めると子プロセスが停止する」はパイプにも当てはまる）。
+    /// しかも<b>誰も何も言わないまま止まる</b>ので、このアプリが繰り返し踏んでいる形になる。
+    /// <para>
+    /// ただし握りつぶさない。例外が出たことは観測として残す。
+    /// <b>例外のメッセージは入れない</b>（何が入っているか分からない。設計 §10）。型名だけ。
+    /// </para>
+    /// </remarks>
+    private void SafeInvoke(Action invoke, string eventName)
+    {
+        try
+        {
+            invoke();
+        }
+        catch (Exception exception)
+        {
+            Observe($"{eventName} の購読側が例外を投げた: {exception.GetType().Name}（読み取りは継続する）");
+        }
+    }
+
+    private void Observe(string summary)
+    {
+        try
+        {
+            Observed?.Invoke(this, new Evidence(
+                EvidenceSource.StructuredEvent, DateTimeOffset.UtcNow, null, null,
+                new AgentRef(DepartmentId, AgentKind.ClaudeCode), DetectedVersion, null, summary));
+        }
+        catch (Exception)
+        {
+            // Observed の購読側が壊れている。ここで報告する先が無いので、読み取りだけは守る。
+        }
+    }
+
+    private void ChannelExited(object? sender, int exitCode) => Exited?.Invoke(this, exitCode);
+
+    public Task StopAsync(CancellationToken ct)
+    {
+        lock (_stopLock)
+        {
+            _stopTask ??= _channel.StopAsync(CancellationToken.None);
+        }
+        return _stopTask.WaitAsync(ct);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        {
+            await StopAsync(CancellationToken.None).ConfigureAwait(false);
+            _channel.Exited -= ChannelExited;
+            await _channel.DisposeAsync().ConfigureAwait(false);
+            _writeGate.Dispose();
+        }
+        await _readLoop.ConfigureAwait(false);
+    }
+}
