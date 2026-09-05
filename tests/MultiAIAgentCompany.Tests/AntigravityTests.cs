@@ -219,5 +219,24 @@ public sealed class AntigravityTests
         Assert.DoesNotContain("secret-token-abc123", summary);
         Assert.DoesNotContain("/Users/", summary);
     }
+    [Fact]
+    public async Task 既定の駆動モードではまだ起動できない()
+    {
+        // **既知の食い違い。** AgentCapabilities は Antigravity の既定を Tui と言うが、
+        // TUI セッションはまだ無い。一方 §13-3 追記2 で構造化なら動くと実測済み。
+        // 既定を変えるかは「v1 に PTY が要るか」というスコープの判断なので保留している。
+        // このテストは、その穴を忘れないために置いてある。**解決したら消す。**
+        Assert.Equal(DriveMode.Tui, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
+
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            new AntigravityAdapter().StartAsync(
+                new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
+                "調査",
+                AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
+                CancellationToken.None));
+
+        Assert.Contains("13-3", exception.Message);
+    }
+
 
 }

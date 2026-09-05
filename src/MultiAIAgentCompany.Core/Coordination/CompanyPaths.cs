@@ -40,6 +40,9 @@ public sealed class CompanyPaths
     /// </summary>
     public string Lease => Path.Combine(Root, "lease.json");
 
+    /// <summary>ワークスペースごとの部門定義。</summary>
+    public string Departments => Path.Combine(Root, "departments.json");
+
     public string TaskDirectory(string slug) => Path.Combine(TasksRoot, RequireSlug(slug));
 
     public string Instruction(string slug) => Path.Combine(TaskDirectory(slug), "instruction.md");
