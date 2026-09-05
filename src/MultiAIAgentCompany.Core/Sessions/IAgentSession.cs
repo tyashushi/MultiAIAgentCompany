@@ -28,11 +28,18 @@ public interface IAgentSession : IAsyncDisposable
 
     /// <summary>
     /// 文章を送る。TUI モードでは<b>ターミナルへの直打ちではなく、入力欄経由</b>（設計 §13-7）。
-    /// 送信キーは <see cref="Agents.SubmitKey"/> で解決したものを使い、不明なら送らない。
     /// </summary>
-    Task SendTextAsync(string text, CancellationToken ct);
+    /// <param name="submitKey">
+    /// 解決済みの送信キー。<see cref="Agents.SubmitKey.IsResolved"/> が false のものを渡すと
+    /// <see cref="ArgumentException"/> になる —— <c>0D</c> にフォールバックさせないため（設計 §14-4）。
+    /// 送信キーが不明なときは送らず、部門の状態を「送信キー不明」にする。
+    /// </param>
+    Task SendTextAsync(string text, Agents.SubmitKey submitKey, CancellationToken ct);
 
-    /// <summary>単キー（<c>y</c>/<c>n</c>、矢印、Ctrl-C）や制御バイトをそのまま送る。</summary>
+    /// <summary>
+    /// 単キー（<c>y</c>/<c>n</c>、矢印、Ctrl-C）や制御バイトをそのまま送る。
+    /// <b>文章を送るのに使わない。</b> 文章は <see cref="SendTextAsync"/> だけを通す。
+    /// </summary>
     Task SendBytesAsync(ReadOnlyMemory<byte> bytes, CancellationToken ct);
 
     /// <summary>ペインの大きさが変わったことを子へ伝える（TIOCSWINSZ → SIGWINCH）。</summary>

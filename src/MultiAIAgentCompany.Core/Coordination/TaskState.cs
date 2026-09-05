@@ -50,44 +50,32 @@ public enum TransitionOrigin
 }
 
 /// <summary>
-/// 書き込み権の lease。設計 §8 —— <b>書き込み権は同時に1部門のみ</b>。
-/// 他の部門は読み取りのみで、書き込みが要る仕事は待つ。
-/// </summary>
-/// <remarks>
-/// CLI のサンドボックス境界に頼らないこと。実測（§13-2）で codex の
-/// <c>workspace-write</c> はワークスペース外の <c>/tmp</c> と <c>$TMPDIR</c> にも
-/// 承認なしで書けた。「承認を求めてこなかった＝ワークスペース内で完結した」ではない。
-/// </remarks>
-/// <param name="DepartmentId">書き込み権を持っている部門。</param>
-/// <param name="AcquiredAt">取得時刻。</param>
-/// <param name="ExpiresAt">失効時刻。アプリが落ちても、時間で解けるようにしておく。</param>
-public sealed record WriteLease(string DepartmentId, DateTimeOffset AcquiredAt, DateTimeOffset ExpiresAt)
-{
-    public bool IsValidAt(DateTimeOffset now) => now < ExpiresAt;
-}
-
-/// <summary>
 /// <c>state.json</c> の中身。<b>状態の第一根拠</b>（設計 §7、<c>EvidenceSource.Document</c>）。
 /// </summary>
 /// <param name="Slug">タスクの識別子。ディレクトリ名と一致する。</param>
 /// <param name="Status">仕事状態。</param>
+/// <param name="AttemptId">
+/// 何回目の試行か（設計 §14-1）。差し戻すと1つ進み、それまでの指示書・報告書は
+/// <c>attempts/&lt;n&gt;/</c> へ封じられる。「どの指示に対する報告か」はこれで決まる。
+/// </param>
 /// <param name="Revision">
 /// 楽観ロック用。読んだ revision と違っていたら書かない。
-/// 複数部門とアプリが同じファイルを触るので、last-write-wins にしない。
+/// <b>部門同士の競合を捌くためのものではない</b> —— <c>state.json</c> を書くのはアプリだけ
+/// （設計 §14-1）。用途はアプリの知らない書き換え（人間の手直し、二重起動）の検出で、
+/// 不一致を見たらマージせず、書き込みを拒否して人間に見せる。
 /// </param>
 /// <param name="DepartmentId">担当部門。</param>
 /// <param name="LastTransitionOrigin">直前の遷移を起こしたのが自動化か人間か。</param>
 /// <param name="UpdatedAt">最終更新。</param>
-/// <param name="Lease">書き込み権。持っていなければ null。</param>
 /// <param name="Note">人間向けの1行。<b>秘密値を入れない</b>（設計 §10）。</param>
 public sealed record TaskState(
     string Slug,
     TaskStatus Status,
+    int AttemptId,
     long Revision,
     string DepartmentId,
     TransitionOrigin LastTransitionOrigin,
     DateTimeOffset UpdatedAt,
-    WriteLease? Lease = null,
     string? Note = null);
 
 /// <summary>

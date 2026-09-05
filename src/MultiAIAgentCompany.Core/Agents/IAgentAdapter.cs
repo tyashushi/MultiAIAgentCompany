@@ -31,10 +31,11 @@ public interface IAgentAdapter
     event EventHandler<ApprovalRequest>? ApprovalRequested;
 
     /// <summary>
-    /// 決定を返す。<paramref name="decisionId"/> は必ず
-    /// <see cref="ApprovalRequest.AvailableDecisions"/> にあるものだけ。
+    /// 決定を返す。<b>生の string を受けない</b>（設計 §14-4）。
+    /// <paramref name="decision"/> は <paramref name="request"/> が提示したものでなければならず、
+    /// そうでなければ <see cref="ArgumentException"/> になる。
     /// </summary>
-    Task RespondAsync(string requestId, string decisionId, CancellationToken ct);
+    Task RespondAsync(ApprovalRequest request, ApprovalDecision decision, CancellationToken ct);
 
     /// <summary>状態の根拠になる観測。信頼順は <see cref="Status.EvidenceSource"/> を見る。</summary>
     event EventHandler<Status.Evidence>? Observed;

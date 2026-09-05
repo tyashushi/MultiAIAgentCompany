@@ -21,12 +21,15 @@ public sealed record SubmitKey
 {
     private SubmitKey(byte[]? bytes, string origin)
     {
-        Bytes = bytes;
+        this.bytes = bytes;
         Origin = origin;
     }
 
-    /// <summary>送信に相当する端末バイト列。判定できていなければ null。</summary>
-    public byte[]? Bytes { get; }
+    private readonly byte[]? bytes;
+
+    /// <summary>送信に相当する端末バイト列の複製。判定できていなければ null。</summary>
+    /// <remarks>複製を返す。呼び出し側が書き換えても、この <see cref="SubmitKey"/> は変わらない。</remarks>
+    public byte[]? Bytes => bytes?.ToArray();
 
     /// <summary>どこからそう判定したか。人間に見せる。例: <c>~/.claude/keybindings.json: meta+enter</c>。</summary>
     public string Origin { get; }
@@ -35,12 +38,25 @@ public sealed record SubmitKey
     public bool IsResolved => Bytes is not null;
 
     /// <summary>ESC + CR。<c>meta+enter</c> 相当。</summary>
-    public static readonly byte[] AltEnter = [0x1B, 0x0D];
+    /// <remarks>呼ぶたびに新しい配列を返す。static readonly の配列は中身を書き換えられる。</remarks>
+    public static byte[] AltEnter => [0x1B, 0x0D];
 
     /// <summary>CR。素の <c>enter</c> 相当。</summary>
-    public static readonly byte[] Enter = [0x0D];
+    public static byte[] Enter => [0x0D];
 
-    public static SubmitKey Resolved(byte[] bytes, string origin) => new(bytes, origin);
+    /// <summary>判定できた。空のバイト列は「送信できるキー」ではないので受け付けない。</summary>
+    public static SubmitKey Resolved(byte[] bytes, string origin)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        ArgumentException.ThrowIfNullOrWhiteSpace(origin);
+
+        if (bytes.Length == 0)
+        {
+            throw new ArgumentException("空のバイト列は送信キーにならない", nameof(bytes));
+        }
+
+        return new SubmitKey(bytes.ToArray(), origin);
+    }
 
     /// <summary>判定できなかった。<c>0D</c> にフォールバックしないこと。</summary>
     public static SubmitKey Unknown(string reason) => new(null, reason);

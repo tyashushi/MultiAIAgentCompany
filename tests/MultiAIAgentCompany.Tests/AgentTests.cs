@@ -59,6 +59,24 @@ public sealed class SubmitKeyTests
     }
 
     [Fact]
+    public void 空のバイト列は送信キーにならない()
+    {
+        // IsResolved が true なのに送るものが無い、という状態を作れないようにする（§14-4）。
+        Assert.Throws<ArgumentException>(() => SubmitKey.Resolved([], "x"));
+    }
+
+    [Fact]
+    public void 解決済みのバイト列は外から書き換えられない()
+    {
+        var key = SubmitKey.Resolved(SubmitKey.AltEnter, "~/.claude/keybindings.json: meta+enter");
+
+        var taken = key.Bytes!;
+        taken[0] = 0x41;
+
+        Assert.Equal(new byte[] { 0x1B, 0x0D }, key.Bytes);
+    }
+
+    [Fact]
     public void meta_enter_はESCとCRになる()
     {
         var key = SubmitKey.Resolved(SubmitKey.AltEnter, "~/.claude/keybindings.json: meta+enter");

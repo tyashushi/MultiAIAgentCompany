@@ -15,6 +15,7 @@ namespace MultiAIAgentCompany.Core.Coordination;
 ///     answer.md        人間の回答
 ///     state.json       状態、revision、lease、観測記録
 ///   archive/
+///   lease.json       書き込み権と Unity 権（ワークスペースに1つ。§14-2）
 /// </code>
 /// </remarks>
 public sealed class CompanyPaths
@@ -33,6 +34,12 @@ public sealed class CompanyPaths
 
     public string ArchiveRoot => Path.Combine(Root, "archive");
 
+    /// <summary>
+    /// 権利の置き場所。<b>ワークスペース全体で1ファイル</b>（設計 §14-2）。
+    /// タスクごとに持たせると、別タスクに別部門の有効な lease を同時に置けてしまう。
+    /// </summary>
+    public string Lease => Path.Combine(Root, "lease.json");
+
     public string TaskDirectory(string slug) => Path.Combine(TasksRoot, RequireSlug(slug));
 
     public string Instruction(string slug) => Path.Combine(TaskDirectory(slug), "instruction.md");
@@ -44,6 +51,14 @@ public sealed class CompanyPaths
     public string Answer(string slug) => Path.Combine(TaskDirectory(slug), "answer.md");
 
     public string State(string slug) => Path.Combine(TaskDirectory(slug), "state.json");
+
+    /// <summary>過去の試行を封じる場所（設計 §14-1）。</summary>
+    public string AttemptDirectory(string slug, int attemptId)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(attemptId);
+
+        return Path.Combine(TaskDirectory(slug), "attempts", attemptId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
 
     /// <summary>
     /// slug をパス片として安全か検査する。ここを緩めると、調整基盤が
