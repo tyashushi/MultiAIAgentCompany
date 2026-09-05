@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MultiAIAgentCompany.Core/MultiAIAgentCompany.Core.csproj" />
+    <Project Path="src/MultiAIAgentCompany.Desktop/MultiAIAgentCompany.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MultiAIAgentCompany.Tests/MultiAIAgentCompany.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    UI 非依存。ここが本体（設計 §4）。
+    Avalonia への参照を足さないこと。足した瞬間に「UI に業務を書かない」が崩れる。
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>MultiAIAgentCompany.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

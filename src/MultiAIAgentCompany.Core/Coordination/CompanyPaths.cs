@@ -1,0 +1,64 @@
+namespace MultiAIAgentCompany.Core.Coordination;
+
+/// <summary>
+/// 調整基盤の置き場所。設計 §6 —— レベル4（共有ドキュメント方式）の本体。
+/// </summary>
+/// <remarks>
+/// 部門間の受け渡しは、アプリのメモリではなく<b>ワークスペース内のファイル</b>で行う。
+/// アプリが落ちても状態が残るので、GUI は状態の所有者ではなく閲覧者になる。
+/// <code>
+/// &lt;ワークスペース&gt;/.company/
+///   tasks/&lt;task-slug&gt;/
+///     instruction.md   指示書
+///     report.md        報告書
+///     question.md      (b) 判断の相談
+///     answer.md        人間の回答
+///     state.json       状態、revision、lease、観測記録
+///   archive/
+/// </code>
+/// </remarks>
+public sealed class CompanyPaths
+{
+    public CompanyPaths(string workspaceRoot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
+        WorkspaceRoot = Path.GetFullPath(workspaceRoot);
+    }
+
+    public string WorkspaceRoot { get; }
+
+    public string Root => Path.Combine(WorkspaceRoot, ".company");
+
+    public string TasksRoot => Path.Combine(Root, "tasks");
+
+    public string ArchiveRoot => Path.Combine(Root, "archive");
+
+    public string TaskDirectory(string slug) => Path.Combine(TasksRoot, RequireSlug(slug));
+
+    public string Instruction(string slug) => Path.Combine(TaskDirectory(slug), "instruction.md");
+
+    public string Report(string slug) => Path.Combine(TaskDirectory(slug), "report.md");
+
+    public string Question(string slug) => Path.Combine(TaskDirectory(slug), "question.md");
+
+    public string Answer(string slug) => Path.Combine(TaskDirectory(slug), "answer.md");
+
+    public string State(string slug) => Path.Combine(TaskDirectory(slug), "state.json");
+
+    /// <summary>
+    /// slug をパス片として安全か検査する。ここを緩めると、調整基盤が
+    /// ワークスペースの外へ書く経路になる。
+    /// </summary>
+    private static string RequireSlug(string slug)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(slug);
+
+        var ok = slug.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+        if (!ok || slug is "." or "..")
+        {
+            throw new ArgumentException($"task slug に使えない文字が含まれている: '{slug}'", nameof(slug));
+        }
+
+        return slug;
+    }
+}

@@ -1,0 +1,7 @@
+<Project>
+  <!--
+    意図的に空。MSBuild は最初に見つけた Directory.Build.props で探索を止めるので、
+    これがリポジトリルートの設定を spikes/ に継がせない壁になる。
+    スパイクは本体とは独立にビルドできること。
+  -->
+</Project>

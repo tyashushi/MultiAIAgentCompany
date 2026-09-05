@@ -1,0 +1,95 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:MultiAIAgentCompany.Desktop"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
+        x:Class="MultiAIAgentCompany.Desktop.MainWindow"
+        x:DataType="vm:ShellViewModel"
+        Width="1280" Height="800"
+        Title="MultiAIAgentCompany">
+
+    <!-- 3ペイン（設計 §1）。左＝作業ログ、中央＝秘書との会話、右＝部門ステータス。 -->
+    <Grid ColumnDefinitions="260,4,*,4,320" Margin="8">
+
+        <DockPanel Grid.Column="0">
+            <TextBlock DockPanel.Dock="Top" Text="作業ログ" FontWeight="Bold" Margin="0,0,0,6" />
+            <ItemsControl ItemsSource="{Binding WorkLog}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DockPanel>
+
+        <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="Transparent" />
+
+        <DockPanel Grid.Column="2">
+            <TextBlock DockPanel.Dock="Top" FontWeight="Bold" Margin="0,0,0,6">
+                <Run Text="秘書" />
+                <Run Text=" — " />
+                <Run Text="{Binding WorkspaceLabel}" />
+            </TextBlock>
+
+            <!--
+                入力欄経由でのみ文章を送る（設計 §13-7）。ターミナルに直接打たせない。
+                実測: TerminalView は IME の変換中でもキーから作った文字を即 PTY へ送るため、
+                「?」や Enter が漏れる。TextBox 経路なら確定文字だけが入る。
+                また IME の変換確定 Enter は KeyDown として届かないので、
+                入力欄では素の Enter を送信に使ってよい。
+            -->
+            <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                <TextBox Grid.Column="0" PlaceholderText="秘書に指示する（日本語で書ける）" AcceptsReturn="False" />
+                <Button Grid.Column="1" Content="送信" Margin="6,0,0,0" IsEnabled="False" />
+            </Grid>
+
+            <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="4">
+                <ItemsControl ItemsSource="{Binding SecretaryTranscript}" Margin="8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+        </DockPanel>
+
+        <GridSplitter Grid.Column="3" ResizeDirection="Columns" Background="Transparent" />
+
+        <DockPanel Grid.Column="4">
+            <TextBlock DockPanel.Dock="Top" Text="部門" FontWeight="Bold" Margin="0,0,0,6" />
+            <ItemsControl ItemsSource="{Binding Departments}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:DepartmentTile">
+                        <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,6">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <TextBlock Grid.Column="0" Text="{Binding Glyph}" FontSize="24" Margin="0,0,8,0" />
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock FontWeight="Bold">
+                                        <Run Text="{Binding Name}" />
+                                        <Run Text=" / " />
+                                        <Run Text="{Binding Agent}" />
+                                        <Run Text=" / " />
+                                        <Run Text="{Binding Mode}" />
+                                    </TextBlock>
+                                    <!-- 3軸を潰さずに並べる（設計 §7）。 -->
+                                    <TextBlock FontSize="11" Opacity="0.8">
+                                        <Run Text="稼働 " /><Run Text="{Binding RuntimeText}" />
+                                        <Run Text="  活動 " /><Run Text="{Binding ActivityText}" />
+                                        <Run Text="  仕事 " /><Run Text="{Binding WorkText}" />
+                                    </TextBlock>
+                                    <!-- 状態だけを見せない。根拠を必ず添える（設計 §7）。 -->
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="{Binding EvidenceText}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DockPanel>
+
+    </Grid>
+</Window>

@@ -1,0 +1,27 @@
+<Project>
+
+  <!--
+    アプリ本体（src/ と tests/）に共通の設定。
+    spikes/ には spikes/Directory.Build.props（空）を置いて、ここを継がせない。
+    スパイクは検証用で、本体のビルド規約に縛られる必要がない。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!--
+    Avalonia は 12.0.4 に固定する。覆さない決定（設計 §13-4(1)）。
+    12.1.2 では例外もログも出さずにキーボード入力だけが PTY に届かなくなる。
+    上げるときは「人間がキーボードで実際に打てた」ことを確認するまで、上げたと見なさない。
+  -->
+  <PropertyGroup>
+    <AvaloniaVersion>12.0.4</AvaloniaVersion>
+  </PropertyGroup>
+
+</Project>
