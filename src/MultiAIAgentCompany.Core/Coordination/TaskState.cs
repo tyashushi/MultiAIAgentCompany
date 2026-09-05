@@ -88,5 +88,11 @@ public static class TaskStateJson
         WriteIndented = true,
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter() },
+
+        // フィールドが欠けていたら既定値で埋めずに落とす。
+        // これが無いと `status` を落とした state.json が Drafted として読めてしまい、
+        // 信頼順1位の根拠（EvidenceSource.Document）が嘘をつく。
+        // state.json は人間が手で直せるファイルなので、欠落は想定内の入力である。
+        RespectRequiredConstructorParameters = true,
     };
 }

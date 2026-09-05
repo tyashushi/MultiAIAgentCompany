@@ -61,15 +61,17 @@ public sealed class CompanyPaths
     }
 
     /// <summary>
-    /// slug をパス片として安全か検査する。ここを緩めると、調整基盤が
-    /// ワークスペースの外へ書く経路になる。
+    /// slug としてパス片に使える文字列か。<b>検査の住所はここ1つ</b>。
+    /// 緩めると、調整基盤がワークスペースの外へ書く経路になる。
     /// </summary>
+    public static bool IsValidSlug(string? slug) =>
+        !string.IsNullOrWhiteSpace(slug)
+        && slug is not ("." or "..")
+        && slug.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+
     private static string RequireSlug(string slug)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(slug);
-
-        var ok = slug.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
-        if (!ok || slug is "." or "..")
+        if (!IsValidSlug(slug))
         {
             throw new ArgumentException($"task slug に使えない文字が含まれている: '{slug}'", nameof(slug));
         }
