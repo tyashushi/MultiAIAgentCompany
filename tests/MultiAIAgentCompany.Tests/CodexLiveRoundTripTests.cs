@@ -49,7 +49,7 @@ public sealed class CodexLiveRoundTripTests
                     $"Run exactly this shell command and nothing else: echo HELLO > {target}",
                     CancellationToken.None);
 
-                var request = await approval.Task.WaitAsync(TimeSpan.FromMinutes(3));
+                var request = await WaitForApprovalAsync(approval.Task);
 
                 Assert.Equal(AgentKind.CodexCli, request.Agent);
                 Assert.Equal(ApprovalKind.Runtime, request.Kind);
@@ -96,6 +96,32 @@ public sealed class CodexLiveRoundTripTests
 
         return directory?.FullName ?? throw new InvalidOperationException("リポジトリルートが見つからない");
     }
+    /// <summary>
+    /// 承認要求を待つ。<b>来なかったことを「コードが壊れている」と読ませない。</b>
+    /// </summary>
+    /// <remarks>
+    /// エージェントが毎回同じ行動を取るとは限らない —— 依頼どおりにコマンドを実行しようと
+    /// しなければ、承認要求はそもそも発生しない。実測（2026-09-06）で、単独なら29秒で通る
+    /// ケースが、連続実行の中で3分待っても来ないことがあった。
+    /// <para>
+    /// §13-5b の「タイムアウトを『Unity が落ちた』と解釈しない」と同じ話で、
+    /// <b>混雑や気まぐれと、壊れていることは別</b>。
+    /// </para>
+    /// </remarks>
+    private static async Task<ApprovalRequest> WaitForApprovalAsync(Task<ApprovalRequest> approval)
+    {
+        try
+        {
+            return await approval.WaitAsync(TimeSpan.FromMinutes(3));
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException(
+                "3分待っても承認要求が来なかった。コードの失敗とは限らない —— "
+                + "エージェントが依頼どおりにコマンドを実行しようとしなければ、承認要求は発生しない。"
+                + "単独で再実行して切り分けること。", exception);
+        }
+    }
 }
 
 /// <summary><c>MAC_LIVE_CODEX=1</c> のときだけ走る。立っていなければスキップとして出る。</summary>
@@ -108,4 +134,5 @@ internal sealed class LiveCodexTheoryAttribute : TheoryAttribute
             Skip = "MAC_LIVE_CODEX=1 のときだけ走る（実プロセスの往復）";
         }
     }
+
 }
