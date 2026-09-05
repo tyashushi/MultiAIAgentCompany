@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <Content Include="../../spikes/fixtures/claude/**/*.jsonl" Link="fixtures/claude/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../spikes/fixtures/codex/**/*.jsonl" Link="fixtures/codex/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
