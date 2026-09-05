@@ -77,7 +77,10 @@ public sealed class CodexSessionTests
         await session.CompleteHandshakeAsync(CancellationToken.None);
         await channel.Completed;
 
-        using var document = JsonDocument.Parse(channel.Written.Last());
+        // 書き込み順序を仮定しない。握手の続き（thread/start）と未知要求への応答は、
+        // どちらが先に書かれるか保証されていない。Last() に頼ると偶然で通ったり落ちたりする。
+        var response = Assert.Single(channel.Written, line => line.Contains("\"id\":77"));
+        using var document = JsonDocument.Parse(response);
         Assert.Equal(77, document.RootElement.GetProperty("id").GetInt32());
         Assert.Equal(-32601, document.RootElement.GetProperty("error").GetProperty("code").GetInt32());
         Assert.False(document.RootElement.TryGetProperty("result", out _));

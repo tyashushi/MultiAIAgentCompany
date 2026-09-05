@@ -108,6 +108,15 @@ public sealed record OutcomeSignals(
             return new OutcomeVerdict(false, "層1（プロトコル）が失敗を報告した");
         }
 
+        // denied_actions は層の失敗より**先に**見る。
+        // 判定（失敗）はどちらでも同じだが、人間に見せる理由が変わる ——
+        // 「層2が失敗した」は何も教えないが、「RunCommand が握りつぶされた」は次の行動が決まる。
+        // §13-3 で、これが嘘の成功を見破る唯一の手がかりだと確かめている。
+        if (DeniedActions is { Count: > 0 } denied)
+        {
+            return new OutcomeVerdict(false, $"承認されずに握りつぶされた操作がある: {string.Join(", ", denied)}");
+        }
+
         if (Tool is LayerObservation.Failed)
         {
             return new OutcomeVerdict(false, "層2（ツール）が失敗を報告した");
@@ -116,11 +125,6 @@ public sealed record OutcomeSignals(
         if (Payload is LayerObservation.Failed)
         {
             return new OutcomeVerdict(false, "層3（応答本体）が失敗を報告した");
-        }
-
-        if (DeniedActions is { Count: > 0 } denied)
-        {
-            return new OutcomeVerdict(false, $"承認されずに握りつぶされた操作がある: {string.Join(", ", denied)}");
         }
 
         var missing = new List<string>();
