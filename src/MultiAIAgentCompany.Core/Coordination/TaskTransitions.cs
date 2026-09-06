@@ -20,7 +20,12 @@ public static class TaskTransitions
     private static readonly Dictionary<TaskStatus, TaskStatus[]> Allowed = new()
     {
         [TaskStatus.Drafted] = [TaskStatus.Dispatched, TaskStatus.Cancelled],
-        [TaskStatus.Dispatched] = [TaskStatus.InProgress, TaskStatus.Failed, TaskStatus.Cancelled],
+        // Dispatched から Reported / AwaitingAnswer へ直接行ける。
+        // §16-1 は「Dispatched → InProgress を推定しない」と決めている（部門が着手したかを
+        // 知る手段がない）ので、報告や質問が publish されたときは Dispatched から直接進む。
+        // 途中に InProgress を書くのは「観測していない状態を観測したことにする」ことになる。
+        [TaskStatus.Dispatched] =
+            [TaskStatus.InProgress, TaskStatus.AwaitingAnswer, TaskStatus.Reported, TaskStatus.Failed, TaskStatus.Cancelled],
         [TaskStatus.InProgress] = [TaskStatus.AwaitingAnswer, TaskStatus.Reported, TaskStatus.Failed, TaskStatus.Cancelled],
         [TaskStatus.AwaitingAnswer] = [TaskStatus.InProgress, TaskStatus.Cancelled],
         [TaskStatus.Reported] = [TaskStatus.Accepted, TaskStatus.Rejected],
