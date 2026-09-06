@@ -65,11 +65,11 @@ public sealed class TaskDispatcherTests : IDisposable
     {
         var expected = await CreateDraftAsync();
         var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
-        await _leases.AcquireAsync(leases, LeaseKind.Write, "review", "other", TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None);
+        await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("review"), "other", TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None);
 
         var result = Assert.IsType<DispatchResult.Blocked>(await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation")));
 
-        Assert.Equal("review", result.Holder.DepartmentId);
+        Assert.Equal(Actor.OfDepartment("review"), result.Holder.Holder);
         Assert.Equal(CoreTaskStatus.Drafted, (await ReadStateAsync()).Status);
     }
 
@@ -78,7 +78,7 @@ public sealed class TaskDispatcherTests : IDisposable
     {
         var expected = await CreateDraftAsync();
         var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
-        var held = Assert.IsType<LeaseWriteResult.Written>(await _leases.AcquireAsync(leases, LeaseKind.Write, "implementation", "old-task", TimeSpan.FromMinutes(1), LeaseTakeover.Deny, CancellationToken.None));
+        var held = Assert.IsType<LeaseWriteResult.Written>(await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("implementation"), "old-task", TimeSpan.FromMinutes(1), LeaseTakeover.Deny, CancellationToken.None));
 
         Assert.IsType<DispatchResult.Dispatched>(await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation")));
         var renewed = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases.Holders[LeaseKind.Write];
@@ -92,7 +92,7 @@ public sealed class TaskDispatcherTests : IDisposable
     {
         var expected = await CreateDraftAsync();
         var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
-        await _leases.AcquireAsync(leases, LeaseKind.Write, "review", "other", TimeSpan.FromMinutes(1), LeaseTakeover.Deny, CancellationToken.None);
+        await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("review"), "other", TimeSpan.FromMinutes(1), LeaseTakeover.Deny, CancellationToken.None);
         _clock.Advance(TimeSpan.FromMinutes(2));
 
         var result = Assert.IsType<DispatchResult.Blocked>(await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation")));

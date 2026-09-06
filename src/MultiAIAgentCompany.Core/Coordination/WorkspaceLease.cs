@@ -36,13 +36,13 @@ public enum LeaseTakeover
 
 /// <summary>1つの権利を、いま誰が持っているか。</summary>
 /// <param name="Kind">権利の種類。</param>
-/// <param name="DepartmentId">持っている部門。</param>
+/// <param name="Holder">持っている行為者。</param>
 /// <param name="TaskSlug">その権利で走っている仕事。</param>
 /// <param name="AcquiredAt">取得時刻。</param>
 /// <param name="ExpiresAt">失効時刻。アプリが落ちても時間で解ける。</param>
 public sealed record LeaseHolder(
     LeaseKind Kind,
-    string DepartmentId,
+    Actor Holder,
     string TaskSlug,
     DateTimeOffset AcquiredAt,
     DateTimeOffset ExpiresAt)
@@ -66,11 +66,11 @@ public sealed record WorkspaceLeases(long Revision, IReadOnlyDictionary<LeaseKin
     public static WorkspaceLeases Empty { get; } =
         new(0, new Dictionary<LeaseKind, LeaseHolder>());
 
-    /// <summary>その部門が、その時点でその権利を持っているか。</summary>
-    public bool IsHeldBy(LeaseKind kind, string departmentId, DateTimeOffset now) =>
+    /// <summary>その行為者が、その時点でその権利を持っているか。</summary>
+    public bool IsHeldBy(LeaseKind kind, Actor actor, DateTimeOffset now) =>
         Holders.TryGetValue(kind, out var holder)
         && holder.IsValidAt(now)
-        && string.Equals(holder.DepartmentId, departmentId, StringComparison.Ordinal);
+        && holder.Holder == actor;
 
     /// <summary>その権利を、いま新しく取れるか（誰も持っていないか、失効しているか）。</summary>
     public bool CanAcquire(LeaseKind kind, DateTimeOffset now) =>

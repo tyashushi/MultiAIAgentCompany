@@ -88,7 +88,7 @@ public sealed class WorkspaceLeaseTests
     private static WorkspaceLeases WithWriteHeldBy(string department) => new(1,
         new Dictionary<LeaseKind, LeaseHolder>
         {
-            [LeaseKind.Write] = new(LeaseKind.Write, department, "task", T0, T0.AddMinutes(10)),
+            [LeaseKind.Write] = new(LeaseKind.Write, Actor.OfDepartment(department), "task", T0, T0.AddMinutes(10)),
         });
 
     [Fact]
@@ -98,8 +98,8 @@ public sealed class WorkspaceLeaseTests
         // 有効な lease を同時に置けた（再レビューで発覚、§14-2）。
         var leases = WithWriteHeldBy("実装");
 
-        Assert.True(leases.IsHeldBy(LeaseKind.Write, "実装", T0.AddMinutes(1)));
-        Assert.False(leases.IsHeldBy(LeaseKind.Write, "テスト", T0.AddMinutes(1)));
+        Assert.True(leases.IsHeldBy(LeaseKind.Write, Actor.OfDepartment("実装"), T0.AddMinutes(1)));
+        Assert.False(leases.IsHeldBy(LeaseKind.Write, Actor.OfDepartment("テスト"), T0.AddMinutes(1)));
         Assert.False(leases.CanAcquire(LeaseKind.Write, T0.AddMinutes(1)));
     }
 
@@ -117,7 +117,7 @@ public sealed class WorkspaceLeaseTests
     {
         var leases = WithWriteHeldBy("実装");
 
-        Assert.False(leases.IsHeldBy(LeaseKind.Write, "実装", T0.AddMinutes(11)));
+        Assert.False(leases.IsHeldBy(LeaseKind.Write, Actor.OfDepartment("実装"), T0.AddMinutes(11)));
         Assert.True(leases.CanAcquire(LeaseKind.Write, T0.AddMinutes(11)));
     }
 
@@ -125,7 +125,7 @@ public sealed class WorkspaceLeaseTests
     public void 取得前の権利は有効ではない()
     {
         // 初版の IsValidAt は ExpiresAt しか見ておらず、未来の lease も有効になっていた。
-        var future = new LeaseHolder(LeaseKind.Unity, "調査", "task", T0.AddHours(1), T0.AddHours(2));
+        var future = new LeaseHolder(LeaseKind.Unity, Actor.OfDepartment("調査"), "task", T0.AddHours(1), T0.AddHours(2));
 
         Assert.False(future.IsValidAt(T0));
         Assert.True(future.IsValidAt(T0.AddMinutes(90)));

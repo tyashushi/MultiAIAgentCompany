@@ -105,7 +105,7 @@ public sealed class TaskDispatcher
         {
             if (await _leases.ReadAsync(ct) is LeaseReadResult.Found found)
             {
-                await _leases.ReleaseAsync(found.Leases, LeaseKind.Write, department.Id, ct);
+                await _leases.ReleaseAsync(found.Leases, LeaseKind.Write, Actor.OfDepartment(department.Id), ct);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -278,13 +278,14 @@ public sealed class TaskDispatcher
 
         var leases = ((LeaseReadResult.Found)read).Leases;
         LeaseWriteResult write;
-        if (leases.IsHeldBy(LeaseKind.Write, department.Id, _clock.GetUtcNow()))
+        var actor = Actor.OfDepartment(department.Id);
+        if (leases.IsHeldBy(LeaseKind.Write, actor, _clock.GetUtcNow()))
         {
-            write = await _leases.RenewAsync(leases, LeaseKind.Write, department.Id, leaseDuration, ct);
+            write = await _leases.RenewAsync(leases, LeaseKind.Write, actor, leaseDuration, ct);
         }
         else
         {
-            write = await _leases.AcquireAsync(leases, LeaseKind.Write, department.Id, expected.Slug,
+            write = await _leases.AcquireAsync(leases, LeaseKind.Write, actor, expected.Slug,
                 leaseDuration, LeaseTakeover.Deny, ct);
         }
 

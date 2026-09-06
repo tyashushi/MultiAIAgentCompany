@@ -66,12 +66,11 @@ public sealed class LeaseStore
         }
     }
 
-    public async Task<LeaseWriteResult> AcquireAsync(WorkspaceLeases expected, LeaseKind kind, string departmentId,
+    public async Task<LeaseWriteResult> AcquireAsync(WorkspaceLeases expected, LeaseKind kind, Actor actor,
         string taskSlug, TimeSpan duration, LeaseTakeover takeover, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ValidateDuration(duration);
-        ValidateDepartmentId(departmentId);
         ValidateTaskSlug(taskSlug);
         ct.ThrowIfCancellationRequested();
 
@@ -103,17 +102,16 @@ public sealed class LeaseStore
 
         var nextHolders = new Dictionary<LeaseKind, LeaseHolder>(current.Holders)
         {
-            [kind] = new LeaseHolder(kind, departmentId, taskSlug, now, now + duration),
+            [kind] = new LeaseHolder(kind, actor, taskSlug, now, now + duration),
         };
         return await WriteAsync(new WorkspaceLeases(checked(current.Revision + 1), nextHolders), ct);
     }
 
-    public async Task<LeaseWriteResult> RenewAsync(WorkspaceLeases expected, LeaseKind kind, string departmentId,
+    public async Task<LeaseWriteResult> RenewAsync(WorkspaceLeases expected, LeaseKind kind, Actor actor,
         TimeSpan duration, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ValidateDuration(duration);
-        ValidateDepartmentId(departmentId);
         ct.ThrowIfCancellationRequested();
 
         var currentResult = await ReadAsync(ct);
@@ -131,7 +129,7 @@ public sealed class LeaseStore
         var now = _clock.GetUtcNow();
         if (!current.Holders.TryGetValue(kind, out var holder)
             || !holder.IsValidAt(now)
-            || !string.Equals(holder.DepartmentId, departmentId, StringComparison.Ordinal))
+            || holder.Holder != actor)
         {
             return new LeaseWriteResult.NotHeld("有効な権利を保持していません");
         }
@@ -143,11 +141,10 @@ public sealed class LeaseStore
         return await WriteAsync(new WorkspaceLeases(checked(current.Revision + 1), nextHolders), ct);
     }
 
-    public async Task<LeaseWriteResult> ReleaseAsync(WorkspaceLeases expected, LeaseKind kind, string departmentId,
+    public async Task<LeaseWriteResult> ReleaseAsync(WorkspaceLeases expected, LeaseKind kind, Actor actor,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(expected);
-        ValidateDepartmentId(departmentId);
         ct.ThrowIfCancellationRequested();
 
         var currentResult = await ReadAsync(ct);
@@ -165,7 +162,7 @@ public sealed class LeaseStore
         var now = _clock.GetUtcNow();
         if (!current.Holders.TryGetValue(kind, out var holder)
             || !holder.IsValidAt(now)
-            || !string.Equals(holder.DepartmentId, departmentId, StringComparison.Ordinal))
+            || holder.Holder != actor)
         {
             return new LeaseWriteResult.NotHeld("有効な権利を保持していません");
         }
@@ -192,9 +189,6 @@ public sealed class LeaseStore
             throw new ArgumentOutOfRangeException(nameof(duration), "duration は正でなければなりません");
         }
     }
-
-    private static void ValidateDepartmentId(string departmentId) =>
-        ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
 
     private static void ValidateTaskSlug(string taskSlug)
     {
