@@ -106,5 +106,49 @@ public sealed class WorkspaceTrustTests : IDisposable
         var probe = new AntigravityTrustProbe(_root);
         Assert.True(await probe.IsTrustedAsync(new WorkspaceRef(Path.Combine(link, "repo")), CancellationToken.None));
     }
+    [Fact]
+    public async Task 本物のconfig_tomlのように他の節があっても読める()
+    {
+        // §13-9 規則4 の「想定した形でなければ null」は *読んでいる箇所* の話。
+        // 無関係な行で諦めると、配列やネストしたテーブルを含む本物の config.toml では
+        // 必ず「判定できない」になり、probe が役に立たなくなる（2026-09-06、実機で発覚）。
+        var directory = Path.Combine(_root, ".codex");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "config.toml"), $"""
+            model = "gpt-6-astra"
+            model_reasoning_effort = "high"
+
+            [marketplaces.openai-bundled]
+            enabled = true
+
+            [features]
+            enabled = ["a", "b"]
+
+            [mcp_servers.node_repl]
+            command = "node"
+            args = ["--experimental-repl-await"]
+
+            [projects."{_workspace.Root}"]
+            trust_level = "trusted"
+
+            [tui.model_availability_nux]
+            seen = true
+            """);
+
+        Assert.True(await new CodexCliTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 読めないprojects見出しがあれば判定しない()
+    {
+        // その中に対象が隠れているかもしれないので、false と答えてはいけない。
+        var directory = Path.Combine(_root, ".codex");
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "config.toml"),
+            "[projects.\"unterminated]\nmodel = \"x\"\n");
+
+        Assert.Null(await new CodexCliTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
+    }
+
 
 }

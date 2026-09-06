@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using MultiAIAgentCompany.Core.Status;
 using MultiAIAgentCompany.Core.Workspace;
+using MultiAIAgentCompany.Core.Workspace.Trust;
 
 namespace MultiAIAgentCompany.Desktop;
 
@@ -29,7 +30,6 @@ public sealed class ShellComposer
         Shell = new ShellViewModel
         {
             Approvals = Approvals,
-            WorkspaceLabel = "（ワークスペース未選択）",
             WorkLog = ["まだ何も動かしていない"],
             SecretaryTranscript = ["秘書はまだ起動していない"],
             Departments = tiles,
@@ -45,6 +45,25 @@ public sealed class ShellComposer
     public DepartmentStatusTracker TrackerOf(string departmentId) => _trackers[departmentId];
 
     public IReadOnlyCollection<string> DepartmentIds => _trackers.Keys;
+
+    /// <summary>
+    /// フォルダが選ばれたときに、各 CLI の trust を読み直す（設計 §13-9）。
+    /// <b>書き込みはしない。</b>
+    /// </summary>
+    public async Task SelectWorkspaceAsync(string root, CancellationToken ct)
+    {
+        var workspace = new WorkspaceRef(root);
+        var rows = await WorkspaceTrustReport.BuildAsync(workspace,
+            [new ClaudeCodeTrustProbe(), new CodexCliTrustProbe(), new AntigravityTrustProbe()],
+            ct);
+
+        Shell.WorkspaceLabel = root;
+        Shell.Trust.Clear();
+        foreach (var row in rows)
+        {
+            Shell.Trust.Add(new TrustRow(row.Agent, row.State));
+        }
+    }
 
     public static ShellComposer CreateDefault(TimeProvider clock) =>
         new(Core.Workspace.DepartmentStore.CreateDefaultDepartments(), clock);

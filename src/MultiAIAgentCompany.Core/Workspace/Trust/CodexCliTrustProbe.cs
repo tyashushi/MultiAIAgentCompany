@@ -39,11 +39,20 @@ public sealed partial class CodexCliTrustProbe : IWorkspaceTrustProbe
                 }
                 if (line.StartsWith('['))
                 {
-                    if (!Section().IsMatch(line)) return null;
+                    // **[projects. で始まるのに読めない見出しだけが致命的。**
+                    // その中に対象が隠れているかもしれないので、false と答えてはいけない。
+                    if (line.StartsWith("[projects.", StringComparison.Ordinal)) return null;
+
+                    // それ以外の見出し（mcp_servers / plugins / tui など）は読み飛ばす。
                     inTarget = false;
                     continue;
                 }
-                if (!KeyValue().IsMatch(line)) return null;
+
+                // **無関係な行では諦めない。** §13-9 規則4 の「想定した形でなければ null」は
+                // *読んでいる箇所* の話であって、ファイル全体の話ではない。
+                // ここで諦めると、配列やネストしたテーブルを含む本物の config.toml では
+                // **必ず「判定できない」になり、probe が役に立たなくなる**
+                // （2026-09-06、実機の画面で発覚）。
                 if (inTarget && line.StartsWith("trust_level", StringComparison.Ordinal))
                 {
                     var match = TrustLevel().Match(line);

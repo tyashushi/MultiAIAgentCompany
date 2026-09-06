@@ -76,6 +76,10 @@ public sealed class TaskDispatcher
                     return new DispatchResult.NeedsHuman(written.State, "TUI 部門にはアプリが自動送信しません");
                 }
 
+                // Structured なのに session が無い場合は最初に弾いてある（この上）。
+                // ここに来た時点で必ず非 null なので、コンパイラにもそう伝える。
+                ArgumentNullException.ThrowIfNull(session);
+
                 try
                 {
                     await session.SendUserMessageAsync(instruction, ct);

@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Avalonia.Threading;
 using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Status;
+using MultiAIAgentCompany.Core.Workspace;
 using CoreTaskStatus = MultiAIAgentCompany.Core.Coordination.TaskStatus;
 
 namespace MultiAIAgentCompany.Desktop;
@@ -12,9 +13,27 @@ namespace MultiAIAgentCompany.Desktop;
 /// 3ペインの表示用モデル。<b>ここに業務を書かない</b>（設計 §4）。
 /// Core の型をそのまま並べるだけの層に留める。
 /// </summary>
-public sealed class ShellViewModel
+public sealed class ShellViewModel : INotifyPropertyChanged
 {
-    public required string WorkspaceLabel { get; init; }
+    private string _workspaceLabel = "（ワークスペース未選択）";
+
+    public string WorkspaceLabel
+    {
+        get => _workspaceLabel;
+        set
+        {
+            _workspaceLabel = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(WorkspaceLabel)));
+        }
+    }
+
+    /// <summary>
+    /// 選んだフォルダに対する各 CLI の trust 判定（設計 §13-9）。
+    /// <b>「未 trust」と「判定できない」を分けて出す。</b>
+    /// </summary>
+    public ObservableCollection<TrustRow> Trust { get; } = [];
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>左ペイン: 作業ログ一覧。</summary>
     public required ObservableCollection<string> WorkLog { get; init; }
@@ -147,4 +166,28 @@ public sealed class DepartmentTile : INotifyPropertyChanged
 
     private void Raise([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+}
+
+/// <summary>trust 1行ぶんの表示。<b>言い回しをここで決める</b>（判定は Core）。</summary>
+public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State)
+{
+    public string AgentText => Agent.ToString();
+
+    public string StateText => State switch
+    {
+        WorkspaceTrustState.Trusted => "信頼済み",
+        WorkspaceTrustState.NotTrusted => "未 trust",
+        _ => "判定できない",
+    };
+
+    /// <summary>
+    /// 人間が取る行動。<b>アプリは trust を書かない</b>（設計 §13-9 規則2）——
+    /// 与えるのは人間の操作なので、どこで与えるかを伝えるに留める。
+    /// </summary>
+    public string ActionText => State switch
+    {
+        WorkspaceTrustState.Trusted => "そのまま使える",
+        WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える",
+        _ => "設定ファイルを読めなかった。未 trust とは限らない",
+    };
 }
