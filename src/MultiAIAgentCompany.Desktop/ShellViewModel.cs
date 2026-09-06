@@ -394,12 +394,18 @@ public sealed record RecoveryItem(RecoveryKind Kind, string Slug, string Detail)
     public string KindText => Kind switch
     {
         RecoveryKind.MaybeSent => "送ったかもしれない",
+        RecoveryKind.UnreadableLease => "書き込み権を読めない",
         _ => "読めない",
     };
 
     public bool IsMaybeSent => Kind is RecoveryKind.MaybeSent;
 
     public bool IsUnreadable => Kind is RecoveryKind.Unreadable;
+
+    /// <summary>
+    /// <c>lease.json</c> が読めない（設計 §23）。<b>この1つで全部の dispatch が止まる。</b>
+    /// </summary>
+    public bool IsUnreadableLease => Kind is RecoveryKind.UnreadableLease;
 
     /// <summary>担当部門。<b>読めない仕事では null</b> —— 中の departmentId も信用できない（§16-3）。</summary>
     public string? DepartmentId { get; init; }
@@ -415,6 +421,12 @@ public enum RecoveryKind
     /// 読めないなら中の <c>departmentId</c> も信用できない（§16-3）。
     /// </summary>
     Unreadable,
+
+    /// <summary>
+    /// <c>lease.json</c> を読めなかった（設計 §23）。
+    /// <b>仕事1件の問題ではなく、ワークスペース全体が止まる。</b>
+    /// </summary>
+    UnreadableLease,
 }
 
 /// <summary>秘書の提案1件（設計 §17-6）。<b>まだ仕事ではない。</b></summary>

@@ -298,7 +298,11 @@ public partial class MainWindow : Window
             DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
             DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に「起動する」）",
-            _ => $"{slug}: 渡せなかった",
+
+            // **理由を捨てない**（実機で踏んだ、2026-09-06）。ここに落ちていたせいで
+            // 「渡せなかった」としか出ず、原因（読めない lease.json）に辿り着けなかった。
+            DispatchResult.Conflicted conflicted => $"{slug}: {conflicted.Reason}",
+            _ => $"{slug}: 渡せなかった（{result.GetType().Name}）",
         });
 
         await ScanAsync(CompanyScanKind.Periodic);
@@ -328,7 +332,7 @@ public partial class MainWindow : Window
             TaskWriteResult.Written => $"{tile.Name}: {state.Slug} を受理した",
             TaskWriteResult.Conflicted conflicted => $"{state.Slug}: {conflicted.Reason}",
             TaskWriteResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
-            _ => $"{state.Slug}: 受理できなかった",
+            _ => $"{state.Slug}: 受理できなかった（{write.GetType().Name}）",
         });
 
         await ScanAsync(CompanyScanKind.Periodic);
@@ -429,7 +433,8 @@ public partial class MainWindow : Window
             DispatchResult.Blocked blocked => $"{state.Slug}: {blocked.Reason}（失敗ではない。待つ）",
             DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
-            _ => $"{state.Slug}: 送り直せなかった",
+            DispatchResult.Conflicted conflicted => $"{state.Slug}: {conflicted.Reason}",
+            _ => $"{state.Slug}: 送り直せなかった（{result.GetType().Name}）",
         });
 
         await ScanAsync(CompanyScanKind.Periodic);
@@ -810,7 +815,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var directory = workspace.Company.TaskDirectory(item.Slug);
+        // lease は仕事ではないので、仕事のフォルダを引かない（設計 §23-1）。
+        var directory = item.IsUnreadableLease
+            ? workspace.Company.Root
+            : workspace.Company.TaskDirectory(item.Slug);
         try
         {
             using var _ = System.Diagnostics.Process.Start(
@@ -837,6 +845,39 @@ public partial class MainWindow : Window
         Note(moved is null
             ? $"{item.Slug}: 隔離できなかった"
             : $"{item.Slug}: 隔離した（中身は消えていない）→ {moved}");
+
+        if (moved is not null)
+        {
+            _composer.Shell.Recovery.Remove(item);
+        }
+
+        await ScanAsync(CompanyScanKind.Startup);
+    }
+
+    /// <summary>
+    /// 読めない <c>lease.json</c> を隔離して、空の書き込み権を作る（設計 §23-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>人間が押したときだけ。</b> 自動で作り直すのは §14-2 に反する ——
+    /// 読めない lease は「誰も持っていない」ではなく「持ち主を検証できない」。
+    /// <para>
+    /// <b>押した時点でもう一度読む</b>（<see cref="LeaseRecovery.IsolateAsync"/> の中）。
+    /// 人間が手で直した直後かもしれない。
+    /// </para>
+    /// </remarks>
+    private async void OnRecoveryIsolateLease(object? sender, RoutedEventArgs e)
+    {
+        if (Item(sender) is not { } item || _composer is not { Workspace: { } workspace, Leases: { } leases })
+        {
+            return;
+        }
+
+        var moved = await LeaseRecovery.IsolateAsync(
+            workspace.Company, leases, DateTimeOffset.Now, CancellationToken.None);
+
+        Note(moved is null
+            ? "書き込み権: 隔離しなかった（いまは読める、またはファイルを動かせなかった）"
+            : $"書き込み権を隔離して作り直した（元は消えていない）→ {moved}");
 
         if (moved is not null)
         {
@@ -948,7 +989,8 @@ public partial class MainWindow : Window
             DispatchResult.Dispatched => $"{card.TargetText} に {slug} を渡した",
             DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に部門を起動する）",
-            _ => $"{slug}: 渡せなかった",
+            DispatchResult.Conflicted conflicted => $"{slug}: {conflicted.Reason}",
+            _ => $"{slug}: 渡せなかった（{result.GetType().Name}）",
         });
     }
 

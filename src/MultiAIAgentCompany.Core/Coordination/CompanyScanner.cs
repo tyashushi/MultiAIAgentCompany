@@ -30,11 +30,13 @@ public sealed class CompanyScanner
 {
     private readonly CompanyPaths _paths;
     private readonly TaskStore _tasks;
+    private readonly LeaseStore? _leases;
 
-    public CompanyScanner(CompanyPaths paths, TaskStore tasks)
+    public CompanyScanner(CompanyPaths paths, TaskStore tasks, LeaseStore? leases = null)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
+        _leases = leases;
     }
 
     /// <summary>
@@ -123,7 +125,14 @@ public sealed class CompanyScanner
             ? recovery.Dispatched.Where(task => !transitionedSlugs.Contains(task.Slug)).ToArray()
             : [];
 
-        return new CompanyScanResult(applied, blocked, unreadable, dispatched);
+        // **読めない lease は一時エラーではなく復旧項目**（設計 §23-1）。
+        // dispatch のたびに「渡せなかった」と出すだけだと、人間は次も押して次も失敗する。
+        var unreadableLease = kind is CompanyScanKind.Startup && _leases is not null
+            && await _leases.ReadAsync(ct) is LeaseReadResult.Unreadable brokenLease
+                ? LeaseRecovery.Describe(brokenLease.Reason, await ReadLeaseTextAsync(ct))
+                : null;
+
+        return new CompanyScanResult(applied, blocked, unreadable, dispatched, unreadableLease);
     }
 
     private async Task<(TaskStatus To, string Because)?> FindTransitionAsync(TaskState state, CancellationToken ct)
@@ -167,6 +176,19 @@ public sealed class CompanyScanner
         return null;
     }
 
+    /// <summary>診断のために生のまま読む。読めなければ null（診断が諦めるだけ）。</summary>
+    private async Task<string?> ReadLeaseTextAsync(CancellationToken ct)
+    {
+        try
+        {
+            return File.Exists(_paths.Lease) ? await File.ReadAllTextAsync(_paths.Lease, ct) : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// いまの <c>question.md</c> に対して回答を届けてあるか（設計 §20-1）。
     /// </summary>
@@ -184,11 +206,16 @@ public sealed class CompanyScanner
 /// <param name="Blocked">遷移すべきだが書けなかったもの（理由つき）。</param>
 /// <param name="Unreadable">state.json を読めなかった仕事。部門に紐づけられない（設計 §16-3）。</param>
 /// <param name="Dispatched">送ったかもしれないまま残っている仕事（設計 §14-1）。自動再送しない。</param>
+/// <param name="UnreadableLease">
+/// <c>lease.json</c> を読めなかった理由（設計 §23）。<b>これがあると全部の dispatch が止まる</b>ので、
+/// 一時エラーではなく人間に見せる未解決項目として運ぶ。読めているなら null。
+/// </param>
 public sealed record CompanyScanResult(
     IReadOnlyList<AppliedTransition> Applied,
     IReadOnlyList<BlockedTransition> Blocked,
     IReadOnlyList<UnreadableTask> Unreadable,
-    IReadOnlyList<TaskState> Dispatched);
+    IReadOnlyList<TaskState> Dispatched,
+    string? UnreadableLease = null);
 
 public sealed record AppliedTransition(string Slug, TaskStatus From, TaskStatus To, string Because);
 public sealed record BlockedTransition(string Slug, TaskStatus From, TaskStatus To, string Reason);

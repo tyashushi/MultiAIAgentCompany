@@ -40,6 +40,18 @@
                                                 Click="OnRecoveryCancel" />
                                     </WrapPanel>
 
+                                    <!-- 読めない lease（設計 §23-1）。**自動で作り直さない** ——
+                                         読めない lease は「誰も持っていない」ではなく
+                                         「持ち主を検証できない」。 -->
+                                    <WrapPanel IsVisible="{Binding IsUnreadableLease}" Margin="0,4,0,0">
+                                        <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryOpenFolder" />
+                                        <Button Content="隔離して空の書き込み権を作る" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryIsolateLease" />
+                                        <Button Content="もう一度読む" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryRescan" />
+                                    </WrapPanel>
+
                                     <WrapPanel IsVisible="{Binding IsUnreadable}" Margin="0,4,0,0">
                                         <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
                                                 Click="OnRecoveryOpenFolder" />

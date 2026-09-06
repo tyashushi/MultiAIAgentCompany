@@ -94,7 +94,7 @@ public sealed class ShellComposer
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
-        Scanner = new CompanyScanner(paths, Tasks);
+        Scanner = new CompanyScanner(paths, Tasks, Leases);
         Outbox = new SecretaryOutbox(paths);
 
         Shell.WorkspaceLabel = root;
@@ -146,6 +146,14 @@ public sealed class ShellComposer
                 {
                     DepartmentId = task.DepartmentId,
                 });
+            }
+
+            if (result.UnreadableLease is { } leaseReason)
+            {
+                // **仕事に紐づかない**（設計 §23-1）。ワークスペース全体の書き込み権の話。
+                Shell.Recovery.Add(new RecoveryItem(
+                    RecoveryKind.UnreadableLease, ".company/lease.json",
+                    $"{leaseReason}。**この間はどの部門にも仕事を渡せない**"));
             }
 
             foreach (var broken in result.Unreadable)

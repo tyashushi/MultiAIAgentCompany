@@ -172,6 +172,16 @@ public sealed class LeaseStore
         return await WriteAsync(new WorkspaceLeases(checked(current.Revision + 1), nextHolders), ct);
     }
 
+    /// <summary>
+    /// 誰も持っていない lease を書く（設計 §23-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>隔離のあと（<see cref="LeaseRecovery"/>）だけで使う。</b> 通常の経路から呼ばない ——
+    /// 読めない lease を黙って作り直すのは §14-2 に反する。
+    /// </remarks>
+    public Task<LeaseWriteResult> WriteEmptyAsync(CancellationToken ct) =>
+        WriteAsync(WorkspaceLeases.Empty, ct);
+
     private async Task<LeaseWriteResult> WriteAsync(WorkspaceLeases leases, CancellationToken ct)
     {
         Directory.CreateDirectory(_paths.Root);
