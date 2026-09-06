@@ -58,15 +58,78 @@ public sealed class CompanyScannerTests : IDisposable
     public async Task 回答済みの質問へ戻り続けない()
     {
         // 回答を届けて InProgress にしたあとも question.md は残る。
-        // answer.md を番人にしていないと、走査のたびに AwaitingAnswer へ戻る。
-        await CreateAtAsync("feature", CoreTaskStatus.InProgress);
-        await File.WriteAllTextAsync(_workspace.Paths.Question("feature"), "質問");
-        await File.WriteAllTextAsync(_workspace.Paths.Answer("feature"), "回答");
+        // 配達記録が無いと、走査のたびに AwaitingAnswer へ戻る（設計 §20-1）。
+        await DeliveredAsync("feature", "質問");
 
         var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
 
         Assert.Empty(result.Applied);
         Assert.Equal(CoreTaskStatus.InProgress, await StatusAsync("feature"));
+    }
+
+    [Fact]
+    public async Task 同じ試行で2度目の質問に気付く()
+    {
+        // **§18-1 の2番。** publish は同じ最終名への rename なので、2度目は1度目を上書きする。
+        // 「answer.md があるか」だけを見ていると、新しい質問が永久に人間へ出ない（§20-1）。
+        await DeliveredAsync("feature", "1度目の質問");
+        await File.WriteAllTextAsync(_workspace.Paths.Question("feature"), "2度目の質問");
+
+        var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
+
+        Assert.Equal(CoreTaskStatus.AwaitingAnswer, Assert.Single(result.Applied).To);
+        Assert.Equal(CoreTaskStatus.AwaitingAnswer, await StatusAsync("feature"));
+    }
+
+    [Fact]
+    public async Task 質問が同じなら回答が書き換わっても戻らない()
+    {
+        // 届けたあとの answer.md 編集は、部門が回答を待っている合図ではない（設計 §20-5）。
+        await DeliveredAsync("feature", "質問");
+        await File.WriteAllTextAsync(_workspace.Paths.Answer("feature"), "書き直した回答");
+
+        var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
+
+        Assert.Empty(result.Applied);
+        Assert.Equal(CoreTaskStatus.InProgress, await StatusAsync("feature"));
+    }
+
+    [Fact]
+    public async Task 差し戻したあとは同じ内容の質問でも新しい質問として見る()
+    {
+        // 配達記録は試行と組（設計 §20-3）。持ち越すと、次の試行の質問が回答済みに見える。
+        var delivered = await DeliveredAsync("feature", "質問");
+        foreach (var next in new[] { CoreTaskStatus.Reported, CoreTaskStatus.Rejected })
+        {
+            delivered = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+                delivered, next, TransitionOrigin.Human, null, CancellationToken.None)).State;
+        }
+
+        await File.WriteAllTextAsync(_workspace.Paths.NextInstruction("feature"), "やり直し");
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.RedispatchAsync(delivered, CancellationToken.None));
+
+        // 部門が**同じ内容の**質問をもう一度出す。
+        await File.WriteAllTextAsync(_workspace.Paths.Question("feature"), "質問");
+        var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
+
+        Assert.Equal(CoreTaskStatus.AwaitingAnswer, Assert.Single(result.Applied).To);
+    }
+
+    /// <summary>質問に回答を届けたところまで進んだ仕事。</summary>
+    private async Task<TaskState> DeliveredAsync(string slug, string question)
+    {
+        await CreateAtAsync(slug, CoreTaskStatus.AwaitingAnswer);
+        await File.WriteAllTextAsync(_workspace.Paths.Question(slug), question);
+        await File.WriteAllTextAsync(_workspace.Paths.Answer(slug), "回答");
+
+        var state = (await _tasks.ReadAsync(slug, CancellationToken.None) as TaskReadResult.Found)!.State;
+        var digest = await CompanyDigest.OfFileAsync(_workspace.Paths.Question(slug), CancellationToken.None);
+        var answerDigest = await CompanyDigest.OfFileAsync(_workspace.Paths.Answer(slug), CancellationToken.None);
+
+        return Assert.IsType<TaskWriteResult.Written>(await _tasks.RecordAnswerDeliveryAsync(
+            state,
+            new AnswerDelivery(state.AttemptId, digest!, answerDigest!, DateTimeOffset.UtcNow),
+            CancellationToken.None)).State;
     }
 
     [Fact]

@@ -68,6 +68,10 @@ public enum TransitionOrigin
 /// <param name="LastTransitionOrigin">直前の遷移を起こしたのが自動化か人間か。</param>
 /// <param name="UpdatedAt">最終更新。</param>
 /// <param name="Note">人間向けの1行。<b>秘密値を入れない</b>（設計 §10）。</param>
+/// <param name="AnswerDelivery">
+/// 直近に届けた回答の記録（設計 §20-1）。<b>2度目の質問はこれで見つける</b> ——
+/// <c>answer.md</c> の存在では、同じ試行で質問が上書きされたときに気付けない。
+/// </param>
 public sealed record TaskState(
     string Slug,
     TaskStatus Status,
@@ -76,7 +80,32 @@ public sealed record TaskState(
     string DepartmentId,
     TransitionOrigin LastTransitionOrigin,
     DateTimeOffset UpdatedAt,
-    string? Note = null);
+    string? Note = null,
+    AnswerDelivery? AnswerDelivery = null);
+
+/// <summary>
+/// 回答を届けた記録（設計 §20）。
+/// </summary>
+/// <remarks>
+/// <b><c>delivered: true</c> にしない。</b> アプリが観測したのは
+/// 「送信 API が例外を返さなかった」までで、部門が読んだことではない（§7 の証拠の扱い）。
+/// </remarks>
+/// <param name="AttemptId">
+/// どの試行の回答か。<b>必ず組で見る</b>（設計 §20-3）——
+/// 差し戻したあと部門が同じ内容の質問を出したら、それは新しい質問である。
+/// </param>
+/// <param name="QuestionSha256">
+/// 届けた回答が<b>答えていた質問</b>の生バイト（設計 §20-2）。
+/// <b>送る前に読んだものを記録する。</b> 送信後に読み直すと、その間に publish された
+/// 2度目の質問を「回答済み」にしてしまう。
+/// </param>
+/// <param name="AnswerSha256">届けた回答の生バイト。古い回答の再送を止めるのに使う（§20-4）。</param>
+/// <param name="DeliveredAt">送信 API が成功を返した時刻。</param>
+public sealed record AnswerDelivery(
+    int AttemptId,
+    string QuestionSha256,
+    string AnswerSha256,
+    DateTimeOffset DeliveredAt);
 
 /// <summary>
 /// <c>state.json</c> の JSON 設定。列挙は名前で書く（人間が読んで直せるように）。

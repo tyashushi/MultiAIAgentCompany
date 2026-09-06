@@ -164,6 +164,68 @@ public sealed class TaskStore
     }
 
     /// <summary>
+    /// 回答を届けた事実を記録して <c>InProgress</c> へ進める（設計 §20-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>遷移と記録を1回の書き込みにする。</b> 別々にすると、間で落ちたときに
+    /// 「作業中なのに何に答えたか分からない」が残り、2度目の質問を見つけられない。
+    /// <para>
+    /// <paramref name="delivery"/> の hash は<b>送る前に読んだ bytes</b> のものであること
+    /// （§20-2）。呼び出し元が読み直して渡すと、その間に publish された質問を回答済みにする。
+    /// </para>
+    /// </remarks>
+    public async Task<TaskWriteResult> RecordAnswerDeliveryAsync(
+        TaskState expected, AnswerDelivery delivery, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(delivery);
+        ct.ThrowIfCancellationRequested();
+
+        var read = await ReadAsync(expected.Slug, ct);
+        if (read is TaskReadResult.Missing)
+        {
+            return new TaskWriteResult.Rejected("state.json が存在しません");
+        }
+
+        if (read is TaskReadResult.Unreadable unreadable)
+        {
+            return new TaskWriteResult.Conflicted($"state.json を検証できません: {unreadable.Reason}");
+        }
+
+        var current = ((TaskReadResult.Found)read).State;
+        if (current.Revision != expected.Revision)
+        {
+            return new TaskWriteResult.Conflicted(
+                $"Revision が一致しません（expected: {expected.Revision}, actual: {current.Revision}）");
+        }
+
+        // **記録は試行と組**（§20-3）。届けた先が別の試行なら、それは別の話。
+        if (delivery.AttemptId != current.AttemptId)
+        {
+            return new TaskWriteResult.Conflicted(
+                $"試行が変わっています（届けた: {delivery.AttemptId}, 現在: {current.AttemptId}）");
+        }
+
+        var check = TaskTransitions.Check(current.Status, TaskStatus.InProgress, TransitionOrigin.Automation);
+        if (!check.Allowed)
+        {
+            return new TaskWriteResult.Rejected(check.Reason);
+        }
+
+        var next = current with
+        {
+            Status = TaskStatus.InProgress,
+            Revision = checked(current.Revision + 1),
+            LastTransitionOrigin = TransitionOrigin.Automation,
+            UpdatedAt = _clock.GetUtcNow(),
+            Note = "回答を届けた",
+            AnswerDelivery = delivery,
+        };
+        await WriteStateAtomicallyAsync(_paths.State(expected.Slug), next, overwrite: true, ct);
+        return new TaskWriteResult.Written(next);
+    }
+
+    /// <summary>
     /// 差し戻された仕事を、次の試行として <c>Dispatched</c> にする（設計 §19-1）。
     /// </summary>
     /// <remarks>
@@ -224,6 +286,10 @@ public sealed class TaskStore
         {
             Status = TaskStatus.Dispatched,
             AttemptId = checked(current.AttemptId + 1),
+
+            // **配達記録は前の試行のもの。持ち越さない**（設計 §20-3）——
+            // 残すと、新しい試行で部門が同じ内容の質問を出したときに回答済みに見える。
+            AnswerDelivery = null,
             Revision = checked(current.Revision + 1),
             LastTransitionOrigin = TransitionOrigin.Human,
             UpdatedAt = _clock.GetUtcNow(),

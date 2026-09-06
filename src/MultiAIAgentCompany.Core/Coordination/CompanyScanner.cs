@@ -72,7 +72,7 @@ public sealed class CompanyScanner
                     continue;
                 }
 
-                var transition = FindTransition(found.State);
+                var transition = await FindTransitionAsync(found.State, ct);
                 if (transition is null)
                 {
                     continue;
@@ -126,18 +126,11 @@ public sealed class CompanyScanner
         return new CompanyScanResult(applied, blocked, unreadable, dispatched);
     }
 
-    private (TaskStatus To, string Because)? FindTransition(TaskState state)
+    private async Task<(TaskStatus To, string Because)?> FindTransitionAsync(TaskState state, CancellationToken ct)
     {
         // publish 契約（設計 §16-1）により最終名だけを見る。*.tmp.* はここに該当せず、
         // 書きかけを完成済みと推定する経路はない。
         var reportPublished = File.Exists(_paths.Report(state.Slug));
-        var questionPublished = File.Exists(_paths.Question(state.Slug));
-
-        // answer.md は遷移の材料ではないが、**同じ質問へ戻り続けないための番人**として要る。
-        // 回答を届けて InProgress にしたあとも question.md は残るので、これが無いと
-        // 走査のたびに AwaitingAnswer へ戻ってしまう。
-        // 限界: 同じ試行の中で2度目の質問が出たとき、古い answer.md が残っていると気付けない（§16-5 の未決）。
-        var answerPublished = File.Exists(_paths.Answer(state.Slug));
 
         // report.md と question.md が共存したら報告を優先する。報告は仕事の終わりである。
         if (state.Status is TaskStatus.Dispatched or TaskStatus.InProgress)
@@ -147,7 +140,12 @@ public sealed class CompanyScanner
                 return (TaskStatus.Reported, "report.md が publish された");
             }
 
-            if (questionPublished && !answerPublished)
+            // **`answer.md` の存在を番人にしない**（設計 §20-1）。
+            // publish は同じ最終名への rename なので、2度目の質問は1度目を上書きする ——
+            // 「両方ある」だけを見ていると、新しい質問が永久に人間へ出ない。
+            // 見るのは「いまの question.md に対して回答を届けたか」。
+            if (await CompanyDigest.OfFileAsync(_paths.Question(state.Slug), ct) is { } questionDigest
+                && !IsAnsweredBy(state, questionDigest))
             {
                 return (TaskStatus.AwaitingAnswer, "question.md が publish された");
             }
@@ -168,6 +166,18 @@ public sealed class CompanyScanner
         // 文書から観測できず、活動状態（Working）とも混同しない（設計 §7）。
         return null;
     }
+
+    /// <summary>
+    /// いまの <c>question.md</c> に対して回答を届けてあるか（設計 §20-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>試行も一致していること</b>（§20-3）—— 差し戻したあと部門が同じ内容の質問を
+    /// 出したら、それは新しい質問である。
+    /// </remarks>
+    private static bool IsAnsweredBy(TaskState state, string questionDigest) =>
+        state.AnswerDelivery is { } delivery
+        && delivery.AttemptId == state.AttemptId
+        && string.Equals(delivery.QuestionSha256, questionDigest, StringComparison.Ordinal);
 }
 
 /// <param name="Applied">実際に書かれた遷移。</param>

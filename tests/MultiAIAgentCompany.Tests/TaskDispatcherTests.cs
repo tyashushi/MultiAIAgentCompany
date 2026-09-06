@@ -178,6 +178,103 @@ public sealed class TaskDispatcherTests : IDisposable
         Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
     }
 
+    [Fact]
+    public async Task 回答を届けたら何に答えたかを記録する()
+    {
+        var awaiting = await CreateAwaitingAnswerAsync("最初の質問");
+
+        var result = Assert.IsType<DispatchResult.Dispatched>(await _dispatcher.DeliverAnswerAsync(
+            awaiting, StructuredDepartment, new FakeSession("implementation"), CancellationToken.None));
+
+        var delivery = Assert.IsType<AnswerDelivery>(result.State.AnswerDelivery);
+        Assert.Equal(awaiting.AttemptId, delivery.AttemptId);
+        Assert.Equal(
+            await CompanyDigest.OfFileAsync(_workspace.Paths.Question("feature"), CancellationToken.None),
+            delivery.QuestionSha256);
+    }
+
+    [Fact]
+    public async Task 送信中に来た2度目の質問を回答済みにしない()
+    {
+        // **静かに壊れる形**（設計 §20-2）。送ったあとに question.md を読み直して記録すると、
+        // その間に publish された質問へ回答済みの印が付き、人間へ永久に出なくなる。
+        var awaiting = await CreateAwaitingAnswerAsync("1度目の質問");
+        var questionPath = _workspace.Paths.Question("feature");
+        var session = new FakeSession("implementation")
+        {
+            DuringSend = () => File.WriteAllText(questionPath, "2度目の質問"),
+        };
+
+        var result = Assert.IsType<DispatchResult.Dispatched>(await _dispatcher.DeliverAnswerAsync(
+            awaiting, StructuredDepartment, session, CancellationToken.None));
+
+        var delivery = Assert.IsType<AnswerDelivery>(result.State.AnswerDelivery);
+        Assert.NotEqual(
+            await CompanyDigest.OfFileAsync(questionPath, CancellationToken.None),
+            delivery.QuestionSha256);
+
+        // 走査は2度目の質問に気付く。
+        var scanner = new CompanyScanner(_workspace.Paths, _tasks);
+        var scan = await scanner.SyncAsync(CompanyScanKind.Periodic, CancellationToken.None);
+        Assert.Equal(CoreTaskStatus.AwaitingAnswer, Assert.Single(scan.Applied).To);
+    }
+
+    [Fact]
+    public async Task 前回の回答のままで新しい質問には送らない()
+    {
+        // 送れてしまうと、部門には噛み合わない回答が届くだけで失敗にも見えない（設計 §20-4）。
+        var awaiting = await CreateAwaitingAnswerAsync("1度目の質問");
+        var delivered = Assert.IsType<DispatchResult.Dispatched>(await _dispatcher.DeliverAnswerAsync(
+            awaiting, StructuredDepartment, new FakeSession("implementation"), CancellationToken.None)).State;
+
+        await File.WriteAllTextAsync(_workspace.Paths.Question("feature"), "2度目の質問");
+        var back = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            delivered, CoreTaskStatus.AwaitingAnswer, TransitionOrigin.Automation, null, CancellationToken.None)).State;
+        var session = new FakeSession("implementation");
+
+        var result = Assert.IsType<DispatchResult.Rejected>(
+            await _dispatcher.DeliverAnswerAsync(back, StructuredDepartment, session, CancellationToken.None));
+
+        Assert.Contains("前回届けた回答のまま", result.Reason);
+        Assert.Empty(session.Messages);
+    }
+
+    [Fact]
+    public async Task 送信中に書き換えられた回答を送ったことにしない()
+    {
+        // **§20-2 は回答側にも掛かる**（Codex のレビューで出た）。読み直して hash を取ると、
+        // 送っていない bytes を送った記録になり、次の質問への回答が
+        // §20-4 の番人に「前回と同じ」と誤判定される。
+        var awaiting = await CreateAwaitingAnswerAsync("質問");
+        var answerPath = _workspace.Paths.Answer("feature");
+        var sentBytes = await File.ReadAllBytesAsync(answerPath);
+        var session = new FakeSession("implementation")
+        {
+            DuringSend = () => File.WriteAllText(answerPath, "あとから書き換えた回答"),
+        };
+
+        var result = Assert.IsType<DispatchResult.Dispatched>(await _dispatcher.DeliverAnswerAsync(
+            awaiting, StructuredDepartment, session, CancellationToken.None));
+
+        var delivery = Assert.IsType<AnswerDelivery>(result.State.AnswerDelivery);
+        Assert.Equal(CompanyDigest.OfBytes(sentBytes), delivery.AnswerSha256);
+    }
+
+    /// <summary>質問が publish され、人間が回答を置いたところ。</summary>
+    private async Task<TaskState> CreateAwaitingAnswerAsync(string question)
+    {
+        var state = await CreateDraftAsync();
+        foreach (var next in new[] { CoreTaskStatus.Dispatched, CoreTaskStatus.AwaitingAnswer })
+        {
+            state = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+                state, next, TransitionOrigin.Automation, null, CancellationToken.None)).State;
+        }
+
+        await File.WriteAllTextAsync(_workspace.Paths.Question("feature"), question);
+        await File.WriteAllTextAsync(_workspace.Paths.Answer("feature"), "こうしてください");
+        return state;
+    }
+
     /// <summary>報告まで進んで差し戻された仕事。<c>instruction.md</c> と <c>report.md</c> がある。</summary>
     private async Task<TaskState> CreateRejectedAsync()
     {
@@ -227,12 +324,16 @@ public sealed class TaskDispatcherTests : IDisposable
         public event EventHandler<OutcomeVerdict>? TurnFinished;
         public event EventHandler<LiveAgentMessage>? Spoke;
 
+        /// <summary>送信の最中に外の世界が動く場合（設計 §20-2 の検証で使う）。</summary>
+        public Action? DuringSend { get; init; }
+
         public async Task SendUserMessageAsync(string text, CancellationToken ct)
         {
             if (whenSending is not null && await whenSending() is TaskReadResult.Found found)
             {
                 StatusWhenSent = found.State.Status;
             }
+            DuringSend?.Invoke();
             if (SendException is not null) throw SendException;
             Messages.Add(text);
         }

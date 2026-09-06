@@ -213,10 +213,32 @@ public sealed class TaskDispatcher
             return new DispatchResult.Rejected("answer.md がまだ無い");
         }
 
-        var answer = await File.ReadAllTextAsync(answerPath, ct);
+        // **1回だけ読む**（設計 §20-2 は回答側にも掛かる）。読み直して hash を取ると、
+        // その間に人間が書き換えたとき「送っていない bytes を送った」記録ができ、
+        // 次の質問への回答が §20-4 の番人に「前回と同じ」と誤判定される。
+        var answerBytes = await File.ReadAllBytesAsync(answerPath, ct);
+        var answerDigest = CompanyDigest.OfBytes(answerBytes);
+        var answer = DecodeUtf8(answerBytes);
         if (string.IsNullOrWhiteSpace(answer))
         {
             return new DispatchResult.Rejected("answer.md が空");
+        }
+
+        // **送る前に読む。読み直さない**（設計 §20-2）。送信後に question.md を読み直すと、
+        // その間に publish された2度目の質問を「回答済み」として記録してしまう。
+        if (await CompanyDigest.OfFileAsync(_paths.Question(expected.Slug), ct) is not { } questionDigest)
+        {
+            return new DispatchResult.Rejected("question.md が無い（何への回答か分からない）");
+        }
+
+        // **古い回答を新しい質問への回答として送らない**（設計 §20-4）。
+        // 送れてしまうと、部門には噛み合わない回答が届くだけで、失敗にも見えない。
+        if (expected.AnswerDelivery is { } previous
+            && previous.AttemptId == expected.AttemptId
+            && string.Equals(previous.AnswerSha256, answerDigest, StringComparison.Ordinal)
+            && !string.Equals(previous.QuestionSha256, questionDigest, StringComparison.Ordinal))
+        {
+            return new DispatchResult.Rejected("answer.md が前回届けた回答のままです（新しい質問への回答を書く）");
         }
 
         // 本文だけでは弱い。セッションの文脈が残っているとは限らないので、何への回答かを明示する。
@@ -241,8 +263,10 @@ public sealed class TaskDispatcher
             return new DispatchResult.SentUncertain(expected, $"回答の送信中に例外が発生しました: {exception.Message}");
         }
 
-        var transition = await _tasks.TransitionAsync(
-            expected, TaskStatus.InProgress, TransitionOrigin.Automation, "回答を届けた", ct);
+        var transition = await _tasks.RecordAnswerDeliveryAsync(
+            expected,
+            new AnswerDelivery(expected.AttemptId, questionDigest, answerDigest, _clock.GetUtcNow()),
+            ct);
 
         return transition switch
         {
@@ -327,6 +351,10 @@ public sealed class TaskDispatcher
             return new DispatchResult.SentUncertain(written, $"送信中に例外が発生しました: {exception.Message}");
         }
     }
+
+    /// <summary>BOM 付きで publish されても本文だけを送る。</summary>
+    private static string DecodeUtf8(byte[] bytes) =>
+        System.Text.Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
 
     private async Task<string?> ReadInstructionAsync(string slug, CancellationToken ct)
     {
