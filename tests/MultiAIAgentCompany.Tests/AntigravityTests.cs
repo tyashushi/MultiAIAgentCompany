@@ -220,20 +220,37 @@ public sealed class AntigravityTests
         Assert.DoesNotContain("/Users/", summary);
     }
     [Fact]
-    public async Task 既定の駆動モードではまだ起動できない()
+    public async Task 既定の駆動モードは構造化で起動できる()
     {
-        // **既知の食い違い。** AgentCapabilities は Antigravity の既定を Tui と言うが、
-        // TUI セッションはまだ無い。一方 §13-3 追記2 で構造化なら動くと実測済み。
-        // 既定を変えるかは「v1 に PTY が要るか」というスコープの判断なので保留している。
-        // このテストは、その穴を忘れないために置いてある。**解決したら消す。**
-        Assert.Equal(DriveMode.Tui, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
+        // 2026-09-06 に既定を Tui から Structured へ変えた（§5 / §13-3 追記2）。
+        // 根拠: 握りつぶしは denied_actions で検出でき、1プロセス多ターンも実測で回る。
+        Assert.Equal(DriveMode.Structured, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
 
+        // 起動経路が生きていること（プロセスは偽物で確かめる）。
+        var started = 0;
+        var adapter = new AntigravityAdapter((_, _, _, _) =>
+        {
+            started++;
+            return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));
+        });
+
+        await using var session = await adapter.StartAsync(
+            new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
+            "調査",
+            AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
+            CancellationToken.None);
+
+        Assert.Equal(1, started);
+    }
+
+    [Fact]
+    public async Task TUIはまだ無いので明示的に断る()
+    {
+        // 黙って何もしない実装にしない。要るかどうかは §11 の未決事項。
         var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
             new AntigravityAdapter().StartAsync(
                 new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
-                "調査",
-                AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
-                CancellationToken.None));
+                "調査", DriveMode.Tui, CancellationToken.None));
 
         Assert.Contains("13-3", exception.Message);
     }

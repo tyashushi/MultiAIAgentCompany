@@ -52,9 +52,10 @@ public sealed record AgentCapabilities(
         AgentKind.ClaudeCode => new(kind, true, true, true, DriveMode.Structured),
         AgentKind.CodexCli => new(kind, true, true, true, DriveMode.Structured),
 
-        // 承認の往復が無いので、構造化で走らせると承認が要る操作は黙って握りつぶされる。
-        // 既定は TUI。構造化で使うなら読み取り専用に寄せ、(a) を発生させない（設計 §5）。
-        AgentKind.AntigravityCli => new(kind, true, false, true, DriveMode.Tui),
+        // 承認の往復は無いが、**握りつぶしは denied_actions で検出できる**（§13-3）。
+        // そして --input-format stream-json で1プロセス多ターンが回る（§13-3 追記2、実測）。
+        // したがって既定は構造化。2026-09-06 に TUI から変更した（§5）。
+        AgentKind.AntigravityCli => new(kind, true, false, true, DriveMode.Structured),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };

@@ -92,4 +92,16 @@ public sealed class DepartmentStoreTests : IDisposable
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
+    [Fact]
+    public void 既定の5部門はすべて構造化になる()
+    {
+        // 2026-09-06 に Antigravity の既定を Structured へ変えた（§5 / §13-3 追記2）。
+        // これで v1 の部門はすべて構造化で動き、部門を動かすために PTY は要らない。
+        // TUI セッションが入るまで、ここが Tui を含むと起動できない部門ができる。
+        var departments = DepartmentStore.CreateDefaultDepartments();
+
+        Assert.Equal(5, departments.Count);
+        Assert.All(departments, department => Assert.Equal(DriveMode.Structured, department.Mode));
+    }
+
 }

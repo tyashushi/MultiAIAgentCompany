@@ -11,7 +11,11 @@ public sealed class AgentTests
     {
         // 実測 §13-3。ここを true にすると、握りつぶされた実行を成功として扱う設計に戻る。
         Assert.False(AgentCapabilities.For(AgentKind.AntigravityCli).SupportsRuntimeApprovalRoundTrip);
-        Assert.Equal(DriveMode.Tui, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
+
+        // **承認の往復が無いことと、駆動モードは別の話。**
+        // 2026-09-06 に既定を Tui から Structured へ変えた（§5 / §13-3 追記2）——
+        // 握りつぶしは denied_actions で検出でき、1プロセス多ターンも実測で回るため。
+        Assert.Equal(DriveMode.Structured, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
     }
 
     [Fact]
