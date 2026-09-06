@@ -198,7 +198,7 @@ public partial class MainWindow : Window
                 break;
 
             case DepartmentAction.ReadReport:
-                OpenCoordinationFile(tile, "report.md", "報告");
+                await ShowCoordinationFileAsync(tile, "report.md", "報告");
                 break;
 
             // §14-1: Dispatched は「送ったかもしれない」。**自動再送しない。**
@@ -518,6 +518,59 @@ public partial class MainWindow : Window
     /// <b>ボタンは文言どおりのことをする</b>（§15-6）。開けないなら、
     /// 何が無いのかを言う —— 「開く」と書いてあるのに何も起きない、を作らない。
     /// </remarks>
+    /// <summary>
+    /// 調整文書の中身を中央の会話に出す（設計 §17-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>外部アプリで開かず、その場で読ませる。</b> 報告を読むのに窓を移ると、
+    /// そのまま受理か差し戻しかを決める流れ（§19-3）が切れる。
+    /// <para>
+    /// <b>ライブ表示専用。</b> 会話は正本ではない（§17-3）。
+    /// 長い報告は途中で切るが、<b>切ったことを黙らない</b>（§22-2 と同じ理由）。
+    /// </para>
+    /// </remarks>
+    private async Task ShowCoordinationFileAsync(DepartmentTile tile, string fileName, string label)
+    {
+        if (_composer?.Workspace is not { } workspace)
+        {
+            Note("先にワークスペースを選ぶ");
+            return;
+        }
+
+        if (tile.CurrentTaskSlug is not { } slug)
+        {
+            Note($"{tile.Name}: どの仕事の{label}か分からない（.company/ の経路が未接続）");
+            return;
+        }
+
+        var path = Path.Combine(workspace.Company.TaskDirectory(slug), fileName);
+        if (!File.Exists(path))
+        {
+            Note($"{tile.Name}: {label}のファイルがまだ無い（{path}）");
+            return;
+        }
+
+        string content;
+        try
+        {
+            content = await File.ReadAllTextAsync(path, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // 読めなかったことを、読んだことにしない。
+            Note($"{tile.Name}: {label}を読めなかった（{exception.GetType().Name}）。場所は {path}");
+            return;
+        }
+
+        const int limit = 4000;
+        Say(content.Length > limit
+            ? $"{tile.Name}: {content[..limit]}\n\n（長いので残り {content.Length - limit} 文字は省いた。全文は {path}）"
+            : $"{tile.Name}: {content}");
+
+        // 出どころを左に残す。会話は落ちたら失われてよいが、場所は追える（§17-3）。
+        Note($"{tile.Name} の{label}を出した: {path}");
+    }
+
     private void OpenCoordinationFile(DepartmentTile tile, string fileName, string label)
     {
         if (_composer?.Workspace is not { } workspace)
