@@ -13,7 +13,12 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var composer = ShellComposer.CreateDefault(TimeProvider.System);
-            desktop.MainWindow = new MainWindow(composer, new DemoDriver(composer, TimeProvider.System));
+            var runner = new DepartmentRunner(composer);
+            desktop.MainWindow = new MainWindow(composer, runner);
+
+            // ウィンドウを閉じたら全部門を終了する（設計 §9）。
+            // v1 はバックグラウンド継続を持たない —— 無人運転に近づくため。
+            desktop.ShutdownRequested += async (_, _) => await runner.DisposeAsync();
         }
 
         base.OnFrameworkInitializationCompleted();

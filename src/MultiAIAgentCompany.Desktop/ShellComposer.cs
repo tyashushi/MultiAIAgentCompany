@@ -14,6 +14,7 @@ public sealed class ShellComposer
     private static readonly TimeSpan EvidenceMaxAge = TimeSpan.FromMinutes(5);
 
     private readonly Dictionary<string, DepartmentStatusTracker> _trackers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DepartmentDefinition> _definitions = new(StringComparer.Ordinal);
 
     public ShellComposer(IReadOnlyList<DepartmentDefinition> departments, TimeProvider clock)
     {
@@ -23,7 +24,8 @@ public sealed class ShellComposer
             var tracker = new DepartmentStatusTracker(
                 new AgentRef(department.Id, department.Agent), clock, EvidenceMaxAge);
             _trackers[department.Id] = tracker;
-            tiles.Add(new DepartmentTile(department.DisplayName, department.Agent, department.Mode, tracker));
+            _definitions[department.Id] = department;
+            tiles.Add(new DepartmentTile(department.Id, department.DisplayName, department.Agent, department.Mode, tracker));
         }
 
         Approvals = new ApprovalQueue();
@@ -46,6 +48,11 @@ public sealed class ShellComposer
 
     public IReadOnlyCollection<string> DepartmentIds => _trackers.Keys;
 
+    public DepartmentDefinition DefinitionOf(string departmentId) => _definitions[departmentId];
+
+    /// <summary>選ばれたワークスペース。まだ選ばれていなければ null。</summary>
+    public WorkspaceRef? Workspace { get; private set; }
+
     /// <summary>
     /// フォルダが選ばれたときに、各 CLI の trust を読み直す（設計 §13-9）。
     /// <b>書き込みはしない。</b>
@@ -57,6 +64,7 @@ public sealed class ShellComposer
             [new ClaudeCodeTrustProbe(), new CodexCliTrustProbe(), new AntigravityTrustProbe()],
             ct);
 
+        Workspace = workspace;
         Shell.WorkspaceLabel = root;
         Shell.Trust.Clear();
         foreach (var row in rows)

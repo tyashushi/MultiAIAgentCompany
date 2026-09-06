@@ -59,9 +59,13 @@
                 また IME の変換確定 Enter は KeyDown として届かないので、
                 入力欄では素の Enter を送信に使ってよい。
             -->
+            <!-- **これは調整基盤の経路ではない**（§6 / §14-1）——
+                 本来は秘書が instruction.md を書き、アプリが dispatch する。
+                 ここは配線を実物で確かめるための直通路。秘書はまだ繋がっていない。 -->
             <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
-                <TextBox Grid.Column="0" PlaceholderText="秘書に指示する（日本語で書ける）" AcceptsReturn="False" />
-                <Button Grid.Column="1" Content="送信" Margin="6,0,0,0" IsEnabled="False" />
+                <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
+                         PlaceholderText="選んだ部門へ直接送る（秘書はまだ繋がっていない）" />
+                <Button Grid.Column="1" Content="送信" Margin="6,0,0,0" Click="OnSendToDepartment" />
             </Grid>
 
             <!-- (a) ランタイム承認。ボタンは提示された決定から作る（設計 §5）——
@@ -132,16 +136,14 @@
         <DockPanel Grid.Column="4">
             <TextBlock DockPanel.Dock="Top" Text="部門" FontWeight="Bold" Margin="0,0,0,6" />
 
-            <!-- デモ用。実セッションが繋がったらボタンごと消す。
-                 自動で動かさないのは、勝手に状態が変わると「本当に動いている」と
-                 誤解させるため。人間が押したときだけ1段進む。 -->
-            <Button DockPanel.Dock="Bottom" x:Name="DemoButton" Click="OnDemoStep"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                    Margin="0,6,0,0" Content="デモ: 状態を進める" />
             <ItemsControl ItemsSource="{Binding Departments}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:DepartmentTile">
-                        <Border BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,6"
+                        <!-- 押すとその部門のセッションを開く（設計 §1）。 -->
+                        <Button Click="OnDepartmentClick" Padding="0" Margin="0,0,0,6"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                Background="Transparent" BorderThickness="0">
+                        <Border BorderThickness="1" CornerRadius="4" Padding="8"
                                 BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
                             <Grid ColumnDefinitions="Auto,*">
                                 <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
@@ -175,9 +177,12 @@
                                          （設計 §15-5: 色や記号だけで区別しない）。 -->
                                     <TextBlock Text="要対応" FontSize="11" FontWeight="Bold"
                                                Margin="0,2,0,0" IsVisible="{Binding NeedsHuman}" />
+                                    <TextBlock Text="◀ 選択中（直接送信の宛先）" FontSize="11"
+                                               Margin="0,2,0,0" IsVisible="{Binding IsSelected}" />
                                 </StackPanel>
                             </Grid>
                         </Border>
+                        </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

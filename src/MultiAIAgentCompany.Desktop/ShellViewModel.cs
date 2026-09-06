@@ -67,14 +67,18 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     private readonly DepartmentStatusTracker _tracker;
 
     public DepartmentTile(
-        string name, AgentKind agent, DriveMode mode, DepartmentStatusTracker tracker)
+        string id, string name, AgentKind agent, DriveMode mode, DepartmentStatusTracker tracker)
     {
+        Id = id;
         Name = name;
         Agent = agent;
         Mode = mode;
         _tracker = tracker;
         _tracker.Changed += OnTrackerChanged;
     }
+
+    /// <summary>部門の識別子。<c>.company/</c> と検出器はこちらで引く。</summary>
+    public string Id { get; }
 
     public string Name { get; }
 
@@ -92,6 +96,17 @@ public sealed class DepartmentTile : INotifyPropertyChanged
 
     /// <summary>起動時の走査で「送ったかもしれない」と分かったか（設計 §14-1）。</summary>
     public bool DispatchedAcrossRestart { get; init; }
+
+    /// <summary>この部門を選んでいるか（直接送信の宛先）。</summary>
+    public bool IsSelected
+    {
+        get;
+        set
+        {
+            field = value;
+            Raise();
+        }
+    }
 
     public string RuntimeText => Status.Runtime.Value.ToString();
 
