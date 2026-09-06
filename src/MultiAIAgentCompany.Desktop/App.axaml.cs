@@ -12,7 +12,8 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow { DataContext = ShellViewModel.CreateDesignPlaceholder() };
+            var composer = ShellComposer.CreateDefault(TimeProvider.System);
+            desktop.MainWindow = new MainWindow(composer, new DemoDriver(composer, TimeProvider.System));
         }
 
         base.OnFrameworkInitializationCompleted();
