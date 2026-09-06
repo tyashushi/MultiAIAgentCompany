@@ -70,6 +70,12 @@ public sealed class ShellComposer
     public SecretaryOutbox? Outbox { get; private set; }
 
     /// <summary>
+    /// 起動時の走査で「送ったかもしれない」と分かった仕事（設計 §14-1）。
+    /// <b>通常の <c>Dispatched</c> と区別する</b> —— ボタンが出るのはこちらだけ。
+    /// </summary>
+    private readonly HashSet<string> _acrossRestart = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// フォルダが選ばれたときに、各 CLI の trust を読み直す（設計 §13-9）。
     /// <b>書き込みはしない。</b>
     /// </summary>
@@ -124,6 +130,12 @@ public sealed class ShellComposer
             Shell.Recovery.Clear();
 
             // §16-3: 部門が分かるものはタイルにも出す。左ペインだけだと右を見ている人が拾えない。
+            _acrossRestart.Clear();
+            foreach (var task in result.Dispatched)
+            {
+                _acrossRestart.Add(task.Slug);
+            }
+
             var acrossRestart = result.Dispatched.Select(task => task.DepartmentId).ToHashSet(StringComparer.Ordinal);
             foreach (var tile in Shell.Departments)
             {
@@ -172,7 +184,8 @@ public sealed class ShellComposer
             }
 
             var state = found.State;
-            if (!chosen.TryGetValue(state.DepartmentId, out var current) || Urgency(state.Status) > Urgency(current.Status))
+            if (!chosen.TryGetValue(state.DepartmentId, out var current)
+                || UrgencyOf(state) > UrgencyOf(current))
             {
                 chosen[state.DepartmentId] = state;
             }
@@ -243,11 +256,21 @@ public sealed class ShellComposer
         }
     }
 
-    private static int Urgency(CoreTaskStatus status) => status switch
+    /// <summary>
+    /// 1部門が複数の仕事を持つとき、どれをタイルに出すか。
+    /// <b>ボタンの優先順位（§15-6）と揃える</b> —— ずれると、用件のある仕事が選ばれない。
+    /// </summary>
+    private int UrgencyOf(TaskState state) => state.Status switch
     {
-        CoreTaskStatus.AwaitingAnswer => 4,
-        CoreTaskStatus.Reported => 3,
-        CoreTaskStatus.Dispatched => 2,
+        CoreTaskStatus.AwaitingAnswer => 5,
+        CoreTaskStatus.Reported => 4,
+
+        // **再起動を跨いだ Dispatched だけが用件になる**（§14-1）。
+        // 通常の Dispatched はボタンを出さないので、Drafted より下に置く ——
+        // 上に置くと、渡していない仕事がまた選ばれなくなる。
+        CoreTaskStatus.Dispatched when _acrossRestart.Contains(state.Slug) => 3,
+        CoreTaskStatus.Drafted => 2,
+        CoreTaskStatus.Dispatched => 1,
         CoreTaskStatus.InProgress => 1,
         _ => 0,
     };

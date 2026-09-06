@@ -187,5 +187,36 @@ public sealed class DepartmentCallToActionTests
 
         return data;
     }
+    [Fact]
+    public void 渡していない仕事には渡すボタンを出す()
+    {
+        // 実機で詰まった。部門が起動していないと dispatch が拒否され、Drafted のまま残り、
+        // 提案カードも消えているので先へ進める手段が無かった（§15-6）。
+        var action = Of(RuntimeState.Running, ActivityState.Unknown, CoreTaskStatus.Drafted, running: true);
+
+        Assert.Equal(DepartmentAction.DispatchTask, action.Action);
+    }
+
+    [Fact]
+    public void 送信確認は渡すより優先される()
+    {
+        // Dispatched は §14-1 の復旧契約なので、Drafted で隠さない。
+        var action = Of(RuntimeState.Running, ActivityState.Unknown, CoreTaskStatus.Dispatched,
+            dispatchedAcrossRestart: true, running: true);
+
+        Assert.Equal(DepartmentAction.CheckDelivery, action.Action);
+    }
+
+    [Fact]
+    public void 差し戻しには渡すボタンを出さない()
+    {
+        // **Rejected → Dispatched は現在の instruction.md を attempts/ へ封じる。**
+        // dispatch は先に読んでから遷移するので、古い指示を送ったうえ、
+        // 新しい試行に指示書が残らない（§15-10 の未決）。
+        var action = Of(RuntimeState.Running, ActivityState.Unknown, CoreTaskStatus.Rejected, running: true);
+
+        Assert.NotEqual(DepartmentAction.DispatchTask, action.Action);
+    }
+
 
 }

@@ -80,6 +80,17 @@ public enum DepartmentAction
     /// <summary>送られたか確かめる。<b>自動再送しない</b>（§14-1）。</summary>
     CheckDelivery,
 
+    /// <summary>
+    /// 指示書はあるが、まだ部門へ投げていない仕事を渡す（設計 §15-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b><c>Rejected</c>（差し戻し）に同じものを当てない。</b>
+    /// <c>Rejected → Dispatched</c> は現在の <c>instruction.md</c> を
+    /// <c>attempts/&lt;n&gt;/</c> へ封じるが、dispatch は**先に読んでから**遷移するので、
+    /// **古い指示を送ったうえ、新しい試行に指示書が残らない**（§15-10 の未決）。
+    /// </remarks>
+    DispatchTask,
+
     /// <summary>観測を並べる。何かおかしいが、落ちてはいない。</summary>
     ShowObservations,
 
@@ -162,7 +173,7 @@ public sealed record DepartmentCallToAction(
 
         return new DepartmentCallToAction(pose, badge, mark)
         {
-            Action = ActionOf(pose, badge, mark),
+            Action = ActionOf(pose, badge, mark, status.Work?.Value),
 
             // 落ちているときは出さない。§15-4 は「原因を見て、再起動するか決める」であり、
             // すぐ横に「起動」を置くとその判断を飛ばさせる。
@@ -174,7 +185,7 @@ public sealed record DepartmentCallToAction(
 
     /// <summary>§15-6 の8段。<b>順序が意味を持つ</b>。</summary>
     private static DepartmentAction ActionOf(
-        DepartmentPose pose, DepartmentBadge badge, DepartmentRuntimeMark mark)
+        DepartmentPose pose, DepartmentBadge badge, DepartmentRuntimeMark mark, CoreTaskStatus? work)
     {
         // 1. 落ちている。Exited（意図した終了）はここに入れない ——
         //    終わった部門に報告が残っているなら、急ぐのは報告を読むこと。
@@ -207,7 +218,15 @@ public sealed record DepartmentCallToAction(
             return DepartmentAction.CheckDelivery;
         }
 
-        // 6. 何かおかしいが落ちてはいない。
+        // 6. 指示書はあるが、まだ渡していない。
+        //    5（送信確認）より下 —— あちらは §14-1 の復旧契約なので、これで隠さない。
+        //    7（観測を見る）より上 —— こちらの方が具体的な用件。
+        if (work is CoreTaskStatus.Drafted)
+        {
+            return DepartmentAction.DispatchTask;
+        }
+
+        // 7. 何かおかしいが落ちてはいない。
         if (pose is DepartmentPose.Degraded)
         {
             return DepartmentAction.ShowObservations;

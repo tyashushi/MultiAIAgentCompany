@@ -154,6 +154,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         DepartmentAction.AnswerQuestion => "質問に答える",
         DepartmentAction.ReadReport => "報告を読む",
         DepartmentAction.CheckDelivery => "送信を確認する",
+        DepartmentAction.DispatchTask => "この仕事を渡す",
         DepartmentAction.ShowObservations => "観測を見る",
         _ => string.Empty,
     };

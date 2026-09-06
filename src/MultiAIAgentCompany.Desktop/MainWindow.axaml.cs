@@ -135,6 +135,10 @@ public partial class MainWindow : Window
                 ShowObservations(tile);
                 break;
 
+            case DepartmentAction.DispatchTask:
+                await DispatchDraftedAsync(tile);
+                break;
+
             case DepartmentAction.ShowApproval:
                 Note($"{tile.Name} の承認は中央ペインに出ている");
                 break;
@@ -164,6 +168,52 @@ public partial class MainWindow : Window
 
         Select(tile);
         await StartAsync(tile);
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    /// <summary>
+    /// 指示書はあるが渡していない仕事を渡す（設計 §15-6）。
+    /// 「仕事にする」は<b>提案を仕事に昇格させる操作</b>であって、
+    /// 「部門へ送信成功する」操作ではない —— 部門が動いていないときはここに来る。
+    /// </summary>
+    private async Task DispatchDraftedAsync(DepartmentTile tile)
+    {
+        if (_composer?.Tasks is not { } tasks || _composer.Dispatcher is not { } dispatcher
+            || tile.CurrentTaskSlug is not { } slug)
+        {
+            return;
+        }
+
+        if (await tasks.ReadAsync(slug, CancellationToken.None) is not TaskReadResult.Found found)
+        {
+            Note($"{slug}: 読めなくなっている");
+            return;
+        }
+
+        // **押す前と状態が変わっていることがある**（`.company/` は人間が手で直せる。§14-2）。
+        // 特に Rejected へ変わっていた場合、そのまま渡すと現在の instruction.md を
+        // attempts/ へ封じたうえで古い指示を送ることになる（§15-10）。
+        if (found.State.Status is not CoreTaskStatus.Drafted)
+        {
+            Note($"{slug}: 状態が {found.State.Status} に変わっている（渡さない）");
+            await ScanAsync(CompanyScanKind.Periodic);
+            return;
+        }
+
+        var result = await dispatcher.DispatchAsync(
+            found.State, _composer.DefinitionOf(tile.Id), SessionOf(tile.Id),
+            TimeSpan.FromMinutes(30), CancellationToken.None);
+
+        Note(result switch
+        {
+            DispatchResult.Dispatched => $"{tile.Name} に {slug} を渡した",
+            DispatchResult.NeedsHuman needsHuman => $"{slug}: {needsHuman.Reason}（人間が送る）",
+            DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
+            DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
+            DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に「起動する」）",
+            _ => $"{slug}: 渡せなかった",
+        });
+
         await ScanAsync(CompanyScanKind.Periodic);
     }
 
