@@ -217,7 +217,7 @@ public partial class MainWindow : Window
     /// stderr の生の行。
     /// <para>
     /// <b>用件のボタン（§15-6 の段）にはしない。</b> 診断は「人間の出番」ではなく、
-    /// 人間が自分の判断で覗くもの。段に足すと <c>NeedsHuman</c> の意味が濁る。
+    /// 人間が自分の判断で覗くもの。段に足すと「人間の出番」の意味が濁る。
     /// </para>
     /// </remarks>
     private void OnShowDiagnostics(object? sender, RoutedEventArgs e)
@@ -295,7 +295,6 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {slug} を渡した",
-            DispatchResult.NeedsHuman needsHuman => $"{slug}: {needsHuman.Reason}（人間が送る）",
             DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
             DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に「起動する」）",
@@ -427,7 +426,6 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {state.Slug} を差し戻して送り直した",
-            DispatchResult.NeedsHuman needsHuman => $"{state.Slug}: {needsHuman.Reason}（人間が送る）",
             DispatchResult.Blocked blocked => $"{state.Slug}: {blocked.Reason}（失敗ではない。待つ）",
             DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
@@ -643,7 +641,6 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {slug} を渡した",
-            DispatchResult.NeedsHuman needsHuman => $"{slug}: {needsHuman.Reason}（人間が送る）",
             DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
             DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}",
@@ -750,9 +747,6 @@ public partial class MainWindow : Window
                     Note($"{slug}: 回答を届けられない（{rejected.Reason}）");
                     break;
 
-                case DispatchResult.NeedsHuman needsHuman:
-                    Note($"{slug}: {needsHuman.Reason}（人間が渡す）");
-                    break;
             }
         }
     }
@@ -789,7 +783,6 @@ public partial class MainWindow : Window
             return result switch
             {
                 DispatchResult.Dispatched => $"{state.Slug}: もう一度送った（二重に実行されたかもしれない）",
-                DispatchResult.NeedsHuman needsHuman => $"{state.Slug}: {needsHuman.Reason}",
                 DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}",
                 DispatchResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
                 _ => $"{state.Slug}: 送れなかった",
@@ -953,7 +946,6 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{card.TargetText} に {slug} を渡した",
-            DispatchResult.NeedsHuman needsHuman => $"{slug}: {needsHuman.Reason}（人間が送る）",
             DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に部門を起動する）",
             _ => $"{slug}: 渡せなかった",

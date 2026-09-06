@@ -25,8 +25,7 @@ public interface IAgentAdapter
     /// エージェントの種類だけでは足りない。
     /// </param>
     /// <returns>
-    /// <paramref name="mode"/> に応じて <see cref="Sessions.IStructuredSession"/> か
-    /// <see cref="Sessions.ITuiSession"/> を返す。どちらも <see cref="Sessions.IAgentSession"/>。
+    /// <see cref="Sessions.IStructuredSession"/>。v1 の駆動モードはこれだけ（設計 §22-4）。
     /// </returns>
     Task<Sessions.IAgentSession> StartAsync(
         Workspace.WorkspaceRef workspace,

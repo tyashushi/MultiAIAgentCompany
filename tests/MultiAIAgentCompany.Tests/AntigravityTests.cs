@@ -263,15 +263,13 @@ public sealed class AntigravityTests
     }
 
     [Fact]
-    public async Task TUIはまだ無いので明示的に断る()
+    public async Task 知らない駆動モードは明示的に断る()
     {
-        // 黙って何もしない実装にしない。要るかどうかは §11 の未決事項。
-        var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+        // 黙って何もしない実装にしない。v1 の駆動モードは構造化だけ（設計 §22-4）。
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             new AntigravityAdapter().StartAsync(
                 new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
-                "調査", DriveMode.Tui, CancellationToken.None));
-
-        Assert.Contains("13-3", exception.Message);
+                "調査", (DriveMode)99, CancellationToken.None));
     }
 
 

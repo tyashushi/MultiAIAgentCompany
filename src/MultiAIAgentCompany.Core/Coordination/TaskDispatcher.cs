@@ -71,11 +71,6 @@ public sealed class TaskDispatcher
                 await ReleaseWriteLeaseAsync(department, ct);
                 return new DispatchResult.Conflicted(conflicted.Reason);
             case TaskWriteResult.Written written:
-                if (department.Mode is DriveMode.Tui)
-                {
-                    return new DispatchResult.NeedsHuman(written.State, "TUI 部門にはアプリが自動送信しません");
-                }
-
                 // Structured なのに session が無い場合は最初に弾いてある（この上）。
                 // ここに来た時点で必ず非 null なので、コンパイラにもそう伝える。
                 ArgumentNullException.ThrowIfNull(session);
@@ -123,9 +118,6 @@ public sealed class TaskDispatcher
     /// <b>人間が明示的に選んだときだけ呼ぶ。</b> §14-1 が禁じているのは自動再送。
     /// 既に届いていた場合、同じ指示が二重に実行される。
     /// </para>
-    /// <para>
-    /// <b>TUI 部門では送らない</b>（§14-3 / §16-2）。人間が手で送る。
-    /// </para>
     /// </remarks>
     public async Task<DispatchResult> RetryDeliveryAsync(
         TaskState expected,
@@ -144,11 +136,6 @@ public sealed class TaskDispatcher
         if (!string.Equals(department.Id, expected.DepartmentId, StringComparison.Ordinal))
         {
             return new DispatchResult.Rejected("送り先の部門がタスクの担当部門と一致しません");
-        }
-
-        if (department.Mode is DriveMode.Tui)
-        {
-            return new DispatchResult.NeedsHuman(expected, "TUI 部門にはアプリが自動送信しません");
         }
 
         if (session is null)
@@ -195,11 +182,6 @@ public sealed class TaskDispatcher
         if (expected.Status is not TaskStatus.AwaitingAnswer)
         {
             return new DispatchResult.Rejected("回答を待っている仕事だけに届けられる");
-        }
-
-        if (department.Mode is DriveMode.Tui)
-        {
-            return new DispatchResult.NeedsHuman(expected, "TUI 部門にはアプリが自動送信しません");
         }
 
         if (session is null)
@@ -328,11 +310,6 @@ public sealed class TaskDispatcher
 
         var written = ((TaskWriteResult.Written)transition).State;
 
-        if (department.Mode is DriveMode.Tui)
-        {
-            return new DispatchResult.NeedsHuman(written, "TUI 部門にはアプリが自動送信しません");
-        }
-
         // ここで読むのは**昇格したあとの** instruction.md。
         var instruction = await ReadInstructionAsync(written.Slug, ct);
         if (string.IsNullOrWhiteSpace(instruction))
@@ -407,7 +384,10 @@ public abstract record DispatchResult
 {
     public sealed record Dispatched(TaskState State) : DispatchResult;
 
-    public sealed record NeedsHuman(TaskState State, string Reason) : DispatchResult;
+    // **`NeedsHuman` は消した**（設計 §22-4、2026-09-06）。
+    // 「TUI 部門なのでアプリは送らない」という唯一の用途が無くなった。
+    // 人間の出番は `DepartmentCallToAction.NeedsHuman`（§15-6）が受け持つ ——
+    // 同じ名前で意味の違うものを2つ置かない。
 
     public sealed record Blocked(string Reason, LeaseHolder Holder) : DispatchResult;
 

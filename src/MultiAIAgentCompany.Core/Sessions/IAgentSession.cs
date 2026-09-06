@@ -8,15 +8,12 @@ namespace MultiAIAgentCompany.Core.Sessions;
 /// </summary>
 /// <remarks>
 /// <b>駆動モードで別のインターフェイスに分ける。</b>
-/// 構造化（<see cref="IStructuredSession"/>）はパイプで、承認の往復が閉じる。
-/// TUI（<see cref="ITuiSession"/>）は PTY で、§9 の契約が全部かかる。
+/// v1 にあるのは構造化（<see cref="IStructuredSession"/>）だけ ——
+/// パイプで、承認の往復が閉じる。
 /// <para>
-/// 1つの型に押し込むと、パイプのセッションに <c>ResizeAsync</c> が生えて、
-/// <b>黙って何もしない実装</b>になる。§2 の「3つの CLI は対称ではない」と同じ話で、
-/// 2つの駆動モードも対称ではない。
-/// </para>
-/// <para>
-/// どちらにも共通するのは<b>生死と観測</b>だけなので、この型はそれだけを持つ。
+/// この型が持つのは<b>生死と観測</b>だけ。駆動モードが増えたとき、
+/// 1つの型に押し込むと、パイプのセッションに <c>ResizeAsync</c> が生えて
+/// <b>黙って何もしない実装</b>になる（§2 の「3つの CLI は対称ではない」と同じ話）。
 /// </para>
 /// </remarks>
 public interface IAgentSession : IAsyncDisposable
@@ -117,38 +114,11 @@ public interface IStructuredSession : IAgentSession
     event EventHandler<OutcomeVerdict>? TurnFinished;
 }
 
-/// <summary>
-/// TUI モードのセッション。PTY 上の対話画面。設計 §9 の契約が全部かかる。
-/// </summary>
-/// <remarks>
-/// <list type="bullet">
-/// <item>部門ごとに session / process group を隔離する。全体で SIGHUP を無視しない
-/// （PTY では SIGHUP が端末切断の正規の意味を持つ）</item>
-/// <item>リサイズごとに TIOCSWINSZ。SIGWINCH が届くことを実機で確認する</item>
-/// <item>Ctrl-C / Ctrl-Z を GUI ショートカットにせず、foreground process group へ伝える</item>
-/// <item><b>非表示でも読み続ける。</b> 止めると PTY バッファが詰まって子が停止する</item>
-/// </list>
-/// </remarks>
-public interface ITuiSession : IAgentSession
-{
-    /// <summary>
-    /// 文章を送る。<b>ターミナルへの直打ちではなく入力欄経由</b>（設計 §13-7）。
-    /// </summary>
-    /// <param name="submitKey">
-    /// 解決済みの送信キー。<see cref="SubmitKey.IsResolved"/> が false のものを渡すと
-    /// <see cref="ArgumentException"/>。<c>0D</c> にフォールバックさせない（設計 §14-4）。
-    /// </param>
-    Task SendTextAsync(string text, SubmitKey submitKey, CancellationToken ct);
-
-    /// <summary>
-    /// 単キー（<c>y</c>/<c>n</c>、矢印、Ctrl-C）や制御バイト。
-    /// <b>文章を送るのに使わない。</b>
-    /// </summary>
-    Task SendBytesAsync(ReadOnlyMemory<byte> bytes, CancellationToken ct);
-
-    /// <summary>ペインの大きさが変わったことを子へ伝える（TIOCSWINSZ → SIGWINCH）。</summary>
-    Task ResizeAsync(int columns, int rows, CancellationToken ct);
-}
+// **`ITuiSession` は消した**（設計 §22-4、2026-09-06）。
+// v1 はターミナルを持たない。実装の無いインターフェイスを残すと
+// **使えるかのように見える型**になり、読み手に要らない分岐を背負わせる。
+// PTY 側の契約（session 隔離、TIOCSWINSZ、foreground へのシグナル、隠しても読み続ける）と
+// 実測は §9 / §13-4 / §13-6 / §13-7 / §13-8 に残してある。
 
 /// <summary>
 /// プロセスの同一性。<b>PID だけでは足りない</b>（再利用される）。設計 §9。

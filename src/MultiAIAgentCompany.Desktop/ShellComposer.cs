@@ -286,8 +286,7 @@ public sealed class ShellComposer
         Workspace is { } workspace
             ? SecretaryReadme.WriteAsync(workspace.Company,
                 [.. _definitions.Values.Select(d =>
-                    $"- `{d.Id}` … {d.DisplayName}（{d.Responsibility}）"
-                    + (d.Mode is DriveMode.Tui ? " **TUI。仕事にはできるが、人間が手で送る**" : string.Empty))],
+                    $"- `{d.Id}` … {d.DisplayName}（{d.Responsibility}）")],
                 ct)
             : Task.CompletedTask;
 

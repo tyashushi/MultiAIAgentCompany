@@ -26,7 +26,6 @@ public sealed class CodexCliAdapter : IAgentAdapter
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
-        if (mode == DriveMode.Tui) throw new NotSupportedException("Codex CLI の TUI セッションはこのアダプタでは扱いません。");
         if (mode != DriveMode.Structured) throw new ArgumentOutOfRangeException(nameof(mode), mode, null);
 
         var channel = await _channelFactory("codex", Arguments, workspace.Root, ct).ConfigureAwait(false);

@@ -49,18 +49,6 @@ public sealed class TaskDispatcherTests : IDisposable
     }
 
     [Fact]
-    public async Task TUI部門には送らずNeedsHumanを返す()
-    {
-        var expected = await CreateDraftAsync();
-        var session = new FakeSession("implementation");
-
-        var result = Assert.IsType<DispatchResult.NeedsHuman>(await DispatchAsync(expected, TuiDepartment, session));
-
-        Assert.Empty(session.Messages);
-        Assert.Equal(CoreTaskStatus.Dispatched, result.State.Status);
-    }
-
-    [Fact]
     public async Task 他部門の有効なWriteleaseがあればBlockedで状態を変えない()
     {
         var expected = await CreateDraftAsync();
@@ -304,8 +292,6 @@ public sealed class TaskDispatcherTests : IDisposable
 
     private static readonly DepartmentDefinition StructuredDepartment =
         new("implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.Structured);
-    private static readonly DepartmentDefinition TuiDepartment =
-        new("implementation", "実装", "実装する", AgentKind.AntigravityCli, DriveMode.Tui);
 
     public void Dispose() => _workspace.Dispose();
 

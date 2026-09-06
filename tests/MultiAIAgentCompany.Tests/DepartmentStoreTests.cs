@@ -19,6 +19,20 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 既定の部門集合は保存して読み直せる()
+    {
+        // **既定が検証を通らない、を作らない**（レビューで発覚、設計 §13-3 追記2）。
+        // Antigravity は承認の往復が無いが、握りつぶしは denied_actions で検出できる。
+        var defaults = DepartmentStore.CreateDefaultDepartments();
+
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new(0, []), defaults, CancellationToken.None));
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+
+        Assert.Equal(defaults, read.Definition.Departments);
+    }
+
+    [Fact]
     public async Task 保存して読むと往復する()
     {
         var saved = Assert.IsType<DefinitionWriteResult.Written>(await _store.SaveAsync(new(0, []), Departments(), CancellationToken.None));
@@ -60,11 +74,16 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task AntigravityのStructuredは承認往復が無いため保存を拒否する()
+    public async Task Antigravityの_Structured_は握りつぶしを検出できるので保存できる()
     {
+        // **2026-09-06 に規則を変えた**（設計 §13-3 追記2 / §22-4）。
+        // 承認の往復は無いが、握りつぶしは `result.denied_actions` で検出できる ——
+        // `status:"SUCCESS"` が嘘をつくときの唯一の手がかりがそれ（§14-4 の3層判定）。
+        // 往復の有無だけで弾いていたので、既定を Structured に変えたあと
+        // **既定の部門集合が保存できなくなっていた。**
         var departments = new[] { new DepartmentDefinition("research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured) };
-        Assert.IsType<DefinitionWriteResult.Rejected>(await _store.SaveAsync(new(0, []), departments, CancellationToken.None));
-        Assert.False(File.Exists(_paths.Departments));
+
+        Assert.IsType<DefinitionWriteResult.Written>(await _store.SaveAsync(new(0, []), departments, CancellationToken.None));
     }
 
     [Fact]

@@ -27,10 +27,6 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
         // 先に検査する。起動してから弾くと、セッションを返せないまま子プロセスが残る（設計 §9）。
         ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
 
-        if (mode == DriveMode.Tui)
-        {
-            throw new NotSupportedException("Claude Code の TUI セッションはこのアダプタでは扱いません。");
-        }
         if (mode != DriveMode.Structured)
         {
             throw new ArgumentOutOfRangeException(nameof(mode), mode, null);

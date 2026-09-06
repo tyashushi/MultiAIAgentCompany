@@ -50,42 +50,6 @@ public sealed class AgentTests
     }
 }
 
-/// <summary>設計 §13-8 訂正 —— 送信キーは環境の設定で変わる。不明なら送らない。</summary>
-public sealed class SubmitKeyTests
-{
-    [Fact]
-    public void 判定できないときは_0D_にフォールバックしない()
-    {
-        var key = SubmitKey.Unknown("keybindings.json が読めない");
-
-        Assert.False(key.IsResolved);
-        Assert.Null(key.Bytes);
-    }
-
-    [Fact]
-    public void 空のバイト列は送信キーにならない()
-    {
-        // IsResolved が true なのに送るものが無い、という状態を作れないようにする（§14-4）。
-        Assert.Throws<ArgumentException>(() => SubmitKey.Resolved([], "x"));
-    }
-
-    [Fact]
-    public void 解決済みのバイト列は外から書き換えられない()
-    {
-        var key = SubmitKey.Resolved(SubmitKey.AltEnter, "~/.claude/keybindings.json: meta+enter");
-
-        var taken = key.Bytes!;
-        taken[0] = 0x41;
-
-        Assert.Equal(new byte[] { 0x1B, 0x0D }, key.Bytes);
-    }
-
-    [Fact]
-    public void meta_enter_はESCとCRになる()
-    {
-        var key = SubmitKey.Resolved(SubmitKey.AltEnter, "~/.claude/keybindings.json: meta+enter");
-
-        Assert.True(key.IsResolved);
-        Assert.Equal(new byte[] { 0x1B, 0x0D }, key.Bytes);
-    }
-}
+// **SubmitKeyTests は消した**（設計 §22-4、2026-09-06）。
+// v1 は TUI 経路を持たないので、送信キーを解決する相手がいない。
+// 実測（`~/.claude/keybindings.json` で送信が `1B 0D` だった件）は §13-8 に残してある。

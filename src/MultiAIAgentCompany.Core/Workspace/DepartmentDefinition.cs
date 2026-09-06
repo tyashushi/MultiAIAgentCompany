@@ -117,8 +117,15 @@ public sealed class DepartmentStore
             var capabilities = AgentCapabilities.For(department.Agent);
             if (department.Mode is DriveMode.Structured && !capabilities.SupportsStructuredConversation)
                 return $"{department.Agent} は Structured をサポートしません: {department.Id}";
-            if (department.Mode is DriveMode.Structured && !capabilities.SupportsRuntimeApprovalRoundTrip)
-                return $"{department.Agent} は Structured でランタイム承認を扱えません: {department.Id}";
+            // **承認の往復が無くても、握りつぶしを検出できるなら構造化でよい**（設計 §13-3 追記2）。
+            // Antigravity は往復そのものが無い代わりに `result.denied_actions` を返す ——
+            // `status:"SUCCESS"` が嘘をつくときの唯一の手がかりがそれで、§14-4 の3層判定はこれを見る。
+            // ここを往復だけで判定していたので、**2026-09-06 に既定を Structured に変えたあと、
+            // 既定の部門集合が保存も読み込みもできなくなっていた**（レビューで発覚）。
+            if (department.Mode is DriveMode.Structured
+                && !capabilities.SupportsRuntimeApprovalRoundTrip
+                && !capabilities.ReportsDeniedActions)
+                return $"{department.Agent} は Structured で承認の結果を確かめられません: {department.Id}";
         }
         return null;
     }
