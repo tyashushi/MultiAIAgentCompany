@@ -65,6 +65,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 public sealed class DepartmentTile : INotifyPropertyChanged
 {
     private readonly DepartmentStatusTracker _tracker;
+    private readonly List<string> _observations = [];
 
     public DepartmentTile(
         string id, string name, AgentKind agent, DriveMode mode, DepartmentStatusTracker tracker)
@@ -92,10 +93,59 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// 人型アイコンの3層（設計 §15）。<b>この対応は Core が決める</b> ——
     /// 「どの状態で人間が何をすべきか」は業務ロジックであって、表示の都合ではない（§4）。
     /// </summary>
-    public DepartmentCallToAction Call => DepartmentCallToAction.From(Status, DispatchedAcrossRestart);
+    public DepartmentCallToAction Call =>
+        DepartmentCallToAction.From(Status, DispatchedAcrossRestart, SessionRunning);
+
+    /// <summary>
+    /// セッションが動いているか。<b>沈黙から導かない</b>（§7）——
+    /// <see cref="DepartmentRunner"/> が知っている事実を入れる。
+    /// </summary>
+    public bool SessionRunning
+    {
+        get;
+        set
+        {
+            field = value;
+            RaiseAll();
+        }
+    }
+
+    /// <summary>
+    /// ボタンの文言（設計 §15-6）。<b>押す前に何が起きるか分かるようにする。</b>
+    /// </summary>
+    public string ActionLabel => Call.Action switch
+    {
+        DepartmentAction.Investigate => "原因を見る",
+        DepartmentAction.ShowApproval => "承認を見る",
+        DepartmentAction.AnswerQuestion => "質問に答える",
+        DepartmentAction.ReadReport => "報告を読む",
+        DepartmentAction.CheckDelivery => "送信を確認する",
+        DepartmentAction.ShowObservations => "観測を見る",
+        DepartmentAction.Start => "起動する",
+        _ => string.Empty,
+    };
+
+    public bool HasAction => Call.Action is not DepartmentAction.None;
+
+    /// <summary>直近の観測。「原因を見る」「観測を見る」で人間に出す。</summary>
+    public IReadOnlyList<string> RecentObservations => _observations;
 
     /// <summary>起動時の走査で「送ったかもしれない」と分かったか（設計 §14-1）。</summary>
     public bool DispatchedAcrossRestart { get; init; }
+
+    /// <summary>
+    /// いま担当している仕事。<c>question.md</c> / <c>report.md</c> はこの下にある（§6）。
+    /// <b>仕事状態と一緒に入れる</b> —— 状態だけあって置き場所が分からない、を作らない。
+    /// </summary>
+    public string? CurrentTaskSlug
+    {
+        get;
+        set
+        {
+            field = value;
+            RaiseAll();
+        }
+    }
 
     /// <summary>この部門を選んでいるか（直接送信の宛先）。</summary>
     public bool IsSelected
@@ -166,13 +216,41 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         Dispatcher.UIThread.Post(RaiseAll);
     }
 
+    /// <summary>
+    /// 観測を控えておく。<b>秘密値は入らない</b> —— 元が RedactedSummary（§10）。
+    /// </summary>
+    /// <remarks>
+    /// <b>UI スレッドへ渡し直す。</b> 観測は読み取りループ（別スレッド）から来るので、
+    /// そのまま足すと、人間が「観測を見る」を押して列挙している最中に書き換わる。
+    /// </remarks>
+    public void Record(Evidence evidence)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            Append(evidence);
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() => Append(evidence));
+    }
+
+    private void Append(Evidence evidence)
+    {
+        _observations.Insert(0, $"{evidence.ObservedAt:HH:mm:ss}  {evidence.Source}  {evidence.RedactedSummary}");
+        if (_observations.Count > 30)
+        {
+            _observations.RemoveAt(_observations.Count - 1);
+        }
+    }
+
     private void RaiseAll()
     {
         foreach (var name in new[]
                  {
                      nameof(Status), nameof(Call), nameof(RuntimeText), nameof(ActivityText),
                      nameof(WorkText), nameof(Glyph), nameof(BadgeGlyph), nameof(RuntimeGlyph),
-                     nameof(NeedsHuman), nameof(EvidenceText),
+                     nameof(NeedsHuman), nameof(EvidenceText), nameof(ActionLabel), nameof(HasAction),
+                     nameof(SessionRunning),
                  })
         {
             Raise(name);

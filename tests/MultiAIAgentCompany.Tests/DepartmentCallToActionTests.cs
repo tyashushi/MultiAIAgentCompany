@@ -63,7 +63,8 @@ public sealed class DepartmentCallToActionTests
     [Fact]
     public void 何も要らないときは人間を呼ばない()
     {
-        var action = Of(RuntimeState.Running, ActivityState.Working, CoreTaskStatus.InProgress);
+        // 動いている部門。止まっていれば「起動する」が要るので running を渡す。
+        var action = Of(RuntimeState.Running, ActivityState.Working, CoreTaskStatus.InProgress, running: true);
 
         Assert.False(action.NeedsHuman);
     }
@@ -72,9 +73,9 @@ public sealed class DepartmentCallToActionTests
     public void 休んでいると分からないと倒れたは別物()
     {
         // 実測（§7）で Gemini CLI が1時間無言で生存した。この3つの取り違えが最も高くつく。
-        var resting = Of(RuntimeState.Running, ActivityState.Resting, null);
-        var unknown = Of(RuntimeState.Running, ActivityState.Unknown, null);
-        var down = Of(RuntimeState.Failed, ActivityState.Unknown, null);
+        var resting = Of(RuntimeState.Running, ActivityState.Resting, null, running: true);
+        var unknown = Of(RuntimeState.Running, ActivityState.Unknown, null, running: true);
+        var down = Of(RuntimeState.Failed, ActivityState.Unknown, null, running: true);
 
         Assert.Equal(DepartmentPose.Resting, resting.Pose);
         Assert.Equal(DepartmentPose.Unknown, unknown.Pose);
@@ -84,7 +85,8 @@ public sealed class DepartmentCallToActionTests
     }
 
     private static DepartmentCallToAction Of(
-        RuntimeState runtime, ActivityState activity, CoreTaskStatus? work, bool dispatchedAcrossRestart = false)
+        RuntimeState runtime, ActivityState activity, CoreTaskStatus? work,
+        bool dispatchedAcrossRestart = false, bool running = false)
     {
         var evidence = new Evidence(EvidenceSource.StructuredEvent, DateTimeOffset.UnixEpoch, null, null,
             new AgentRef("実装", AgentKind.CodexCli), null, null, "test");
@@ -93,6 +95,75 @@ public sealed class DepartmentCallToActionTests
             new Observed<ActivityState>(activity, evidence),
             work is null ? null : new Observed<CoreTaskStatus>(work.Value, evidence));
 
-        return DepartmentCallToAction.From(status, dispatchedAcrossRestart);
+        return DepartmentCallToAction.From(status, dispatchedAcrossRestart, running);
     }
+    [Fact]
+    public void 相談は活動からでも仕事からでも同じ用件になる()
+    {
+        // (b) の相談は経路が2つある —— エージェントが出す Consulting（活動）と、
+        // .company/ に現れる AwaitingAnswer（仕事）。片方だけを条件にすると、
+        // 「要対応と出ているのに押すものが無い」状態ができる（§15-6）。
+        Assert.Equal(DepartmentAction.AnswerQuestion,
+            Of(RuntimeState.Running, ActivityState.Consulting, CoreTaskStatus.InProgress, running: true).Action);
+        Assert.Equal(DepartmentAction.AnswerQuestion,
+            Of(RuntimeState.Running, ActivityState.Working, CoreTaskStatus.AwaitingAnswer, running: true).Action);
+    }
+
+    [Fact]
+    public void 落ちたときは原因を見るであって再起動ではない()
+    {
+        // §15-4 は「原因を見て、再起動するか決める」。UI が復旧の判断を先取りしない。
+        Assert.Equal(DepartmentAction.Investigate,
+            Of(RuntimeState.Failed, ActivityState.Unknown, null, running: false).Action);
+    }
+
+    [Fact]
+    public void 意図した終了は原因を見るに入れない()
+    {
+        // 終わった部門に報告が残っているなら、急ぐのは報告を読むこと。
+        Assert.Equal(DepartmentAction.ReadReport,
+            Of(RuntimeState.Exited, ActivityState.Unknown, CoreTaskStatus.Reported, running: false).Action);
+    }
+
+    [Fact]
+    public void 何もすることが無ければボタンを出さない()
+    {
+        Assert.Equal(DepartmentAction.None,
+            Of(RuntimeState.Running, ActivityState.Working, CoreTaskStatus.InProgress, running: true).Action);
+    }
+
+    [Fact]
+    public void 動いていなければ起動を促す()
+    {
+        Assert.Equal(DepartmentAction.Start,
+            Of(RuntimeState.Running, ActivityState.Unknown, null, running: false).Action);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllCombinations))]
+    public void 要対応とボタンは必ず一致する(
+        RuntimeState runtime, ActivityState activity, CoreTaskStatus? work, bool acrossRestart, bool running)
+    {
+        // **片方だけを直すと「要対応と出ているのに押すものが無い」が生まれる。**
+        // 全組み合わせで一致することを機械で確かめる（§15-6）。
+        var action = Of(runtime, activity, work, acrossRestart, running);
+
+        Assert.Equal(action.Action is not DepartmentAction.None, action.NeedsHuman);
+    }
+
+    public static TheoryData<RuntimeState, ActivityState, CoreTaskStatus?, bool, bool> AllCombinations()
+    {
+        var data = new TheoryData<RuntimeState, ActivityState, CoreTaskStatus?, bool, bool>();
+        foreach (var runtime in Enum.GetValues<RuntimeState>())
+        foreach (var activity in Enum.GetValues<ActivityState>())
+        foreach (var work in Enum.GetValues<CoreTaskStatus>().Cast<CoreTaskStatus?>().Append(null))
+        foreach (var acrossRestart in new[] { false, true })
+        foreach (var running in new[] { false, true })
+        {
+            data.Add(runtime, activity, work, acrossRestart, running);
+        }
+
+        return data;
+    }
+
 }

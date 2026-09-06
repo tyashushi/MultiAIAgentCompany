@@ -46,6 +46,47 @@ public enum DepartmentBadge
     NeedsDeliveryCheck,
 }
 
+/// <summary>
+/// パネル上のボタンが求める用件。設計 §15-6 の8段。<b>上から順に、最初に当たったもの</b>。
+/// </summary>
+/// <remarks>
+/// <b><see cref="DepartmentCallToAction.NeedsHuman"/> と必ず一致していなければならない。</b>
+/// 片方だけを直すと「要対応と出ているのに押すものが無い」が生まれる
+/// （実装前の相談で見つかった。2026-09-06）。
+/// </remarks>
+public enum DepartmentAction
+{
+    /// <summary>人間の出番が無い。ボタンを出さない。</summary>
+    None,
+
+    /// <summary>
+    /// 落ちた理由を見る。<b>「再起動する」にしない</b> —— §15-4 は
+    /// 「原因を見て、再起動するか決める」であって、UI が復旧の判断を先取りしない。
+    /// </summary>
+    Investigate,
+
+    /// <summary>中央ペインの該当承認へ寄せる。</summary>
+    ShowApproval,
+
+    /// <summary>
+    /// <c>question.md</c> を開く。<b>活動 <c>Consulting</c> と仕事 <c>AwaitingAnswer</c> の
+    /// どちらからでも来る</b>（§3 / §7）—— (b) の相談は経路が2つある。
+    /// </summary>
+    AnswerQuestion,
+
+    /// <summary><c>report.md</c> を開く。受理か差し戻しを決めるのは人間（§6）。</summary>
+    ReadReport,
+
+    /// <summary>送られたか確かめる。<b>自動再送しない</b>（§14-1）。</summary>
+    CheckDelivery,
+
+    /// <summary>観測を並べる。何かおかしいが、落ちてはいない。</summary>
+    ShowObservations,
+
+    /// <summary>セッションを開く。</summary>
+    Start,
+}
+
 /// <summary>左下の印。稼働状態の担当（設計 §15-4）。</summary>
 public enum DepartmentRuntimeMark
 {
@@ -71,25 +112,89 @@ public sealed record DepartmentCallToAction(
     DepartmentBadge Badge,
     DepartmentRuntimeMark RuntimeMark)
 {
-    /// <summary>人間の出番があるか。無ければ眺めているだけでよい。</summary>
-    public bool NeedsHuman =>
-        Pose is DepartmentPose.AwaitingApproval or DepartmentPose.Consulting or DepartmentPose.Degraded
-        || Badge is not DepartmentBadge.None
-        || RuntimeMark is DepartmentRuntimeMark.Down;
+    /// <summary>
+    /// パネル上のボタンが求める用件（設計 §15-6）。<b>上から順に、最初に当たったもの。</b>
+    /// </summary>
+    public DepartmentAction Action { get; init; } = DepartmentAction.None;
+
+    /// <summary>
+    /// 人間の出番があるか。<b><see cref="Action"/> と必ず一致する</b> ——
+    /// 「要対応と出ているのに押すものが無い」を作らないため（§15-6）。
+    /// </summary>
+    public bool NeedsHuman => Action is not DepartmentAction.None;
 
     /// <param name="status">3軸の現在値。</param>
     /// <param name="dispatchedAcrossRestart">
     /// <c>Dispatched</c> のまま再起動を跨いだか（設計 §14-1 の復旧契約）。
     /// 呼び出し元が起動時の走査結果から渡す。<b>この型は自分で推定しない。</b>
     /// </param>
-    public static DepartmentCallToAction From(DepartmentStatus status, bool dispatchedAcrossRestart = false)
+    /// <param name="sessionRunning">
+    /// セッションが動いているか。<b>沈黙から導かない</b>（§7）——
+    /// 呼び出し元が知っている事実を渡す。
+    /// </param>
+    public static DepartmentCallToAction From(
+        DepartmentStatus status, bool dispatchedAcrossRestart = false, bool sessionRunning = false)
     {
         ArgumentNullException.ThrowIfNull(status);
 
-        return new DepartmentCallToAction(
-            PoseOf(status.Activity.Value),
-            BadgeOf(status.Work?.Value, dispatchedAcrossRestart),
-            MarkOf(status.Runtime.Value));
+        var pose = PoseOf(status.Activity.Value);
+        var badge = BadgeOf(status.Work?.Value, dispatchedAcrossRestart);
+        var mark = MarkOf(status.Runtime.Value);
+
+        return new DepartmentCallToAction(pose, badge, mark)
+        {
+            Action = ActionOf(pose, badge, mark, sessionRunning),
+        };
+    }
+
+    /// <summary>§15-6 の8段。<b>順序が意味を持つ</b>。</summary>
+    private static DepartmentAction ActionOf(
+        DepartmentPose pose, DepartmentBadge badge, DepartmentRuntimeMark mark, bool sessionRunning)
+    {
+        // 1. 落ちている。Exited（意図した終了）はここに入れない ——
+        //    終わった部門に報告が残っているなら、急ぐのは報告を読むこと。
+        if (mark is DepartmentRuntimeMark.Down)
+        {
+            return DepartmentAction.Investigate;
+        }
+
+        // 2. (a) 承認まち。
+        if (pose is DepartmentPose.AwaitingApproval)
+        {
+            return DepartmentAction.ShowApproval;
+        }
+
+        // 3. (b) 相談。活動と仕事のどちらからでも来る（§3 / §7）。
+        if (pose is DepartmentPose.Consulting || badge is DepartmentBadge.NeedsAnswer)
+        {
+            return DepartmentAction.AnswerQuestion;
+        }
+
+        // 4. 報告まち。
+        if (badge is DepartmentBadge.NeedsAcceptance)
+        {
+            return DepartmentAction.ReadReport;
+        }
+
+        // 5. 送ったかもしれない仕事（§14-1）。
+        if (badge is DepartmentBadge.NeedsDeliveryCheck)
+        {
+            return DepartmentAction.CheckDelivery;
+        }
+
+        // 6. 何かおかしいが落ちてはいない。
+        if (pose is DepartmentPose.Degraded)
+        {
+            return DepartmentAction.ShowObservations;
+        }
+
+        // 7. 動いていない。**沈黙から導かない** —— 呼び出し元が知っている事実を渡す（§7）。
+        if (!sessionRunning)
+        {
+            return DepartmentAction.Start;
+        }
+
+        return DepartmentAction.None;
     }
 
     private static DepartmentPose PoseOf(ActivityState activity) => activity switch

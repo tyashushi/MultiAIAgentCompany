@@ -59,7 +59,11 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
 
     private void Wire(DepartmentDefinition department, IAgentSession session, DepartmentStatusTracker tracker)
     {
-        session.Observed += (_, evidence) => tracker.OnObserved(evidence);
+        session.Observed += (_, evidence) =>
+        {
+            tracker.OnObserved(evidence);
+            Observed?.Invoke(this, (department.Id, evidence));
+        };
         session.Exited += (_, exitCode) => tracker.OnExited(exitCode);
 
         if (session is not IStructuredSession structured)
@@ -90,6 +94,9 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             : Task.CompletedTask;
 
     public bool IsRunning(string departmentId) => _sessions.ContainsKey(departmentId);
+
+    /// <summary>観測が来たことを画面へ知らせる（部門ごとの一覧に控えるため）。</summary>
+    public event EventHandler<(string DepartmentId, Evidence Evidence)>? Observed;
 
     private static IAgentAdapter AdapterFor(DepartmentDefinition department) => department.Agent switch
     {

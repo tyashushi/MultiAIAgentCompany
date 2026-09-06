@@ -175,10 +175,15 @@
 
                                     <!-- 人間の出番があることを、絵文字だけに頼らず言葉でも出す
                                          （設計 §15-5: 色や記号だけで区別しない）。 -->
-                                    <TextBlock Text="要対応" FontSize="11" FontWeight="Bold"
-                                               Margin="0,2,0,0" IsVisible="{Binding NeedsHuman}" />
                                     <TextBlock Text="◀ 選択中（直接送信の宛先）" FontSize="11"
                                                Margin="0,2,0,0" IsVisible="{Binding IsSelected}" />
+
+                                    <!-- 文言が何をするか言っているボタン（設計 §15-6）。
+                                         押す前に結果が分かるようにする。 -->
+                                    <Button Content="{Binding ActionLabel}" IsVisible="{Binding HasAction}"
+                                            Click="OnDepartmentAction" Margin="0,6,0,0"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" />
                                 </StackPanel>
                             </Grid>
                         </Border>
