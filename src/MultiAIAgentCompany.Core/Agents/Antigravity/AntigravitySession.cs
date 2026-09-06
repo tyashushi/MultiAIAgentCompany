@@ -36,6 +36,12 @@ public sealed class AntigravitySession : IStructuredSession
     public event EventHandler<ApprovalRequest>? ApprovalRequested { add { } remove { } }
     public event EventHandler<OutcomeVerdict>? TurnFinished;
 
+    /// <inheritdoc />
+    public event EventHandler<LiveAgentMessage>? Spoke;
+
+    /// <summary>delta を1つでも受けたか。<b>受けていれば result.response を出さない</b>（二重表示を避ける。§17-5）。</summary>
+    private bool _sawDelta;
+
     public Task SendUserMessageAsync(string text, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -67,6 +73,13 @@ public sealed class AntigravitySession : IStructuredSession
                         _sawStepError = true;
                         break;
                     case AntigravityEvent.Finished finished:
+                        // delta が無いときの fallback（設計 §17-5）。**ライブ表示専用。**
+                        // delta を受けていれば出さない —— 二重表示になる。
+                        if (!_sawDelta && finished.Response.Length > 0)
+                        {
+                            SafeInvoke(() => Spoke?.Invoke(this, new LiveAgentMessage(finished.Response)), "Spoke");
+                        }
+
                         var sawStepError = _sawStepError;
                         _sawStepError = false;
                         var verdict = AntigravityTurnOutcome.ToSignals(finished, sawStepError)

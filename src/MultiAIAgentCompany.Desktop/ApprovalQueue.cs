@@ -18,6 +18,16 @@ namespace MultiAIAgentCompany.Desktop;
 /// 来ないことを「承認済み」と読まないこと（§2）。
 /// </para>
 /// </remarks>
+/// <summary>承認の出どころ。<b>表示場所が違う</b>（設計 §1 / §17-2）。</summary>
+public enum ApprovalSource
+{
+    /// <summary>部門。部門タイルの「承認を見る」から寄せる。</summary>
+    Department,
+
+    /// <summary>秘書。<b>中央の会話ペインに inline で出す</b>（§1）。</summary>
+    Secretary,
+}
+
 public sealed class ApprovalQueue
 {
     /// <summary>
@@ -46,16 +56,19 @@ public sealed class ApprovalQueue
 public sealed class PendingApproval : INotifyPropertyChanged
 {
     private readonly Func<ApprovalDecision, string?, CancellationToken, Task> _respond;
-    private readonly DepartmentStatusTracker _tracker;
+    /// <summary>秘書は3軸の状態を持たない（設計 §17-2）ので null になる。</summary>
+    private readonly DepartmentStatusTracker? _tracker;
     private bool _busy;
 
     public PendingApproval(
         string departmentName,
         ApprovalRequest request,
-        DepartmentStatusTracker tracker,
-        Func<ApprovalDecision, string?, CancellationToken, Task> respond)
+        DepartmentStatusTracker? tracker,
+        Func<ApprovalDecision, string?, CancellationToken, Task> respond,
+        ApprovalSource source = ApprovalSource.Department)
     {
         DepartmentName = departmentName;
+        Source = source;
         Request = request;
         _tracker = tracker;
         _respond = respond;
@@ -66,6 +79,13 @@ public sealed class PendingApproval : INotifyPropertyChanged
     public ICommand RespondCommand { get; }
 
     public string DepartmentName { get; }
+
+    /// <summary>どこに出すか（設計 §1 / §17-2）。</summary>
+    public ApprovalSource Source { get; }
+
+    public bool IsSecretary => Source is ApprovalSource.Secretary;
+
+    public bool IsDepartment => Source is ApprovalSource.Department;
 
     public ApprovalRequest Request { get; }
 
@@ -132,7 +152,7 @@ public sealed class PendingApproval : INotifyPropertyChanged
 
             // 決定を送ったことは、エージェントが動き出した証拠ではない（§7）。
             // Working に戻さず、次の観測を待つ。
-            _tracker.OnApprovalResolved(Request.RequestId);
+            _tracker?.OnApprovalResolved(Request.RequestId);
             Resolved?.Invoke(this, this);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

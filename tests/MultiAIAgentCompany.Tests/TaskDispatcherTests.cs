@@ -165,6 +165,7 @@ public sealed class TaskDispatcherTests : IDisposable
         public event EventHandler<int>? Exited;
         public event EventHandler<ApprovalRequest>? ApprovalRequested;
         public event EventHandler<OutcomeVerdict>? TurnFinished;
+        public event EventHandler<LiveAgentMessage>? Spoke;
 
         public async Task SendUserMessageAsync(string text, CancellationToken ct)
         {

@@ -39,6 +39,20 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// </summary>
     public ObservableCollection<RecoveryItem> Recovery { get; } = [];
 
+    /// <summary>
+    /// 秘書が居ないときも中央ペインを空にしない（設計 §17-4）——
+    /// 状態と、次に人間が取る行動を出す。
+    /// </summary>
+    public string SecretaryStatus
+    {
+        get;
+        set
+        {
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SecretaryStatus)));
+        }
+    } = "（ワークスペース未選択）";
+
     public bool HasRecovery => Recovery.Count > 0;
 
     public ShellViewModel() =>
@@ -175,7 +189,21 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         }
     }
 
-    /// <summary>この部門を選んでいるか（直接送信の宛先）。</summary>
+    /// <summary>
+    /// この部門への指示の下書き。<b>中央の入力欄とは別</b>（設計 §17-4）——
+    /// 中央は秘書のもので、同じ欄が複数の文脈を背負うと §0 / §1 と衝突する。
+    /// </summary>
+    public string TaskDraft
+    {
+        get;
+        set
+        {
+            field = value;
+            Raise();
+        }
+    } = string.Empty;
+
+    /// <summary>この部門を選んでいるか。</summary>
     public bool IsSelected
     {
         get;

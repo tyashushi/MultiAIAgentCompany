@@ -47,6 +47,9 @@ public sealed class CodexAppServerSession : IStructuredSession
     public event EventHandler<ApprovalRequest>? ApprovalRequested;
     public event EventHandler<OutcomeVerdict>? TurnFinished;
 
+    /// <inheritdoc />
+    public event EventHandler<LiveAgentMessage>? Spoke;
+
     /// <summary>initialize / initialized / thread/start が終わるまで待つ。</summary>
     public async Task CompleteHandshakeAsync(CancellationToken ct)
     {
@@ -171,6 +174,11 @@ public sealed class CodexAppServerSession : IStructuredSession
                     case CodexMessage.McpServerStatus mcp:
                         Observe($"Codex MCP サーバー: {mcp.Name ?? "名前不明"} ({mcp.Status ?? "状態不明"})");
                         break;
+                    case CodexMessage.Notification notification
+                        when TryReadAgentText(line) is { Length: > 0 } spoken:
+                        // **ライブ表示専用**（設計 §17-5）。Observed には出さない。
+                        SafeInvoke(() => Spoke?.Invoke(this, new LiveAgentMessage(spoken)), "Spoke");
+                        break;
                     case CodexMessage.Notification notification:
                         Observe($"Codex 通知: method={notification.Method}");
                         break;
@@ -237,6 +245,32 @@ public sealed class CodexAppServerSession : IStructuredSession
     }
 
     // 解釈層は Response の成否だけを表す。握手を進めるため thread.id だけをここで取り出す。
+    /// <summary>
+    /// <c>item/completed</c> の <c>agentMessage</c> から本文を取る（設計 §17-5）。
+    /// <b>ライブ表示専用。</b> 見つからなければ null。
+    /// </summary>
+    private static string? TryReadAgentText(string line)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(line);
+            var root = document.RootElement;
+            return root.TryGetProperty("params", out var parameters)
+                && parameters.TryGetProperty("item", out var item)
+                && item.TryGetProperty("type", out var type)
+                && type.ValueKind == System.Text.Json.JsonValueKind.String
+                && type.GetString() == "agentMessage"
+                && item.TryGetProperty("text", out var text)
+                && text.ValueKind == System.Text.Json.JsonValueKind.String
+                ? text.GetString()
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     private static bool TryGetThreadId(string line, out string? threadId)
     {
         threadId = null;

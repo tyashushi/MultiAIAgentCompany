@@ -33,6 +33,9 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
     public event EventHandler<ApprovalRequest>? ApprovalRequested;
     public event EventHandler<OutcomeVerdict>? TurnFinished;
 
+    /// <inheritdoc />
+    public event EventHandler<LiveAgentMessage>? Spoke;
+
     public Task SendUserMessageAsync(string text, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -86,6 +89,15 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
                         var verdict = ClaudeTurnOutcome.ToSignals(finished)
                             .Judge(OutcomeRequirement.For(AgentKind.ClaudeCode));
                         SafeInvoke(() => TurnFinished?.Invoke(this, verdict), "TurnFinished");
+                        break;
+                    case ClaudeEvent.AssistantSpoke spoke:
+                        // **ライブ表示専用**（設計 §17-5）。Observed には出さない ——
+                        // Evidence は「秘密値を入れない要約」で、こちらは中身そのもの。
+                        foreach (var text in spoke.TextBlocks)
+                        {
+                            SafeInvoke(() => Spoke?.Invoke(this, new LiveAgentMessage(text)), "Spoke");
+                        }
+
                         break;
                     case ClaudeEvent.Passthrough passthrough:
                         Observe($"Claude Code イベント: type={passthrough.Type}, subtype={passthrough.Subtype ?? "なし"}");

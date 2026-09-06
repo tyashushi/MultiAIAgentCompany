@@ -16,6 +16,12 @@ public abstract record ClaudeEvent
 
     public sealed record Passthrough(string Type, string? Subtype) : ClaudeEvent;
 
+    /// <summary>
+    /// エージェントの発言。<b>ライブ表示専用</b>（設計 §17-5）。
+    /// <c>text</c> ブロックだけで、<c>thinking</c> も <c>tool_use</c> も含まない。
+    /// </summary>
+    public sealed record AssistantSpoke(IReadOnlyList<string> TextBlocks) : ClaudeEvent;
+
     /// <summary>未知または壊れた行。RawFirst200 は永続する Evidence に流してはいけない。</summary>
     public sealed record Unknown(string Reason, string RawFirst200) : ClaudeEvent;
 }
@@ -124,6 +130,7 @@ public static class ClaudeStreamReader
                 "system" when GetString(root, "subtype") == "init" => ReadInit(root, line),
                 "control_request" => ReadApproval(root, line),
                 "result" => ReadResult(root, line),
+                "assistant" when TryReadSpoken(root, out var spoken) => new ClaudeEvent.AssistantSpoke(spoken),
                 "system" or "assistant" or "user" or "rate_limit_event" =>
                     new ClaudeEvent.Passthrough(type, GetString(root, "subtype")),
                 _ => Unknown($"未知のイベント type={type}", line),
@@ -137,6 +144,34 @@ public static class ClaudeStreamReader
         {
             return Unknown($"読取失敗: {exception.GetType().Name}", line);
         }
+    }
+
+    /// <summary>
+    /// <c>assistant</c> の <c>text</c> ブロックだけを取り出す（設計 §17-5）。
+    /// <c>thinking</c> は発言ではない。<c>tool_use</c> は「行動」なので混ぜない ——
+    /// 承認 UI や成否判定との境界が曖昧になる。
+    /// </summary>
+    private static bool TryReadSpoken(JsonElement root, out IReadOnlyList<string> textBlocks)
+    {
+        var blocks = new List<string>();
+        if (root.TryGetProperty("message", out var message)
+            && message.ValueKind == JsonValueKind.Object
+            && message.TryGetProperty("content", out var content)
+            && content.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var block in content.EnumerateArray())
+            {
+                if (block.ValueKind == JsonValueKind.Object
+                    && GetString(block, "type") == "text"
+                    && GetString(block, "text") is { Length: > 0 } text)
+                {
+                    blocks.Add(text);
+                }
+            }
+        }
+
+        textBlocks = blocks;
+        return blocks.Count > 0;
     }
 
     private static ClaudeEvent ReadInit(JsonElement root, string line)

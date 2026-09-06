@@ -217,4 +217,44 @@ public sealed class ClaudeSessionTests
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
+    [Fact]
+    public async Task 発言はSpokeに出てObservedには出ない()
+    {
+        // §17-5 / §10: Observed は「秘密値を入れない要約」、Spoke は中身そのもの。
+        // 橋渡しを完全には防げないので、**分かれていることをテストで固定する**。
+        const string secret = "do-not-persist-marker";
+        var line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + secret + "\"}]}}";
+        var channel = new FakeChannel([line]);
+        await using var session = new ClaudeCodeStructuredSession(channel, "engineering");
+        var spoken = new List<string>();
+        var observed = new List<string>();
+        session.Spoke += (_, message) => spoken.Add(message.Text);
+        session.Observed += (_, evidence) => observed.Add(evidence.RedactedSummary);
+
+        channel.Release();
+        await channel.Completed;
+
+        Assert.Contains(secret, Assert.Single(spoken));
+        Assert.DoesNotContain(observed, summary => summary.Contains(secret, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task thinkingとtool_useは発言にしない()
+    {
+        // 「発言」と「行動」を混ぜると、承認 UI や成否判定との境界が曖昧になる（§17-5）。
+        var line = "{\"type\":\"assistant\",\"message\":{\"content\":["
+            + "{\"type\":\"thinking\",\"thinking\":\"考え中\"},"
+            + "{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{}},"
+            + "{\"type\":\"text\",\"text\":\"これは発言\"}]}}";
+        var channel = new FakeChannel([line]);
+        await using var session = new ClaudeCodeStructuredSession(channel, "engineering");
+        var spoken = new List<string>();
+        session.Spoke += (_, message) => spoken.Add(message.Text);
+
+        channel.Release();
+        await channel.Completed;
+
+        Assert.Equal("これは発言", Assert.Single(spoken));
+    }
+
 }

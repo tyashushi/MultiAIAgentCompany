@@ -71,6 +71,20 @@ public interface IStructuredSession : IAgentSession
     event EventHandler<ApprovalRequest>? ApprovalRequested;
 
     /// <summary>
+    /// エージェントの<b>発言そのもの</b>。<b>ライブ表示専用</b>（設計 §17-5 / §10）。
+    /// </summary>
+    /// <remarks>
+    /// <b>これを永続させない。<see cref="Status.Evidence"/> へ渡さない。</b>
+    /// §10 は「画面と永続ログを分離し、永続する側だけを redact する」と決めている ——
+    /// <c>Observed</c> は要約（秘密値なし）を運び、こちらは中身を運ぶ。
+    /// <para>
+    /// 橋渡しを完全には防げない（購読側が任意のコードを書ける）。
+    /// <b>ヘルパも暗黙変換も置かない</b>ことと、テストで固定することまでが防御。
+    /// </para>
+    /// </remarks>
+    event EventHandler<LiveAgentMessage>? Spoke;
+
+    /// <summary>
     /// turn が終わった。<b>「終わった」は「成功した」ではない。</b>
     /// 判定は3層すべてを見た <see cref="OutcomeVerdict"/> で渡す（設計 §13 末尾 / §14-4）。
     /// </summary>
@@ -118,3 +132,14 @@ public interface ITuiSession : IAgentSession
 /// <param name="ProcessGroupId">process group id。シグナルの宛先はこちら。</param>
 /// <param name="StartedAt">開始時刻。PID 再利用を見破るための第2の鍵。</param>
 public readonly record struct ProcessIdentity(int Pid, int SessionId, int ProcessGroupId, DateTimeOffset StartedAt);
+
+/// <summary>
+/// エージェントが言ったこと。<b>ライブ表示だけに使う</b>（設計 §17-5）。
+/// </summary>
+/// <remarks>
+/// <b>型名が性格を表している。</b> これを保存したり、
+/// <see cref="Status.Evidence.RedactedSummary"/> に入れたりしない ——
+/// 中身に何が入っているか分からないため（§10）。
+/// </remarks>
+/// <param name="Text">発言の本文。<c>thinking</c> も <c>tool_use</c> も含まない（§17-5）。</param>
+public sealed record LiveAgentMessage(string Text);

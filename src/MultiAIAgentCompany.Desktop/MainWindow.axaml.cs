@@ -3,9 +3,11 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
 using MultiAIAgentCompany.Core.Sessions;
 using MultiAIAgentCompany.Core.Status;
+using MultiAIAgentCompany.Core.Workspace;
 using CoreTaskStatus = MultiAIAgentCompany.Core.Coordination.TaskStatus;
 
 namespace MultiAIAgentCompany.Desktop;
@@ -16,6 +18,7 @@ public partial class MainWindow : Window
     private readonly DepartmentRunner? _runner;
     private DepartmentTile? _selected;
     private DispatcherTimer? _scanTimer;
+    private SecretaryRunner? _secretary;
 
     /// <summary>
     /// 回答の送信で例外が出た仕事。<b>自動で送り直さない</b>（設計 §16-5 / §14-1）——
@@ -32,11 +35,63 @@ public partial class MainWindow : Window
 
     public MainWindow() => AvaloniaXamlLoader.Load(this);
 
-    public MainWindow(ShellComposer composer, DepartmentRunner runner) : this()
+    public MainWindow(ShellComposer composer, DepartmentRunner runner, SecretaryRunner secretary) : this()
     {
         _composer = composer;
         _runner = runner;
+        _secretary = secretary;
         DataContext = composer.Shell;
+
+        _secretary.StateChanged += (_, _) => Dispatcher.UIThread.Post(UpdateSecretaryStatus);
+        _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => Say($"秘書: {line}"));
+        UpdateSecretaryStatus();
+    }
+
+    /// <summary>
+    /// 秘書が居ないときも中央ペインを空にしない（設計 §17-4）——
+    /// 状態と、次に人間が取る行動を出す。
+    /// </summary>
+    private void UpdateSecretaryStatus()
+    {
+        if (DataContext is not ShellViewModel shell || _secretary is null)
+        {
+            return;
+        }
+
+        if (_composer?.Workspace is null)
+        {
+            shell.SecretaryStatus = "フォルダを選ぶ（秘書は選んだフォルダで動く）";
+            return;
+        }
+
+        // trust を状態に含める（設計 §17-4）。**未 trust と判定不能を分ける**（§13-9）——
+        // 読めていないだけなのに「未 trust」と言い切らない。
+        var trust = shell.Trust.FirstOrDefault(row => row.Agent == AgentKind.ClaudeCode)?.State;
+        shell.SecretaryStatus = (_secretary.State, trust) switch
+        {
+            (SecretaryState.Running, _) => "秘書と会話できる",
+            (SecretaryState.Starting, _) => "秘書を起動中",
+            (SecretaryState.Failed, _) => $"秘書を起動できなかった / 落ちた: {_secretary.FailureReason}",
+            (_, WorkspaceTrustState.NotTrusted) =>
+                "Claude Code がこのフォルダを trust していない。アプリは trust を書かない（その CLI で一度起動して信頼を与える）",
+            (_, WorkspaceTrustState.Unknown) =>
+                "Claude Code の trust を判定できない。未 trust とは限らない",
+            _ => "秘書はまだ起動していない。最初の送信で起動する",
+        };
+    }
+
+    private void Say(string line)
+    {
+        if (DataContext is ShellViewModel shell)
+        {
+            // 会話は正本ではない（§17-3）。落ちたら失われてよい。
+            // ただし**上限を置く** —— 永続しなくても長時間起動で膨らむ（§17-5）。
+            shell.SecretaryTranscript.Add(line);
+            while (shell.SecretaryTranscript.Count > 500)
+            {
+                shell.SecretaryTranscript.RemoveAt(0);
+            }
+        }
     }
 
     /// <summary>
@@ -176,21 +231,50 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 入力欄の内容を<b>仕事にする</b>。これが通常の経路（設計 §6 / §16-2）——
-    /// <c>instruction.md</c> を書き、<see cref="TaskDispatcher"/> に渡す。
+    /// 秘書に送る。<b>未起動ならその副作用として起動する</b>（設計 §17-4）——
+    /// ワークスペース選択に起動を隠さない。
     /// </summary>
-    private async void OnMakeTask(object? sender, RoutedEventArgs e)
+    private async void OnSendToSecretary(object? sender, RoutedEventArgs e)
     {
-        if (_composer is null || _runner is null || PeekMessage() is not { } text)
+        if (_secretary is null || _composer is null || PeekMessage() is not { } text)
         {
             return;
         }
 
-        if (_selected is not { } tile)
+        if (_composer.Workspace is not { } workspace)
         {
-            Note("先に部門を選ぶ");
+            Note("先にワークスペースを選ぶ");
             return;
         }
+
+        if (!_secretary.IsRunning)
+        {
+            // 起動に失敗したとき、入力欄の内容を消さない（§17-4）。
+            if (await _secretary.StartAsync(workspace, CancellationToken.None) is { } failure)
+            {
+                Note(failure);
+                return;
+            }
+        }
+
+        ClearMessage();
+        Say($"あなた: {text}");
+        await _secretary.SendAsync(text, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 選んだ部門に仕事を作る（設計 §17-4 で右ペインへ移した）。
+    /// <c>instruction.md</c> を書き、<see cref="TaskDispatcher"/> に渡す（§6 / §16-2）。
+    /// </summary>
+    private async void OnMakeTask(object? sender, RoutedEventArgs e)
+    {
+        if (_composer is null || _runner is null
+            || (sender as Control)?.DataContext is not DepartmentTile tile)
+        {
+            return;
+        }
+
+        Select(tile);
 
         if (_composer.Tasks is not { } tasks || _composer.Dispatcher is not { } dispatcher
             || _composer.Workspace is not { } workspace)
@@ -198,6 +282,16 @@ public partial class MainWindow : Window
             Note("先にワークスペースを選ぶ");
             return;
         }
+
+        // **中央の入力欄は秘書のもの**（§17-4）。部門の仕事はタイルの入力欄から取る。
+        // 秘書が outbox に publish する経路が入るまでの暫定（§17-1）。
+        if (string.IsNullOrWhiteSpace(tile.TaskDraft))
+        {
+            Note($"{tile.Name} のタイルの入力欄に指示を書いてから押す");
+            return;
+        }
+
+        var text = tile.TaskDraft;
 
         // 同じ秒に2つ作ると衝突して、2つ目が黙って作られない。
         var slug = $"task-{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4]}";
@@ -207,11 +301,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        ClearMessage();
+        tile.TaskDraft = string.Empty;
 
-        // instruction.md はアプリが書く（秘書が繋がるまでは人間の入力がそれにあたる。§6）。
-        // **人間の文章だけでは足りない** —— 部門は報告をどこにどう書くかを知らない。
-        // publish 契約と停止条件を添える（§16-1）。
+        // 人間の文章だけでは足りない —— 部門は報告をどこにどう書くかを知らない（§16-1）。
         await File.WriteAllTextAsync(
             workspace.Company.Instruction(slug),
             CompanyInstruction.Compose(text, workspace.Company, slug),
@@ -233,36 +325,6 @@ public partial class MainWindow : Window
         });
 
         await ScanAsync(CompanyScanKind.Periodic);
-    }
-
-    /// <summary>
-    /// 選んだ部門へ直接1メッセージ送る。
-    /// <b>仕事にしない</b>（設計 §16-2）—— <c>instruction.md</c> も <c>state.json</c> も
-    /// lease も復旧契約も通らない。配線を確かめるための経路。
-    /// </summary>
-    private async void OnAskDirectly(object? sender, RoutedEventArgs e)
-    {
-        if (_runner is null || PeekMessage() is not { } text)
-        {
-            return;
-        }
-
-        if (_selected is not { } tile)
-        {
-            Note("先に部門を選ぶ");
-            return;
-        }
-
-        if (!_runner.IsRunning(tile.Id))
-        {
-            // 黙って no-op にしない（§15-6）。
-            Note($"{tile.Name} は動いていないので送れない（先に「起動する」）");
-            return;
-        }
-
-        ClearMessage();
-        Note($"{tile.Name} へ直接聞いた（仕事にしていない）: {text}");
-        await _runner.SendAsync(tile.Id, text, CancellationToken.None);
     }
 
     /// <summary>入力欄を読むだけ。<b>消さない</b> —— 送れなかったときに人間の文章を失わない。</summary>
@@ -549,7 +611,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        // **ワークスペースが変わったら秘書は別人。** 前のフォルダで動いている Claude に
+        // 次のメッセージを送ると、意図と違う作業ツリーへ届く。
+        if (_secretary is { WorkspaceRoot: { } previous } && !string.Equals(previous, path, StringComparison.Ordinal))
+        {
+            Note("ワークスペースが変わったので秘書を終了した（次の送信で新しいフォルダで起動する）");
+            await _secretary.DisposeAsync();
+        }
+
         await _composer.SelectWorkspaceAsync(path, CancellationToken.None);
+        UpdateSecretaryStatus();
 
         // 起動時（ワークスペース選択時）の走査だけが復旧の一覧を作る（設計 §16-1）。
         await ScanAsync(CompanyScanKind.Startup);

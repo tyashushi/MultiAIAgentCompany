@@ -23,11 +23,18 @@ public partial class App : Application
                     tile.Record(item.Evidence);
                 }
             };
-            desktop.MainWindow = new MainWindow(composer, runner);
+            var secretary = new SecretaryRunner(composer.Approvals);
+            desktop.MainWindow = new MainWindow(composer, runner, secretary);
 
             // ウィンドウを閉じたら全部門を終了する（設計 §9）。
             // v1 はバックグラウンド継続を持たない —— 無人運転に近づくため。
-            desktop.ShutdownRequested += async (_, _) => await runner.DisposeAsync();
+            // アプリが起動した**全セッション**を終了する（設計 §9、2026-09-06 に訂正）——
+            // 秘書は部門ではないので、「全部門」と書くと責務から漏れる。
+            desktop.ShutdownRequested += async (_, _) =>
+            {
+                await runner.DisposeAsync();
+                await secretary.DisposeAsync();
+            };
         }
 
         base.OnFrameworkInitializationCompleted();

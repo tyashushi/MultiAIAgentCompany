@@ -106,12 +106,19 @@
                  ここは配線を実物で確かめるための直通路。秘書はまだ繋がっていない。 -->
             <!-- ボタンは2つ。**文言が何をするか言う**（設計 §16-2 / §15-6）——
                  「送信」では、仕事を作るのかただの一言なのかが分からない。 -->
-            <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" Margin="0,6,0,0">
-                <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
-                         PlaceholderText="選んだ部門への指示（秘書はまだ繋がっていない）" />
-                <Button Grid.Column="1" Content="仕事にする" Margin="6,0,0,0" Click="OnMakeTask" />
-                <Button Grid.Column="2" Content="直接聞く（仕事にしない）" Margin="6,0,0,0" Click="OnAskDirectly" />
-            </Grid>
+            <!-- **中央の入力欄は秘書だけのもの**（設計 §17-4）。
+                 同じ入力欄が秘書・部門・仕事作成という複数の文脈を背負うと §0 / §1 と衝突する。
+                 部門への操作は右ペインへ移した。 -->
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                <TextBlock Text="{Binding SecretaryStatus}" FontSize="11" Opacity="0.75"
+                           TextWrapping="Wrap" Margin="0,0,0,4" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
+                             PlaceholderText="秘書に相談する（日本語で書ける）" />
+                    <!-- 未起動なら、その副作用として起動する（§17-4）。 -->
+                    <Button Grid.Column="1" Content="秘書に送る" Margin="6,0,0,0" Click="OnSendToSecretary" />
+                </Grid>
+            </StackPanel>
 
             <!-- (a) ランタイム承認。ボタンは提示された決定から作る（設計 §5）——
                  版で変わる語彙をここに書き足さない。
@@ -235,6 +242,18 @@
                                          落ちているときは出さない —— §15-4 の「原因を見てから決める」。 -->
                                     <Button Content="起動する" IsVisible="{Binding CanStart}"
                                             Click="OnDepartmentStart" FontSize="11" Margin="0,4,0,0"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" />
+
+                                    <!-- 部門への操作は右ペインに置く（設計 §17-4）。
+                                         中央の入力欄は秘書のもの。 -->
+                                    <!-- 部門への指示は**中央の入力欄と別**（設計 §17-4）。
+                                         秘書が outbox に publish する経路が入るまでの暫定。 -->
+                                    <TextBox Text="{Binding TaskDraft, Mode=TwoWay}" IsVisible="{Binding IsSelected}"
+                                             PlaceholderText="この部門への指示" FontSize="11"
+                                             AcceptsReturn="False" Margin="0,4,0,0" />
+                                    <Button Content="この部門に仕事を作る" IsVisible="{Binding IsSelected}"
+                                            Click="OnMakeTask" FontSize="11" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
                                 </StackPanel>
