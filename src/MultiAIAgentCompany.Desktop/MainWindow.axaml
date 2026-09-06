@@ -44,6 +44,58 @@
                 <Button Grid.Column="1" Content="送信" Margin="6,0,0,0" IsEnabled="False" />
             </Grid>
 
+            <!-- (a) ランタイム承認。ボタンは提示された決定から作る（設計 §5）——
+                 版で変わる語彙をここに書き足さない。
+                 (b) 判断の相談はここに出さない。あれは .company/ のファイルで扱う（§3 / §6）。 -->
+            <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Approvals.Pending}" Margin="0,0,0,6">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:PendingApproval">
+                        <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                BorderThickness="2" CornerRadius="4" Padding="8" Margin="0,0,0,6">
+                            <StackPanel>
+                                <TextBlock FontWeight="Bold">
+                                    <Run Text="承認まち: " /><Run Text="{Binding DepartmentName}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                <TextBlock Text="{Binding Details}" TextWrapping="Wrap"
+                                           FontSize="11" Opacity="0.8" />
+
+                                <!-- 「今回だけ / 常に許可」の材料（§13-1）。安全な要約だけで、
+                                     ツールの入力そのものは含まない（§10）。v1 は読むだけ。 -->
+                                <ItemsControl ItemsSource="{Binding SuggestedRules}"
+                                              IsVisible="{Binding HasSuggestions}" Margin="0,4,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <ItemsControl ItemsSource="{Binding Decisions}" Margin="0,6,0,0">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Content="{Binding Label}" Margin="0,0,6,0"
+                                                    Command="{Binding $parent[ItemsControl].((vm:PendingApproval)DataContext).RespondCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- 返事が届かなかったことを、届いたことにしない。 -->
+                                <TextBlock Text="{Binding Error}" IsVisible="{Binding HasError}"
+                                           TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0"
+                                           FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
             <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="4">
                 <ItemsControl ItemsSource="{Binding SecretaryTranscript}" Margin="8">
                     <ItemsControl.ItemTemplate>

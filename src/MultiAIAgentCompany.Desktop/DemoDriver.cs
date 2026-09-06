@@ -33,27 +33,63 @@ public sealed class DemoDriver(ShellComposer composer, TimeProvider clock)
         EvidenceSource.StructuredEvent, clock.GetUtcNow(), "demo-session", "demo-turn",
         new AgentRef(departmentId, AgentKind.ClaudeCode), null, "demo", "デモの観測");
 
-    private static readonly Action<DepartmentStatusTracker, Evidence>[][] Steps =
+    private Action<DepartmentStatusTracker, Evidence>[][] Steps =>
     [
         // 1: 全部が動き出す
         [Working, Working, Working, Working, Working],
 
-        // 2: 人間の出番が3種そろう —— (a) 承認まち / (b) 相談中 / 報告まち
-        [Working, Approval, Consultation, Reported, Working],
+        // 2: 人間の出番が3種そろう —— (a) 承認まち / (b) 相談中 / 報告まち。
+        //    承認は Codex と Claude の両方を出す。**提示される決定が違う**のが見えるように（§5）。
+        [Working, Approval, Consultation, ClaudeApproval, Working],
 
         // 3: 1つが倒れ、1つは休む。休んでいる・分からない・倒れたが別物であること（§15-2）
-        [Resting, Approval, Consultation, Reported, Down],
+        [Resting, Skip, Consultation, Skip, Down],
     ];
+
+    private static void Skip(DepartmentStatusTracker t, Evidence e)
+    {
+        // 前の段の状態をそのまま残す（承認まちは人間が答えるまで消えない。§7）。
+    }
 
     private static void Working(DepartmentStatusTracker t, Evidence e) => t.OnObserved(e);
 
     private static void Resting(DepartmentStatusTracker t, Evidence e) =>
         t.OnTurnFinished(new OutcomeVerdict(true, "デモ: turn が終わった"));
 
-    private static void Approval(DepartmentStatusTracker t, Evidence e) =>
-        t.OnApprovalRequested(new ApprovalRequest(
-            "demo-a", ApprovalKind.Runtime, AgentKind.CodexCli, "s", "t",
-            "RunCommand", "デモの承認要求", [new ApprovalDecision("accept", "許可")], []));
+    private void Approval(DepartmentStatusTracker t, Evidence e)
+    {
+        // **決定は CLI が提示したものだけ**（設計 §5）。Codex は accept /
+        // acceptWithExecpolicyAmendment / cancel の3つで、decline は提示しない（実測 §13-2）。
+        var request = new ApprovalRequest(
+            "demo-a", ApprovalKind.Runtime, AgentKind.CodexCli, "demo-thread", "demo-turn",
+            "RunCommand",
+            "Do you want to allow creating this file outside the writable workspace?",
+            [
+                new ApprovalDecision("accept", "許可"),
+                new ApprovalDecision("acceptWithExecpolicyAmendment", "許可（ポリシー修正つき）"),
+                new ApprovalDecision("cancel", "取り消し"),
+            ],
+            []);
+
+        t.OnApprovalRequested(request);
+        composer.Approvals.Add(new PendingApproval("実装", request, t,
+            (decision, reason, ct) => Task.CompletedTask));
+    }
+
+    private void ClaudeApproval(DepartmentStatusTracker t, Evidence e)
+    {
+        // Claude は allow / deny の2つ。permission_suggestions から
+        // 「今回だけ / 常に許可」の材料が付く（実測 §13-1）。**安全な要約だけ**（§10）。
+        var request = new ApprovalRequest(
+            "demo-claude", ApprovalKind.Runtime, AgentKind.ClaudeCode, "demo-session", "demo-turn",
+            "Bash", "echo HELLO > hello.txt",
+            [new ApprovalDecision("allow", "許可"), new ApprovalDecision("deny", "拒否")],
+            ["Bash のルール1件を常に許可（localSettings）", "ディレクトリ1件を作業対象に追加（session）"]);
+
+        t.OnApprovalRequested(request);
+        composer.Approvals.Add(new PendingApproval("レビュー", request, t,
+            (decision, reason, ct) => Task.CompletedTask));
+    }
 
     private static void Consultation(DepartmentStatusTracker t, Evidence e)
     {

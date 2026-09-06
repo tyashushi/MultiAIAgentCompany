@@ -24,6 +24,12 @@ public sealed class ShellViewModel
 
     /// <summary>右ペイン: 部門ステータス。</summary>
     public required IReadOnlyList<DepartmentTile> Departments { get; init; }
+
+    /// <summary>
+    /// (a) ランタイム承認の待ち行列（設計 §3 / §5）。
+    /// <b>(b) 判断の相談はここに来ない</b> —— あれは <c>.company/</c> のファイルで扱う。
+    /// </summary>
+    public required ApprovalQueue Approvals { get; init; }
 }
 
 /// <summary>
