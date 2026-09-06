@@ -1,7 +1,7 @@
 namespace MultiAIAgentCompany.Core.Workspace.Trust;
 
 /// <summary>trust 設定に記録されたパスとワークスペースを同じ基準で比較する。</summary>
-internal static class WorkspacePathNormalizer
+public static class WorkspacePathNormalizer
 {
     public static string Normalize(string path) =>
         Path.TrimEndingDirectorySeparator(ResolveFully(Path.GetFullPath(path), depth: 0));

@@ -77,7 +77,10 @@ public sealed class ShellComposer
 
     /// <summary>
     /// フォルダが選ばれたときに、各 CLI の trust を読み直す（設計 §13-9）。
-    /// <b>書き込みはしない。</b>
+    /// <b>ディスクへ書かない</b>（§21-1）—— 起動時に前回のフォルダを開くので、
+    /// 「選ぶ」が書き込みを含むと、人間が今回まだ何も選んでいないのに書くことになる。
+    /// protocol の正本（§17-6）は <see cref="WriteSecretaryProtocolAsync"/> で、
+    /// 秘書を起動する直前に置く。
     /// </summary>
     public async Task SelectWorkspaceAsync(string root, CancellationToken ct)
     {
@@ -94,12 +97,6 @@ public sealed class ShellComposer
         Scanner = new CompanyScanner(paths, Tasks);
         Outbox = new SecretaryOutbox(paths);
 
-        // protocol の正本を置く（§17-6）。起動時に送るのは「これを読んで」だけ。
-        await SecretaryReadme.WriteAsync(paths,
-            [.. _definitions.Values.Select(d =>
-                $"- `{d.Id}` … {d.DisplayName}（{d.Responsibility}）"
-                + (d.Mode is DriveMode.Tui ? " **TUI。仕事にはできるが、人間が手で送る**" : string.Empty))],
-            ct);
         Shell.WorkspaceLabel = root;
         Shell.Trust.Clear();
         foreach (var row in rows)
@@ -279,6 +276,20 @@ public sealed class ShellComposer
         CoreTaskStatus.InProgress => 1,
         _ => 0,
     };
+
+    /// <summary>
+    /// 秘書の protocol の正本を置く（設計 §17-6）。
+    /// <b>秘書へ1通目を送るより前に呼ぶこと</b> —— 1通目は「これを読んで」だけなので、
+    /// 順序が逆になると読ませる先が無い。
+    /// </summary>
+    public Task WriteSecretaryProtocolAsync(CancellationToken ct) =>
+        Workspace is { } workspace
+            ? SecretaryReadme.WriteAsync(workspace.Company,
+                [.. _definitions.Values.Select(d =>
+                    $"- `{d.Id}` … {d.DisplayName}（{d.Responsibility}）"
+                    + (d.Mode is DriveMode.Tui ? " **TUI。仕事にはできるが、人間が手で送る**" : string.Empty))],
+                ct)
+            : Task.CompletedTask;
 
     public static ShellComposer CreateDefault(TimeProvider clock) =>
         new(Core.Workspace.DepartmentStore.CreateDefaultDepartments(), clock);

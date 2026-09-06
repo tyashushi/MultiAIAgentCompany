@@ -39,6 +39,9 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _scanInFlight;
 
+    /// <summary>前回のワークスペース。<b>覚えるのはパスだけ</b>（設計 §21-3）。</summary>
+    private readonly WorkspaceMemory _memory = WorkspaceMemory.CreateDefault();
+
     public MainWindow() => AvaloniaXamlLoader.Load(this);
 
     public MainWindow(ShellComposer composer, DepartmentRunner runner, SecretaryRunner secretary) : this()
@@ -51,6 +54,47 @@ public partial class MainWindow : Window
         _secretary.StateChanged += (_, _) => Dispatcher.UIThread.Post(UpdateSecretaryStatus);
         _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => Say($"秘書: {line}"));
         UpdateSecretaryStatus();
+
+        Opened += async (_, _) => await ResumeWorkspaceAsync();
+    }
+
+    /// <summary>
+    /// 前回のワークスペースを開き直す（設計 §21-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>疑わしいときは開かない。</b> 開くと Startup 走査が <c>state.json</c> を進めるので、
+    /// 人間が今回まだ何も選んでいない場所でそれを起こさない。
+    /// <b>理由は必ず出す</b> —— 黙って「選んでください」に戻ると、前回の場所が
+    /// 消えたことに気付けない。
+    /// </remarks>
+    private async Task ResumeWorkspaceAsync()
+    {
+        switch (await _memory.DecideAsync(CancellationToken.None))
+        {
+            case WorkspaceResume.Open open:
+                try
+                {
+                    await OpenWorkspaceAsync(open.Remembered.RawPath);
+                    Note($"前回のフォルダを開いた: {open.Remembered.RawPath}");
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // **ここで投げると毎回の起動が落ちる。** 自動で開いた副作用で、
+                    // 人間が別のフォルダを選ぶ画面にすら辿り着けなくなる。
+                    Note($"前回のフォルダを開けなかった（{exception.GetType().Name}: {exception.Message}）。"
+                        + $"選び直す: {open.Remembered.RawPath}");
+                }
+
+                break;
+
+            // **理由は記録が読めないときも出す**（§21-1）。黙って捨てると
+            // 「まだ選んでいない」と区別が付かない。
+            case WorkspaceResume.Ask ask:
+                Note(ask.Remembered is { } remembered
+                    ? $"前回のフォルダを開かなかった（{ask.Reason}）。選び直す: {remembered.RawPath}"
+                    : $"前回のフォルダを開かなかった（{ask.Reason}）");
+                break;
+        }
     }
 
     /// <summary>
@@ -486,6 +530,10 @@ public partial class MainWindow : Window
 
         if (!_secretary.IsRunning)
         {
+            // protocol の正本を置くのはここ（§17-6 / §21-1）。**1通目より前**。
+            // ワークスペース選択に含めると、起動時の自動復帰が「人間が選んでいないのに書く」になる。
+            await _composer.WriteSecretaryProtocolAsync(CancellationToken.None);
+
             // 起動に失敗したとき、入力欄の内容を消さない（§17-4）。
             if (await _secretary.StartAsync(workspace, CancellationToken.None) is { } failure)
             {
@@ -949,6 +997,21 @@ public partial class MainWindow : Window
         {
             Note("ワークスペースが変わったので秘書を終了した（次の送信で新しいフォルダで起動する）");
             await _secretary.DisposeAsync();
+        }
+
+        await OpenWorkspaceAsync(path);
+
+        // **人間が選んだときだけ覚える**（設計 §21-2）。起動時の自動復帰では上書きしない ——
+        // 開けなかった記録を開いたことにしない。
+        await _memory.RememberAsync(path, DateTimeOffset.Now, CancellationToken.None);
+    }
+
+    /// <summary>ワークスペースを開く。人間の選択と起動時の復帰で同じ経路を通る（設計 §21-1）。</summary>
+    private async Task OpenWorkspaceAsync(string path)
+    {
+        if (_composer is null)
+        {
+            return;
         }
 
         await _composer.SelectWorkspaceAsync(path, CancellationToken.None);
