@@ -622,27 +622,62 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_secretary.IsRunning)
+        // 起動に失敗したとき、入力欄の内容を消さない（§17-4）。
+        if (!await EnsureSecretaryAsync(workspace))
         {
-            // protocol の正本を置くのはここ（§17-6 / §21-1）。**1通目より前**。
-            // ワークスペース選択に含めると、起動時の自動復帰が「人間が選んでいないのに書く」になる。
-            await _composer.WriteSecretaryProtocolAsync(CancellationToken.None);
-
-            // 起動に失敗したとき、入力欄の内容を消さない（§17-4）。
-            if (await _secretary.StartAsync(workspace, CancellationToken.None) is { } failure)
-            {
-                Note(failure);
-                return;
-            }
-
-            // protocol の正本は README。**中身を会話に埋めない**（設計 §17-6）。
-            await _secretary.SendAsync(
-                SecretaryReadme.StartupMessage(workspace.Company), CancellationToken.None);
+            return;
         }
 
         ClearMessage();
         Say($"あなた: {text}");
         await _secretary.SendAsync(text, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 秘書が動いていなければ起動して、protocol を読ませる（設計 §17-4 / §17-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>順序が契約。</b> README を置く → 起動する → 1通目に「これを読んで」を送る。
+    /// 逆にすると読ませる先が無い（§21-1）。
+    /// <para>
+    /// <b>起動の経路を1つにする。</b> 送信の副作用とワークスペース選択の両方から呼ぶので、
+    /// 別々に書くと片方だけ順序を間違える。
+    /// </para>
+    /// </remarks>
+    /// <returns>秘書が使える状態か。</returns>
+    private async Task<bool> EnsureSecretaryAsync(MultiAIAgentCompany.Core.Workspace.WorkspaceRef workspace)
+    {
+        if (_secretary is null || _composer is null)
+        {
+            return false;
+        }
+
+        if (_secretary.IsRunning)
+        {
+            return true;
+        }
+
+        await _composer.WriteSecretaryProtocolAsync(CancellationToken.None);
+
+        if (await _secretary.StartAsync(workspace, CancellationToken.None) is { } failure)
+        {
+            Note(failure);
+            return false;
+        }
+
+        // **起動していないのに「使える」と答えない。** 既に起動中だった場合、
+        // StartAsync は「失敗ではない」を返すが、この呼び出しは何も起こしていない ——
+        // ここで送ると SendAsync が黙って捨てる（§7 の「沈黙を正常にしない」）。
+        if (!_secretary.IsRunning)
+        {
+            Note("秘書は起動中。立ち上がったらもう一度送る");
+            return false;
+        }
+
+        // protocol の正本は README。**中身を会話に埋めない**（設計 §17-6）。
+        await _secretary.SendAsync(
+            SecretaryReadme.StartupMessage(workspace.Company), CancellationToken.None);
+        return true;
     }
 
     /// <summary>
@@ -1118,7 +1153,9 @@ public partial class MainWindow : Window
 
         // **ワークスペースが変わったら秘書は別人。** 前のフォルダで動いている Claude に
         // 次のメッセージを送ると、意図と違う作業ツリーへ届く。
-        if (_secretary is { WorkspaceRoot: { } previous } && !string.Equals(previous, path, StringComparison.Ordinal))
+        // **起動中のものも見る**（§17-7）。WorkspaceRoot は起動が終わるまで null なので、
+        // それだけを見ると「切り替わっていない」と誤判定する。
+        if (_secretary is { TargetWorkspaceRoot: { } previous } && !string.Equals(previous, path, StringComparison.Ordinal))
         {
             Note("ワークスペースが変わったので秘書を終了した（次の送信で新しいフォルダで起動する）");
             await _secretary.DisposeAsync();
@@ -1145,5 +1182,31 @@ public partial class MainWindow : Window
         // 起動時（ワークスペース選択時）の走査だけが復旧の一覧を作る（設計 §16-1）。
         await ScanAsync(CompanyScanKind.Startup);
         StartPeriodicScan();
+
+        // **フォルダが決まったら秘書を起こす**（2026-09-06、人間が指定。§17-4 を改めた）。
+        // 選んだ時点で相手が居る方が自然、という判断。**代償は書いてある**（§17-7）——
+        // アプリを開くだけで claude が1つ起動し、README も書かれる。
+        // **開き始めたときの path と、いま開いているものが同じか確かめる**（§17-7）。
+        // 走査を待っている間に人間が別のフォルダを選ぶと、古い側のこの行が
+        // **選ばれていないフォルダで claude を起こす**。しかも後から来た側は
+        // `IsRunning` を見て、その間違った秘書を使い回す。
+        if (_composer.Workspace is { } opened
+            && string.Equals(opened.Root, path, StringComparison.Ordinal))
+        {
+            try
+            {
+                await EnsureSecretaryAsync(opened);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // **フォルダを選んだだけでアプリが落ちない。** 書けないフォルダ
+                // （読み取り専用、`.company/secretary` を作れない）を選ぶと、
+                // ここは async void の先なので投げるとそのまま落ちる。
+                Note($"秘書を起動できなかった（{exception.GetType().Name}: {exception.Message}）。"
+                    + "ワークスペースは開いている");
+            }
+
+            UpdateSecretaryStatus();
+        }
     }
 }

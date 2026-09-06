@@ -33,8 +33,42 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     private IStructuredSession? _session;
     private bool _starting;
 
+    /// <summary>
+    /// 「いまの秘書」の世代（設計 §17-7）。<b>起動中の破棄を成立させるためにある。</b>
+    /// </summary>
+    /// <remarks>
+    /// 破棄が <c>_session</c> しか見ていないと、<b>起動中の破棄が何もしない</b> ——
+    /// そのあと起動が完了して、誰も閉じないセッションが残る。
+    /// </remarks>
+    private int _generation;
+
+    /// <summary>走っている起動。<b>破棄はこれを待つ</b>（設計 §17-7）。</summary>
+    private Task? _startTask;
+
     /// <summary>いま動いている秘書のワークスペース。<b>切り替えたら別人</b>。</summary>
     public string? WorkspaceRoot { get; private set; }
+
+    /// <summary>
+    /// 起動中のものも含めた、この秘書の宛先（設計 §17-7）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="WorkspaceRoot"/> だけでは足りない。</b> 起動が終わるまで null なので、
+    /// 起動中に別のフォルダへ切り替えると「切り替わっていない」と判定してしまい、
+    /// **画面は B なのに秘書は A で動く**（レビューで発覚、2026-09-06）。
+    /// 選択が自動で起動を伴うようになって、この窓が現実的な幅になった。
+    /// </remarks>
+    public string? PendingWorkspaceRoot { get; private set; }
+
+    /// <summary>
+    /// この秘書がいま向いているフォルダ。起動中も含む（設計 §17-7）。
+    /// <b>切り替えの判定はこちらで見る。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b>起動中の宛先が優先</b>（レビューで直した）。前の秘書が落ちても
+    /// <see cref="WorkspaceRoot"/> は残るので、そちらを先に見ると
+    /// **B を起動している最中に A へ戻ったとき「変わっていない」と誤判定する**。
+    /// </remarks>
+    public string? TargetWorkspaceRoot => PendingWorkspaceRoot ?? WorkspaceRoot;
 
     public SecretaryState State { get; private set; } = SecretaryState.NotStarted;
 
@@ -63,12 +97,37 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
         }
 
         _starting = true;
+        PendingWorkspaceRoot = workspace.Root;
         SetState(SecretaryState.Starting, null);
+
+        // **走っている起動を持っておく**（設計 §17-7）。破棄がこれを待てるようにするため ——
+        // 待たないと、切り替え直後の起動が「まだ起動中」で弾かれ、
+        // **新しいフォルダに秘書が居ないまま**になる。
+        var task = StartCoreAsync(workspace, _generation, ct);
+        _startTask = task;
+        return await task;
+    }
+
+    private async Task<string?> StartCoreAsync(WorkspaceRef workspace, int generation, CancellationToken ct)
+    {
         try
         {
             var adapter = new ClaudeCodeAdapter();
             var session = (IStructuredSession)await adapter.StartAsync(
                 workspace, DepartmentLabel, DriveMode.Structured, ct);
+
+            // **起動している間に切り替えられていたら、これは別人**（設計 §17-7）。
+            // ここで公開すると、画面は B なのに秘書は A のフォルダで動く。
+            if (generation != _generation)
+            {
+                await session.DisposeAsync();
+
+                // **Starting のまま残さない。** 画面が「起動中」で止まると、
+                // 人間は待てば立ち上がると思う（§7 の「沈黙を正常にしない」の裏返し）。
+                SetState(SecretaryState.NotStarted, null);
+                return null;
+            }
+
             _session = session;
             WorkspaceRoot = workspace.Root;
             Wire(session);
@@ -84,6 +143,10 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
         finally
         {
             _starting = false;
+            if (_session is null)
+            {
+                PendingWorkspaceRoot = null;
+            }
         }
     }
 
@@ -98,6 +161,7 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
         session.Exited += (_, exitCode) =>
         {
             _session = null;
+            WorkspaceRoot = null;
             SetState(exitCode == 0 ? SecretaryState.NotStarted : SecretaryState.Failed,
                 exitCode == 0 ? null : $"終了コード {exitCode}");
         };
@@ -130,6 +194,26 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
+        // **起動中でも「もう要らない」と伝わるようにする**（設計 §17-7）。
+        // 世代を進めておけば、走っている StartAsync が自分で閉じる。
+        _generation++;
+        PendingWorkspaceRoot = null;
+
+        // **走っている起動を待つ。** 世代を進めてあるので、向こうは自分で閉じる。
+        // 待たずに戻ると、次の起動が「まだ起動中」で弾かれる。
+        if (_startTask is { } starting)
+        {
+            _startTask = null;
+            try
+            {
+                await starting;
+            }
+            catch (Exception)
+            {
+                // 起動の失敗はもう関係ない。破棄はここで止まらない。
+            }
+        }
+
         if (_session is { } session)
         {
             _session = null;
