@@ -132,6 +132,66 @@ public sealed class TaskDispatcherTests : IDisposable
         Assert.IsType<DispatchResult.Conflicted>(await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation")));
     }
 
+    [Fact]
+    public async Task 差し戻しの送り直しは古い指示ではなく昇格した指示を送る()
+    {
+        // **この案件で一番踏みやすい罠**（設計 §19-1）。dispatch は instruction.md を
+        // 先に読んでから遷移するので、そのまま当てると古い指示が飛ぶ。
+        var rejected = await CreateRejectedAsync();
+        await File.WriteAllTextAsync(_workspace.Paths.NextInstruction("feature"), "やり直してください");
+        var session = new FakeSession("implementation");
+
+        var result = Assert.IsType<DispatchResult.Dispatched>(await _dispatcher.RedispatchAsync(
+            rejected, StructuredDepartment, session, TimeSpan.FromMinutes(10), CancellationToken.None));
+
+        Assert.Equal("やり直してください", Assert.Single(session.Messages));
+        Assert.Equal(1, result.State.AttemptId);
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    [Fact]
+    public async Task 次の指示が無ければ送り直さず状態も動かさない()
+    {
+        var rejected = await CreateRejectedAsync();
+        var session = new FakeSession("implementation");
+
+        Assert.IsType<DispatchResult.Rejected>(await _dispatcher.RedispatchAsync(
+            rejected, StructuredDepartment, session, TimeSpan.FromMinutes(10), CancellationToken.None));
+
+        Assert.Empty(session.Messages);
+        Assert.Equal(CoreTaskStatus.Rejected, (await ReadStateAsync()).Status);
+        // 進めなかったのに lease を握ったままにしない（§14-2）。
+        var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None));
+        Assert.True(leases.Leases.CanAcquire(LeaseKind.Write, _clock.GetUtcNow()));
+    }
+
+    [Fact]
+    public async Task 送り直しの送信例外でもDispatchedを巻き戻さない()
+    {
+        var rejected = await CreateRejectedAsync();
+        await File.WriteAllTextAsync(_workspace.Paths.NextInstruction("feature"), "やり直してください");
+        var session = new FakeSession("implementation") { SendException = new IOException("pipe failed") };
+
+        Assert.IsType<DispatchResult.SentUncertain>(await _dispatcher.RedispatchAsync(
+            rejected, StructuredDepartment, session, TimeSpan.FromMinutes(10), CancellationToken.None));
+
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    /// <summary>報告まで進んで差し戻された仕事。<c>instruction.md</c> と <c>report.md</c> がある。</summary>
+    private async Task<TaskState> CreateRejectedAsync()
+    {
+        var state = await CreateDraftAsync();
+        foreach (var next in new[] { CoreTaskStatus.Dispatched, CoreTaskStatus.Reported, CoreTaskStatus.Rejected })
+        {
+            state = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+                state, next, TransitionOrigin.Human, null, CancellationToken.None)).State;
+        }
+
+        await File.WriteAllTextAsync(_workspace.Paths.Report("feature"), "できました");
+        return state;
+    }
+
     private async Task<TaskState> CreateDraftAsync()
     {
         var state = Assert.IsType<TaskWriteResult.Written>(await _tasks.CreateAsync("feature", "implementation", CancellationToken.None)).State;

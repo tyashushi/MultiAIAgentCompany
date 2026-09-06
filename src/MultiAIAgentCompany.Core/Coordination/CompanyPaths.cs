@@ -76,6 +76,18 @@ public sealed class CompanyPaths
 
     public string Answer(string slug) => Path.Combine(TaskDirectory(slug), "answer.md");
 
+    /// <summary>
+    /// 差し戻しの理由（設計 §19-2）。<b><c>Note</c> に入れない</b> ——
+    /// あれは遷移のたびに上書きされ、部門へ届く経路でもない。
+    /// </summary>
+    public string Rejection(string slug) => Path.Combine(TaskDirectory(slug), "rejection.md");
+
+    /// <summary>
+    /// 次の試行の指示の staging（設計 §19-1）。
+    /// <b>封じ込めの対象に入れない</b> —— 入れると、新しい指示が過去試行へ移ってしまう。
+    /// </summary>
+    public string NextInstruction(string slug) => Path.Combine(TaskDirectory(slug), "next-instruction.md");
+
     public string State(string slug) => Path.Combine(TaskDirectory(slug), "state.json");
 
     /// <summary>過去の試行を封じる場所（設計 §14-1）。</summary>

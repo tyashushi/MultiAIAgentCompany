@@ -84,12 +84,26 @@ public enum DepartmentAction
     /// 指示書はあるが、まだ部門へ投げていない仕事を渡す（設計 §15-6）。
     /// </summary>
     /// <remarks>
-    /// <b><c>Rejected</c>（差し戻し）に同じものを当てない。</b>
+    /// <b><c>Rejected</c>（差し戻し）には <see cref="RedispatchTask"/> を当てる。</b>
     /// <c>Rejected → Dispatched</c> は現在の <c>instruction.md</c> を
-    /// <c>attempts/&lt;n&gt;/</c> へ封じるが、dispatch は**先に読んでから**遷移するので、
-    /// **古い指示を送ったうえ、新しい試行に指示書が残らない**（§15-10 の未決）。
+    /// <c>attempts/&lt;n&gt;/</c> へ封じるので、dispatch（先に読んでから遷移する）を
+    /// そのまま当てると**古い指示を送ったうえ、新しい試行に指示書が残らない**。
+    /// 順序を変えた別経路が要る（§19-1 で解決した。§15-10 の未決だった）。
     /// </remarks>
     DispatchTask,
+
+    /// <summary>
+    /// 差し戻した仕事を、次の試行として送り直す（設計 §19-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="DispatchTask"/> と分ける。</b> 押す前に何が起きるか変わる ——
+    /// こちらは過去の試行を <c>attempts/</c> へ封じ、次の指示書を昇格させる。
+    /// <para>
+    /// <c>Rejected</c> に用件を出さないと、差し戻したまま送り直せない仕事が
+    /// 「要対応でない」顔で残る（§15-6 の <c>NeedsHuman == Action != None</c> に反する）。
+    /// </para>
+    /// </remarks>
+    RedispatchTask,
 
     /// <summary>観測を並べる。何かおかしいが、落ちてはいない。</summary>
     ShowObservations,
@@ -224,6 +238,12 @@ public sealed record DepartmentCallToAction(
         if (work is CoreTaskStatus.Drafted)
         {
             return DepartmentAction.DispatchTask;
+        }
+
+        // 6b. 差し戻したまま止まっている仕事。渡すのと**同じ段**だが操作が違う（§19-1）。
+        if (work is CoreTaskStatus.Rejected)
+        {
+            return DepartmentAction.RedispatchTask;
         }
 
         // 7. 何かおかしいが落ちてはいない。

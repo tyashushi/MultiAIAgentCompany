@@ -253,6 +253,81 @@ public sealed class TaskDispatcher
         };
     }
 
+    /// <summary>
+    /// 差し戻された仕事を次の試行へ進めて送る（設計 §19-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="DispatchAsync"/> を使えない。</b> あちらは <c>instruction.md</c> を
+    /// <b>読んでから</b>遷移するが、<c>Rejected → Dispatched</c> はその <c>instruction.md</c> を
+    /// <c>attempts/</c> へ封じる —— 古い指示を送ったうえ、新しい試行に指示書が残らない（§15-10）。
+    /// <para>
+    /// <b><see cref="RetryDeliveryAsync"/> とも違う。</b> あれは同じ試行の再送。
+    /// </para>
+    /// </remarks>
+    public async Task<DispatchResult> RedispatchAsync(
+        TaskState expected,
+        DepartmentDefinition department,
+        IStructuredSession? session,
+        TimeSpan leaseDuration,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(department);
+
+        if (!string.Equals(department.Id, expected.DepartmentId, StringComparison.Ordinal))
+        {
+            return new DispatchResult.Rejected("送り先の部門がタスクの担当部門と一致しません");
+        }
+
+        if (department.Mode is DriveMode.Structured && session is null)
+        {
+            return new DispatchResult.Rejected("Structured 部門には構造化セッションが必要です");
+        }
+
+        var leaseResult = await AcquireOrRenewWriteLeaseAsync(expected, department, leaseDuration, ct);
+        if (leaseResult is DispatchResult leaseFailure)
+        {
+            return leaseFailure;
+        }
+
+        // 封じる → 昇格する → 状態を書く、までを TaskStore が1つの操作でやる（§19-1 / §14-1）。
+        var transition = await _tasks.RedispatchAsync(expected, ct);
+        switch (transition)
+        {
+            case TaskWriteResult.Rejected rejected:
+                await ReleaseWriteLeaseAsync(department, ct);
+                return new DispatchResult.Rejected(rejected.Reason);
+            case TaskWriteResult.Conflicted conflicted:
+                await ReleaseWriteLeaseAsync(department, ct);
+                return new DispatchResult.Conflicted(conflicted.Reason);
+        }
+
+        var written = ((TaskWriteResult.Written)transition).State;
+
+        if (department.Mode is DriveMode.Tui)
+        {
+            return new DispatchResult.NeedsHuman(written, "TUI 部門にはアプリが自動送信しません");
+        }
+
+        // ここで読むのは**昇格したあとの** instruction.md。
+        var instruction = await ReadInstructionAsync(written.Slug, ct);
+        if (string.IsNullOrWhiteSpace(instruction))
+        {
+            return new DispatchResult.SentUncertain(written, "昇格した instruction.md を読めなかった");
+        }
+
+        try
+        {
+            await session!.SendUserMessageAsync(instruction, ct);
+            return new DispatchResult.Dispatched(written);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // 状態は巻き戻さない（§14-1）。Dispatched は「送ったかもしれない」。
+            return new DispatchResult.SentUncertain(written, $"送信中に例外が発生しました: {exception.Message}");
+        }
+    }
+
     private async Task<string?> ReadInstructionAsync(string slug, CancellationToken ct)
     {
         try

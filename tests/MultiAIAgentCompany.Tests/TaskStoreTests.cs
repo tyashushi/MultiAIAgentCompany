@@ -69,13 +69,17 @@ public sealed class TaskStoreTests : IDisposable
         await File.WriteAllTextAsync(_workspace.Paths.Instruction("feature"), "instruction");
         await File.WriteAllTextAsync(_workspace.Paths.Report("feature"), "report");
 
-        var result = Assert.IsType<TaskWriteResult.Written>(await _store.TransitionAsync(rejected.State, CoreTaskStatus.Dispatched, TransitionOrigin.Automation, null, CancellationToken.None));
+        await File.WriteAllTextAsync(_workspace.Paths.NextInstruction("feature"), "next");
+
+        // 差し戻しからの再送は RedispatchAsync だけを通る（設計 §19-1）。
+        Assert.IsType<TaskWriteResult.Rejected>(await _store.TransitionAsync(rejected.State, CoreTaskStatus.Dispatched, TransitionOrigin.Human, null, CancellationToken.None));
+        var result = Assert.IsType<TaskWriteResult.Written>(await _store.RedispatchAsync(rejected.State, CancellationToken.None));
 
         Assert.Equal(1, result.State.AttemptId);
         var attempt = _workspace.Paths.AttemptDirectory("feature", 0);
         Assert.Equal("instruction", await File.ReadAllTextAsync(Path.Combine(attempt, "instruction.md")));
         Assert.Equal("report", await File.ReadAllTextAsync(Path.Combine(attempt, "report.md")));
-        Assert.False(File.Exists(_workspace.Paths.Instruction("feature")));
+        Assert.Equal("next", await File.ReadAllTextAsync(_workspace.Paths.Instruction("feature")));
         Assert.False(File.Exists(_workspace.Paths.Report("feature")));
     }
 

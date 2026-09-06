@@ -155,6 +155,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         DepartmentAction.ReadReport => "報告を読む",
         DepartmentAction.CheckDelivery => "送信を確認する",
         DepartmentAction.DispatchTask => "この仕事を渡す",
+        DepartmentAction.RedispatchTask => "差し戻した仕事を送り直す",
         DepartmentAction.ShowObservations => "観測を見る",
         _ => string.Empty,
     };
@@ -210,6 +211,32 @@ public sealed class DepartmentTile : INotifyPropertyChanged
             Raise();
         }
     } = string.Empty;
+
+    /// <summary>
+    /// 差し戻しの理由。<b>次の指示書に入る</b>（設計 §19-2）——
+    /// <c>rejection.md</c> を置くだけでは部門が読む保証がない。
+    /// </summary>
+    /// <remarks>
+    /// <b>§15-7 の「拒否理由の入力欄を出さない」はここに掛からない。</b>
+    /// あれは (a) 実行時の承認の話で、承認は待たせる操作だから理由入力で止めない。
+    /// 報告の差し戻しは待たせる相手がいないうえ、理由が無いと次の試行が同じ報告を返す。
+    /// </remarks>
+    public string RejectionDraft
+    {
+        get;
+        set
+        {
+            field = value;
+            Raise();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    /// 受理／差し戻しを出すか。<b>ボタンの文言（<see cref="ActionLabel"/>）とは別軸</b> ——
+    /// 用件の1段目は「報告を読む」で、読んだあとに決めるのが受理か差し戻しだから、
+    /// 同じ1つのボタンに畳めない（設計 §19-3）。
+    /// </summary>
+    public bool CanJudgeReport => Status.Work?.Value is CoreTaskStatus.Reported;
 
     /// <summary>この部門を選んでいるか。</summary>
     public bool IsSelected
@@ -314,7 +341,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
                      nameof(Status), nameof(Call), nameof(RuntimeText), nameof(ActivityText),
                      nameof(WorkText), nameof(Glyph), nameof(BadgeGlyph), nameof(RuntimeGlyph),
                      nameof(NeedsHuman), nameof(EvidenceText), nameof(ActionLabel), nameof(HasAction),
-                     nameof(SessionRunning), nameof(CanStart),
+                     nameof(SessionRunning), nameof(CanStart), nameof(CanJudgeReport),
                  })
         {
             Raise(name);

@@ -273,6 +273,22 @@
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
 
+                                    <!-- 報告を読んだあとに決めること（設計 §19-3）。
+                                         **「報告を読む」ボタンには畳まない** —— 読む前に
+                                         受理か差し戻しかは決まらない。 -->
+                                    <Button Content="受理する" IsVisible="{Binding CanJudgeReport}"
+                                            Click="OnAcceptReport" FontSize="11" Margin="0,4,0,0"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" />
+                                    <TextBox Text="{Binding RejectionDraft, Mode=TwoWay}"
+                                             IsVisible="{Binding CanJudgeReport}"
+                                             PlaceholderText="差し戻す理由（次の指示に入る）" FontSize="11"
+                                             AcceptsReturn="False" Margin="0,4,0,0" />
+                                    <Button Content="差し戻して送り直す" IsVisible="{Binding CanJudgeReport}"
+                                            Click="OnRejectReport" FontSize="11" Margin="0,4,0,0"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" />
+
                                     <!-- 部門への操作は右ペインに置く（設計 §17-4）。
                                          中央の入力欄は秘書のもの。 -->
                                     <!-- 部門への指示は**中央の入力欄と別**（設計 §17-4）。

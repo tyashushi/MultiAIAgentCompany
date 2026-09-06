@@ -9,7 +9,10 @@ namespace MultiAIAgentCompany.Core.Coordination;
 public sealed class TaskStore
 {
     private const string StateFileName = "state.json";
-    private static readonly string[] AttemptFiles = ["instruction.md", "report.md", "question.md", "answer.md"];
+    // rejection.md も封じる（設計 §19-2）—— その試行の報告に対する人間の判断なので。
+    // next-instruction.md は**入れない**（§19-1）—— 入れると新しい指示が過去試行へ移る。
+    private static readonly string[] AttemptFiles =
+        ["instruction.md", "report.md", "question.md", "answer.md", "rejection.md"];
 
     private readonly CompanyPaths _paths;
     private readonly TimeProvider _clock;
@@ -139,21 +142,92 @@ public sealed class TaskStore
             return new TaskWriteResult.Rejected(check.Reason);
         }
 
+        // **差し戻しからの再送はここを通さない**（設計 §19-1）。
+        // 封じるだけでは次の試行に指示書が残らない。昇格と対にする必要があるので、
+        // 入口を <see cref="RedispatchAsync"/> ひとつに閉じる。
         if (current.Status is TaskStatus.Rejected && to is TaskStatus.Dispatched)
         {
-            MoveCurrentAttempt(expected.Slug, current.AttemptId);
+            return new TaskWriteResult.Rejected("差し戻しから送り直すには RedispatchAsync を使う");
         }
 
         var next = current with
         {
             Status = to,
-            AttemptId = current.Status is TaskStatus.Rejected && to is TaskStatus.Dispatched
-                ? checked(current.AttemptId + 1)
-                : current.AttemptId,
+            AttemptId = current.AttemptId,
             Revision = checked(current.Revision + 1),
             LastTransitionOrigin = origin,
             UpdatedAt = _clock.GetUtcNow(),
             Note = note,
+        };
+        await WriteStateAtomicallyAsync(_paths.State(expected.Slug), next, overwrite: true, ct);
+        return new TaskWriteResult.Written(next);
+    }
+
+    /// <summary>
+    /// 差し戻された仕事を、次の試行として <c>Dispatched</c> にする（設計 §19-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>順序が本体である。</b> 封じる → 昇格する → 状態を書く。
+    /// 逆にすると、次の指示書が <c>attempts/</c> へ一緒に封じられて消える
+    /// （<c>instruction.md</c> は封じる対象そのものだから）。
+    /// <para>
+    /// <c>next-instruction.md</c> が無いなら<b>何も書かない。</b> 指示書の無い
+    /// <c>Dispatched</c> は、部門が受け取れないまま「送ったかもしれない」に見える。
+    /// </para>
+    /// </remarks>
+    public async Task<TaskWriteResult> RedispatchAsync(TaskState expected, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ct.ThrowIfCancellationRequested();
+
+        var read = await ReadAsync(expected.Slug, ct);
+        if (read is TaskReadResult.Missing)
+        {
+            return new TaskWriteResult.Rejected("state.json が存在しません");
+        }
+
+        if (read is TaskReadResult.Unreadable unreadable)
+        {
+            return new TaskWriteResult.Conflicted($"state.json を検証できません: {unreadable.Reason}");
+        }
+
+        var current = ((TaskReadResult.Found)read).State;
+        if (current.Revision != expected.Revision)
+        {
+            return new TaskWriteResult.Conflicted(
+                $"Revision が一致しません（expected: {expected.Revision}, actual: {current.Revision}）");
+        }
+
+        if (current.Status is not TaskStatus.Rejected)
+        {
+            return new TaskWriteResult.Rejected($"差し戻された仕事ではありません（現在: {current.Status}）");
+        }
+
+        var check = TaskTransitions.Check(current.Status, TaskStatus.Dispatched, TransitionOrigin.Human);
+        if (!check.Allowed)
+        {
+            return new TaskWriteResult.Rejected(check.Reason);
+        }
+
+        // **書き始める前に確かめる。** 昇格するものが無いなら、封じた時点で
+        // 過去の試行だけが消えて次の指示は現れない。
+        var staging = _paths.NextInstruction(expected.Slug);
+        if (!File.Exists(staging) || (await File.ReadAllTextAsync(staging, ct)).Trim().Length is 0)
+        {
+            return new TaskWriteResult.Rejected("next-instruction.md が無いか空です");
+        }
+
+        MoveCurrentAttempt(expected.Slug, current.AttemptId);
+        File.Move(staging, _paths.Instruction(expected.Slug), overwrite: true);
+
+        var next = current with
+        {
+            Status = TaskStatus.Dispatched,
+            AttemptId = checked(current.AttemptId + 1),
+            Revision = checked(current.Revision + 1),
+            LastTransitionOrigin = TransitionOrigin.Human,
+            UpdatedAt = _clock.GetUtcNow(),
+            Note = "差し戻しから次の試行を送った",
         };
         await WriteStateAtomicallyAsync(_paths.State(expected.Slug), next, overwrite: true, ct);
         return new TaskWriteResult.Written(next);

@@ -139,6 +139,12 @@ public partial class MainWindow : Window
                 await DispatchDraftedAsync(tile);
                 break;
 
+            // 差し戻したまま止まっている仕事を送り直す（設計 §19-1）。
+            // 理由は既に rejection.md にある。次の指示書があるならそれを昇格させる。
+            case DepartmentAction.RedispatchTask:
+                await RedispatchAsync(tile);
+                break;
+
             case DepartmentAction.ShowApproval:
                 Note($"{tile.Name} の承認は中央ペインに出ている");
                 break;
@@ -215,6 +221,181 @@ public partial class MainWindow : Window
         });
 
         await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    /// <summary>
+    /// 報告を受理して仕事を終える（設計 §6 / §19-3）。<b>終端なので自動化は戻せない。</b>
+    /// </summary>
+    private async void OnAcceptReport(object? sender, RoutedEventArgs e)
+    {
+        if (_composer?.Tasks is not { } tasks || (sender as Control)?.DataContext is not DepartmentTile tile)
+        {
+            return;
+        }
+
+        Select(tile);
+        if (await ReadReportedAsync(tile) is not { } state)
+        {
+            return;
+        }
+
+        var write = await tasks.TransitionAsync(
+            state, CoreTaskStatus.Accepted, TransitionOrigin.Human, "報告を受理した", CancellationToken.None);
+
+        Note(write switch
+        {
+            TaskWriteResult.Written => $"{tile.Name}: {state.Slug} を受理した",
+            TaskWriteResult.Conflicted conflicted => $"{state.Slug}: {conflicted.Reason}",
+            TaskWriteResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
+            _ => $"{state.Slug}: 受理できなかった",
+        });
+
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    /// <summary>
+    /// 報告を差し戻して、次の試行として送り直す（設計 §19-1 ～ §19-3）。
+    /// </summary>
+    /// <remarks>
+    /// <b>順序を守る。</b> 理由を残す → <c>Rejected</c> にする → 次の指示を staging に置く →
+    /// 封じて昇格して <c>Dispatched</c>（<see cref="TaskStore.RedispatchAsync"/>）→ 送る。
+    /// <para>
+    /// <b>理由は次の指示書に本文として入れる</b>（§19-2）—— <c>rejection.md</c> を
+    /// 置いただけでは部門が読む保証がない。
+    /// </para>
+    /// </remarks>
+    private async void OnRejectReport(object? sender, RoutedEventArgs e)
+    {
+        if (_composer is not { Tasks: { } tasks, Dispatcher: { } dispatcher, Workspace: { } workspace }
+            || (sender as Control)?.DataContext is not DepartmentTile tile)
+        {
+            return;
+        }
+
+        Select(tile);
+
+        var reason = tile.RejectionDraft.Trim();
+        if (reason.Length is 0)
+        {
+            // 理由の無い差し戻しは、同じ報告をもう一度受け取るだけになる（§19-2）。
+            Note($"{tile.Name}: 差し戻す理由を書く（次の指示書に入る）");
+            return;
+        }
+
+        if (await ReadReportedAsync(tile) is not { } state)
+        {
+            return;
+        }
+
+        var write = await tasks.TransitionAsync(
+            state, CoreTaskStatus.Rejected, TransitionOrigin.Human, "報告を差し戻した", CancellationToken.None);
+        if (write is not TaskWriteResult.Written rejected)
+        {
+            Note($"{state.Slug}: {(write as TaskWriteResult.Conflicted)?.Reason ?? (write as TaskWriteResult.Rejected)?.Reason ?? "差し戻せなかった"}");
+            await ScanAsync(CompanyScanKind.Periodic);
+            return;
+        }
+
+        // ここから先で落ちても、仕事は Rejected として残る。
+        // 「差し戻した仕事を送り直す」で拾える（§15-6 の不変条件）。
+        await File.WriteAllTextAsync(workspace.Company.Rejection(state.Slug), reason, CancellationToken.None);
+        await File.WriteAllTextAsync(
+            workspace.Company.NextInstruction(state.Slug),
+            CompanyInstruction.Compose(NextInstructionText(reason), workspace.Company, state.Slug),
+            CancellationToken.None);
+
+        tile.RejectionDraft = string.Empty;
+        await RedispatchCoreAsync(tile, rejected.State, dispatcher);
+    }
+
+    /// <summary>
+    /// 差し戻したまま止まっている仕事を送り直す（設計 §19-1）。
+    /// </summary>
+    private async Task RedispatchAsync(DepartmentTile tile)
+    {
+        if (_composer?.Tasks is not { } tasks || _composer.Dispatcher is not { } dispatcher
+            || tile.CurrentTaskSlug is not { } slug)
+        {
+            return;
+        }
+
+        if (await tasks.ReadAsync(slug, CancellationToken.None) is not TaskReadResult.Found found)
+        {
+            Note($"{slug}: 読めなくなっている");
+            return;
+        }
+
+        // **押す前と状態が変わっていることがある**（`.company/` は人間が手で直せる。§14-2）。
+        if (found.State.Status is not CoreTaskStatus.Rejected)
+        {
+            Note($"{slug}: 状態が {found.State.Status} に変わっている（送り直さない）");
+            await ScanAsync(CompanyScanKind.Periodic);
+            return;
+        }
+
+        await RedispatchCoreAsync(tile, found.State, dispatcher);
+    }
+
+    private async Task RedispatchCoreAsync(DepartmentTile tile, TaskState state, TaskDispatcher dispatcher)
+    {
+        var result = await dispatcher.RedispatchAsync(
+            state, _composer!.DefinitionOf(tile.Id), SessionOf(tile.Id),
+            TimeSpan.FromMinutes(30), CancellationToken.None);
+
+        Note(result switch
+        {
+            DispatchResult.Dispatched => $"{tile.Name} に {state.Slug} を差し戻して送り直した",
+            DispatchResult.NeedsHuman needsHuman => $"{state.Slug}: {needsHuman.Reason}（人間が送る）",
+            DispatchResult.Blocked blocked => $"{state.Slug}: {blocked.Reason}（失敗ではない。待つ）",
+            DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}。**届いたか確かめる**",
+            DispatchResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
+            _ => $"{state.Slug}: 送り直せなかった",
+        });
+
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    /// <summary>
+    /// 次の試行の指示書の本文。<b>理由をここに書き写す</b>（設計 §19-2）——
+    /// 部門が <c>rejection.md</c> を開くとは限らない。
+    /// </summary>
+    private static string NextInstructionText(string reason) =>
+        $"""
+        前の試行の報告は受理されなかった。同じ仕事をやり直すこと。
+
+        ## 差し戻しの理由
+
+        {reason}
+
+        前の試行の指示書と報告は attempts/ に残っている。必要なら読むこと。
+        """;
+
+    /// <summary>
+    /// 押した時点の状態を読み直す。<b>画面の値で判断しない</b>（§14-2）——
+    /// <c>.company/</c> は人間が手で直せるし、走査が先に進めていることもある。
+    /// </summary>
+    private async Task<TaskState?> ReadReportedAsync(DepartmentTile tile)
+    {
+        if (_composer?.Tasks is not { } tasks || tile.CurrentTaskSlug is not { } slug)
+        {
+            Note($"{tile.Name}: どの仕事の報告か分からない（.company/ の経路が未接続）");
+            return null;
+        }
+
+        if (await tasks.ReadAsync(slug, CancellationToken.None) is not TaskReadResult.Found found)
+        {
+            Note($"{slug}: 読めなくなっている");
+            return null;
+        }
+
+        if (found.State.Status is not CoreTaskStatus.Reported)
+        {
+            Note($"{slug}: 状態が {found.State.Status} に変わっている（判断しない）");
+            await ScanAsync(CompanyScanKind.Periodic);
+            return null;
+        }
+
+        return found.State;
     }
 
     private async Task StartAsync(DepartmentTile tile)

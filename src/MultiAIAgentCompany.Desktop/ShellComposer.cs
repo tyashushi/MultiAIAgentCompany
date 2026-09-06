@@ -262,14 +262,19 @@ public sealed class ShellComposer
     /// </summary>
     private int UrgencyOf(TaskState state) => state.Status switch
     {
-        CoreTaskStatus.AwaitingAnswer => 5,
-        CoreTaskStatus.Reported => 4,
+        CoreTaskStatus.AwaitingAnswer => 6,
+        CoreTaskStatus.Reported => 5,
 
         // **再起動を跨いだ Dispatched だけが用件になる**（§14-1）。
         // 通常の Dispatched はボタンを出さないので、Drafted より下に置く ——
         // 上に置くと、渡していない仕事がまた選ばれなくなる。
-        CoreTaskStatus.Dispatched when _acrossRestart.Contains(state.Slug) => 3,
-        CoreTaskStatus.Drafted => 2,
+        CoreTaskStatus.Dispatched when _acrossRestart.Contains(state.Slug) => 4,
+        CoreTaskStatus.Drafted => 3,
+
+        // 差し戻したまま止まっている仕事（§19-1）。**0 のままにしない** ——
+        // 用件（RedispatchTask）が出るのに、同じ部門の InProgress に選ばれて
+        // 永久に隠れる。§15-6 の 6b と同じ位置。
+        CoreTaskStatus.Rejected => 2,
         CoreTaskStatus.Dispatched => 1,
         CoreTaskStatus.InProgress => 1,
         _ => 0,

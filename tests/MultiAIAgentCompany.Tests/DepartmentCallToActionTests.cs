@@ -208,14 +208,23 @@ public sealed class DepartmentCallToActionTests
     }
 
     [Fact]
-    public void 差し戻しには渡すボタンを出さない()
+    public void 差し戻しには渡すボタンではなく送り直すボタンを出す()
     {
         // **Rejected → Dispatched は現在の instruction.md を attempts/ へ封じる。**
-        // dispatch は先に読んでから遷移するので、古い指示を送ったうえ、
-        // 新しい試行に指示書が残らない（§15-10 の未決）。
+        // dispatch は先に読んでから遷移するので、そのまま当てると古い指示を送ったうえ、
+        // 新しい試行に指示書が残らない。順序を変えた別経路にする（§19-1）。
         var action = Of(RuntimeState.Running, ActivityState.Unknown, CoreTaskStatus.Rejected, running: true);
 
-        Assert.NotEqual(DepartmentAction.DispatchTask, action.Action);
+        Assert.Equal(DepartmentAction.RedispatchTask, action.Action);
+    }
+
+    [Fact]
+    public void 差し戻しは送信確認と質問に隠される()
+    {
+        // 送り直しは §14-1 の復旧契約より下。急ぐのは「届いたか」の方（§15-6 の順序）。
+        var action = Of(RuntimeState.Running, ActivityState.Consulting, CoreTaskStatus.Rejected, running: true);
+
+        Assert.Equal(DepartmentAction.AnswerQuestion, action.Action);
     }
 
 
