@@ -186,5 +186,18 @@ public sealed class DepartmentStatusTrackerTests
 
         Assert.Equal(ActivityState.Unknown, tracker.Current.Activity.Value);
     }
+    [Fact]
+    public void 仕事が無くなったことも観測として反映する()
+    {
+        // 残すと、別のワークスペースに切り替えたあとも古い報告まちを指し続ける。
+        var tracker = Create();
+        tracker.OnWorkStateChanged(CoreTaskStatus.Reported, Evidence(EvidenceSource.Document));
+        Assert.NotNull(tracker.Current.Work);
+
+        tracker.OnWorkStateCleared();
+
+        Assert.Null(tracker.Current.Work);
+    }
+
 
 }

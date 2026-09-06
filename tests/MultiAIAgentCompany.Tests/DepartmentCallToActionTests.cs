@@ -63,7 +63,6 @@ public sealed class DepartmentCallToActionTests
     [Fact]
     public void 何も要らないときは人間を呼ばない()
     {
-        // 動いている部門。止まっていれば「起動する」が要るので running を渡す。
         var action = Of(RuntimeState.Running, ActivityState.Working, CoreTaskStatus.InProgress, running: true);
 
         Assert.False(action.NeedsHuman);
@@ -133,10 +132,33 @@ public sealed class DepartmentCallToActionTests
     }
 
     [Fact]
-    public void 動いていなければ起動を促す()
+    public void 動いていなければ別枠で起動を促す()
     {
-        Assert.Equal(DepartmentAction.Start,
-            Of(RuntimeState.Running, ActivityState.Unknown, null, running: false).Action);
+        var action = Of(RuntimeState.Running, ActivityState.Unknown, null, running: false);
+
+        Assert.Equal(DepartmentAction.None, action.Action);
+        Assert.Equal(DepartmentLifecycle.Start, action.Lifecycle);
+    }
+
+    [Fact]
+    public void 仕事の用件があっても起動できる()
+    {
+        // ここが実機で詰まった場所。回答の配達にはセッションが要るのに、
+        // 用件ボタンが1つしかないと「起動する」が永久に隠れる（§15-6）。
+        var action = Of(RuntimeState.Running, ActivityState.Unknown, CoreTaskStatus.AwaitingAnswer, running: false);
+
+        Assert.Equal(DepartmentAction.AnswerQuestion, action.Action);
+        Assert.Equal(DepartmentLifecycle.Start, action.Lifecycle);
+    }
+
+    [Fact]
+    public void 落ちているときは起動ボタンを出さない()
+    {
+        // §15-4 は「原因を見て、再起動するか決める」。すぐ横に起動を置くとその判断を飛ばさせる。
+        var action = Of(RuntimeState.Failed, ActivityState.Unknown, null, running: false);
+
+        Assert.Equal(DepartmentAction.Investigate, action.Action);
+        Assert.Equal(DepartmentLifecycle.None, action.Lifecycle);
     }
 
     [Theory]

@@ -132,6 +132,11 @@ public sealed class CompanyScanner
         // 書きかけを完成済みと推定する経路はない。
         var reportPublished = File.Exists(_paths.Report(state.Slug));
         var questionPublished = File.Exists(_paths.Question(state.Slug));
+
+        // answer.md は遷移の材料ではないが、**同じ質問へ戻り続けないための番人**として要る。
+        // 回答を届けて InProgress にしたあとも question.md は残るので、これが無いと
+        // 走査のたびに AwaitingAnswer へ戻ってしまう。
+        // 限界: 同じ試行の中で2度目の質問が出たとき、古い answer.md が残っていると気付けない（§16-5 の未決）。
         var answerPublished = File.Exists(_paths.Answer(state.Slug));
 
         // report.md と question.md が共存したら報告を優先する。報告は仕事の終わりである。
@@ -148,10 +153,10 @@ public sealed class CompanyScanner
             }
         }
 
-        if (state.Status is TaskStatus.AwaitingAnswer && answerPublished)
-        {
-            return (TaskStatus.InProgress, "answer.md が置かれた");
-        }
+        // **answer.md では進めない**（設計 §16-5）。
+        // 進めるのは部門へ届いたあと（TaskDispatcher.DeliverAnswerAsync）。
+        // ここで InProgress を書くと、送る前に落ちたときに「部門が作業中」が嘘になる。
+        // 送れていない間の AwaitingAnswer は嘘ではない —— 部門はまだ受け取っていない。
 
         // **終端の仕事は候補にしない。**
         // Reported → Accepted のあとも report.md は残るので、ここで候補にすると
@@ -177,3 +182,44 @@ public sealed record CompanyScanResult(
 
 public sealed record AppliedTransition(string Slug, TaskStatus From, TaskStatus To, string Because);
 public sealed record BlockedTransition(string Slug, TaskStatus From, TaskStatus To, string Reason);
+
+/// <summary>
+/// 読めなかった仕事を隔離する（設計 §16-4）。
+/// </summary>
+/// <remarks>
+/// <b><c>state.json</c> を勝手に補完して直さない</b>（§14-1）。読めない以上、
+/// 現在状態も <c>departmentId</c> も信用できない。中身は消さず、仕事一覧から外すだけ。
+/// </remarks>
+public static class UnreadableTaskQuarantine
+{
+    /// <returns>移した先。移せなかったら null。</returns>
+    public static string? Isolate(CompanyPaths paths, string slug, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        var source = paths.TaskDirectory(slug);
+        if (!Directory.Exists(source))
+        {
+            return null;
+        }
+
+        Directory.CreateDirectory(paths.UnreadableRoot);
+        var destination = Path.Combine(
+            paths.UnreadableRoot,
+            $"{slug}-{now.ToUniversalTime():yyyyMMdd-HHmmss}");
+
+        try
+        {
+            Directory.Move(source, destination);
+            return destination;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+}

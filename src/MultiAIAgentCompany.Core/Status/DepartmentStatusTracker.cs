@@ -146,6 +146,18 @@ public sealed class DepartmentStatusTracker
         });
     }
 
+    /// <summary>
+    /// この部門に読める仕事が無くなった。<b>状態を消すのも観測である</b> ——
+    /// 残しておくと、別のワークスペースに切り替えたあとも古い報告まちを指し続ける。
+    /// </summary>
+    public void OnWorkStateCleared() => Update(() =>
+    {
+        if (_status.Work is not null)
+        {
+            _status = _status with { Work = null };
+        }
+    });
+
     public void OnWorkStateChanged(Coordination.TaskStatus status, Evidence evidence)
     {
         ArgumentNullException.ThrowIfNull(evidence);

@@ -35,6 +35,12 @@ public sealed class CompanyPaths
     public string ArchiveRoot => Path.Combine(Root, "archive");
 
     /// <summary>
+    /// 読めなかった仕事を移す場所（設計 §16-4）。
+    /// <b>消さない</b> —— 中身は残し、仕事一覧から外すだけ。
+    /// </summary>
+    public string UnreadableRoot => Path.Combine(Root, "unreadable");
+
+    /// <summary>
     /// 権利の置き場所。<b>ワークスペース全体で1ファイル</b>（設計 §14-2）。
     /// タスクごとに持たせると、別タスクに別部門の有効な lease を同時に置けてしまう。
     /// </summary>

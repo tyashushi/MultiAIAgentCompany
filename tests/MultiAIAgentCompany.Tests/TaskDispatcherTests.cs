@@ -189,22 +189,6 @@ public sealed class TaskDispatcherTests : IDisposable
         public void Advance(TimeSpan duration) => _now += duration;
     }
 
-    private sealed class TemporaryWorkspace : IDisposable
-    {
-        public TemporaryWorkspace()
-        {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"multi-ai-agent-company-tests-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-            Paths = new CompanyPaths(Path);
-        }
-
-        public string Path { get; }
-        public CompanyPaths Paths { get; }
-        public void Dispose()
-        {
-            if (Directory.Exists(Path)) Directory.Delete(Path, recursive: true);
-        }
-    }
     [Fact]
     public async Task セッションが無い構造化部門はDispatchedを書く前に弾く()
     {

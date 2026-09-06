@@ -13,6 +13,48 @@
     <Grid ColumnDefinitions="260,4,*,4,320" Margin="8">
 
         <DockPanel Grid.Column="0">
+            <!-- 起動時の復旧走査（設計 §14-1 / §16-3）。**一過性のログ行にしない** ——
+                 流れて消えると、自動再送しない契約を人間が守れない。
+                 Unreadable は部門に紐づけられないので、ここにしか出せない。 -->
+            <StackPanel DockPanel.Dock="Top" IsVisible="{Binding HasRecovery}" Margin="0,0,0,8">
+                <TextBlock Text="確かめてほしいこと" FontWeight="Bold" Margin="0,0,0,4" />
+                <ItemsControl ItemsSource="{Binding Recovery}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:RecoveryItem">
+                            <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                    BorderThickness="1" CornerRadius="4" Padding="6" Margin="0,0,0,4">
+                                <StackPanel>
+                                    <TextBlock FontSize="11" FontWeight="Bold">
+                                        <Run Text="{Binding KindText}" /><Run Text=" — " /><Run Text="{Binding Slug}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Detail}" FontSize="11" TextWrapping="Wrap" Opacity="0.8" />
+
+                                    <!-- 人間が決めた結果を記録できるようにする（設計 §16-4）。
+                                         「まだ決めない」は選択肢を出さない —— 何もしなければ残る。 -->
+                                    <WrapPanel IsVisible="{Binding IsMaybeSent}" Margin="0,4,0,0">
+                                        <Button Content="受け取って作業中だった" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryConfirmDelivered" />
+                                        <Button Content="もう一度送る（二重に実行されるかも）" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryResend" />
+                                        <Button Content="アプリ上で取り消す" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryCancel" />
+                                    </WrapPanel>
+
+                                    <WrapPanel IsVisible="{Binding IsUnreadable}" Margin="0,4,0,0">
+                                        <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryOpenFolder" />
+                                        <Button Content="隔離する" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryQuarantine" />
+                                        <Button Content="もう一度読む" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryRescan" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
             <TextBlock DockPanel.Dock="Top" Text="作業ログ" FontWeight="Bold" Margin="0,0,0,6" />
             <ItemsControl ItemsSource="{Binding WorkLog}">
                 <ItemsControl.ItemTemplate>
@@ -62,10 +104,13 @@
             <!-- **これは調整基盤の経路ではない**（§6 / §14-1）——
                  本来は秘書が instruction.md を書き、アプリが dispatch する。
                  ここは配線を実物で確かめるための直通路。秘書はまだ繋がっていない。 -->
-            <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+            <!-- ボタンは2つ。**文言が何をするか言う**（設計 §16-2 / §15-6）——
+                 「送信」では、仕事を作るのかただの一言なのかが分からない。 -->
+            <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" Margin="0,6,0,0">
                 <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
-                         PlaceholderText="選んだ部門へ直接送る（秘書はまだ繋がっていない）" />
-                <Button Grid.Column="1" Content="送信" Margin="6,0,0,0" Click="OnSendToDepartment" />
+                         PlaceholderText="選んだ部門への指示（秘書はまだ繋がっていない）" />
+                <Button Grid.Column="1" Content="仕事にする" Margin="6,0,0,0" Click="OnMakeTask" />
+                <Button Grid.Column="2" Content="直接聞く（仕事にしない）" Margin="6,0,0,0" Click="OnAskDirectly" />
             </Grid>
 
             <!-- (a) ランタイム承認。ボタンは提示された決定から作る（設計 §5）——
@@ -182,6 +227,14 @@
                                          押す前に結果が分かるようにする。 -->
                                     <Button Content="{Binding ActionLabel}" IsVisible="{Binding HasAction}"
                                             Click="OnDepartmentAction" Margin="0,6,0,0"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" />
+
+                                    <!-- 起動は仕事の用件と別枠（設計 §15-6）。
+                                         同じ列に並べると、用件のある部門を永久に起動できない。
+                                         落ちているときは出さない —— §15-4 の「原因を見てから決める」。 -->
+                                    <Button Content="起動する" IsVisible="{Binding CanStart}"
+                                            Click="OnDepartmentStart" FontSize="11" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
                                 </StackPanel>

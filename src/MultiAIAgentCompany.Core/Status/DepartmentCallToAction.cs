@@ -83,6 +83,20 @@ public enum DepartmentAction
     /// <summary>観測を並べる。何かおかしいが、落ちてはいない。</summary>
     ShowObservations,
 
+}
+
+/// <summary>
+/// 部門のライフサイクル操作。<b>仕事の用件とは別枠</b>（設計 §15-6、2026-09-06 に分けた）。
+/// </summary>
+/// <remarks>
+/// 起動は仕事の用件ではなく、§9 のプロセス所有権に属する副作用。同じ列に並べると、
+/// <c>Reported</c> や <c>AwaitingAnswer</c> の部門を**永久に起動できなくなる**
+/// （実機で詰まった。回答の配達にはセッションが要るのに、起動ボタンが隠れていた）。
+/// </remarks>
+public enum DepartmentLifecycle
+{
+    None,
+
     /// <summary>セッションを開く。</summary>
     Start,
 }
@@ -118,6 +132,11 @@ public sealed record DepartmentCallToAction(
     public DepartmentAction Action { get; init; } = DepartmentAction.None;
 
     /// <summary>
+    /// 別枠のライフサイクル操作（設計 §15-6）。<b>仕事の用件を隠さない。</b>
+    /// </summary>
+    public DepartmentLifecycle Lifecycle { get; init; } = DepartmentLifecycle.None;
+
+    /// <summary>
     /// 人間の出番があるか。<b><see cref="Action"/> と必ず一致する</b> ——
     /// 「要対応と出ているのに押すものが無い」を作らないため（§15-6）。
     /// </summary>
@@ -143,13 +162,19 @@ public sealed record DepartmentCallToAction(
 
         return new DepartmentCallToAction(pose, badge, mark)
         {
-            Action = ActionOf(pose, badge, mark, sessionRunning),
+            Action = ActionOf(pose, badge, mark),
+
+            // 落ちているときは出さない。§15-4 は「原因を見て、再起動するか決める」であり、
+            // すぐ横に「起動」を置くとその判断を飛ばさせる。
+            Lifecycle = !sessionRunning && mark is not DepartmentRuntimeMark.Down
+                ? DepartmentLifecycle.Start
+                : DepartmentLifecycle.None,
         };
     }
 
     /// <summary>§15-6 の8段。<b>順序が意味を持つ</b>。</summary>
     private static DepartmentAction ActionOf(
-        DepartmentPose pose, DepartmentBadge badge, DepartmentRuntimeMark mark, bool sessionRunning)
+        DepartmentPose pose, DepartmentBadge badge, DepartmentRuntimeMark mark)
     {
         // 1. 落ちている。Exited（意図した終了）はここに入れない ——
         //    終わった部門に報告が残っているなら、急ぐのは報告を読むこと。
@@ -188,12 +213,8 @@ public sealed record DepartmentCallToAction(
             return DepartmentAction.ShowObservations;
         }
 
-        // 7. 動いていない。**沈黙から導かない** —— 呼び出し元が知っている事実を渡す（§7）。
-        if (!sessionRunning)
-        {
-            return DepartmentAction.Start;
-        }
-
+        // 起動はここに来ない。仕事の用件とは別枠（Lifecycle）——
+        // 同じ列に並べると、用件のある部門を永久に起動できなくなる。
         return DepartmentAction.None;
     }
 

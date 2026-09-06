@@ -41,14 +41,32 @@ public sealed class CompanyScannerTests : IDisposable
     }
 
     [Fact]
-    public async Task AwaitingAnswerのanswerはInProgressに戻す()
+    public async Task 走査はanswerでは状態を進めない()
     {
-        await CreateAtAsync("answer", CoreTaskStatus.AwaitingAnswer);
-        await File.WriteAllTextAsync(_workspace.Paths.Answer("answer"), "進めてください");
+        // 進めるのは部門へ届いたあと（§16-5）。ここで InProgress を書くと、
+        // 送る前に落ちたときに「部門が作業中」が嘘になる。
+        await CreateAtAsync("feature", CoreTaskStatus.AwaitingAnswer);
+        await File.WriteAllTextAsync(_workspace.Paths.Answer("feature"), "回答");
 
-        await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
+        var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
 
-        Assert.Equal(CoreTaskStatus.InProgress, await StatusAsync("answer"));
+        Assert.Empty(result.Applied);
+        Assert.Equal(CoreTaskStatus.AwaitingAnswer, await StatusAsync("feature"));
+    }
+
+    [Fact]
+    public async Task 回答済みの質問へ戻り続けない()
+    {
+        // 回答を届けて InProgress にしたあとも question.md は残る。
+        // answer.md を番人にしていないと、走査のたびに AwaitingAnswer へ戻る。
+        await CreateAtAsync("feature", CoreTaskStatus.InProgress);
+        await File.WriteAllTextAsync(_workspace.Paths.Question("feature"), "質問");
+        await File.WriteAllTextAsync(_workspace.Paths.Answer("feature"), "回答");
+
+        var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
+
+        Assert.Empty(result.Applied);
+        Assert.Equal(CoreTaskStatus.InProgress, await StatusAsync("feature"));
     }
 
     [Fact]
@@ -185,24 +203,4 @@ public sealed class CompanyScannerTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
-    private sealed class TemporaryWorkspace : IDisposable
-    {
-        public TemporaryWorkspace()
-        {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"multi-ai-agent-company-tests-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-            Paths = new CompanyPaths(Path);
-        }
-
-        public string Path { get; }
-        public CompanyPaths Paths { get; }
-
-        public void Dispose()
-        {
-            if (Directory.Exists(Path))
-            {
-                Directory.Delete(Path, recursive: true);
-            }
-        }
-    }
 }

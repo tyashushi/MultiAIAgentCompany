@@ -33,6 +33,19 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// </summary>
     public ObservableCollection<TrustRow> Trust { get; } = [];
 
+    /// <summary>
+    /// 起動時の復旧走査で見つかったもの（設計 §14-1 / §16-3）。
+    /// <b>一過性のログ行にしない</b> —— 流れて消えると、自動再送しない契約を人間が守れない。
+    /// </summary>
+    public ObservableCollection<RecoveryItem> Recovery { get; } = [];
+
+    public bool HasRecovery => Recovery.Count > 0;
+
+    public ShellViewModel() =>
+        // 計算プロパティなので、集合が変わったことを自分で知らせないと画面に出ない。
+        Recovery.CollectionChanged += (_, _) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasRecovery)));
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>左ペイン: 作業ログ一覧。</summary>
@@ -121,17 +134,32 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         DepartmentAction.ReadReport => "報告を読む",
         DepartmentAction.CheckDelivery => "送信を確認する",
         DepartmentAction.ShowObservations => "観測を見る",
-        DepartmentAction.Start => "起動する",
         _ => string.Empty,
     };
 
     public bool HasAction => Call.Action is not DepartmentAction.None;
 
+    /// <summary>
+    /// 起動は仕事の用件と別枠（設計 §15-6）。<b>用件を隠さない。</b>
+    /// </summary>
+    public bool CanStart => Call.Lifecycle is DepartmentLifecycle.Start;
+
     /// <summary>直近の観測。「原因を見る」「観測を見る」で人間に出す。</summary>
     public IReadOnlyList<string> RecentObservations => _observations;
 
-    /// <summary>起動時の走査で「送ったかもしれない」と分かったか（設計 §14-1）。</summary>
-    public bool DispatchedAcrossRestart { get; init; }
+    /// <summary>
+    /// 起動時の走査で「送ったかもしれない」と分かったか（設計 §14-1 / §16-3）。
+    /// <b>推定しない</b> —— 起動時の走査結果からしか入らない。
+    /// </summary>
+    public bool DispatchedAcrossRestart
+    {
+        get;
+        set
+        {
+            field = value;
+            RaiseAll();
+        }
+    }
 
     /// <summary>
     /// いま担当している仕事。<c>question.md</c> / <c>report.md</c> はこの下にある（§6）。
@@ -250,7 +278,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
                      nameof(Status), nameof(Call), nameof(RuntimeText), nameof(ActivityText),
                      nameof(WorkText), nameof(Glyph), nameof(BadgeGlyph), nameof(RuntimeGlyph),
                      nameof(NeedsHuman), nameof(EvidenceText), nameof(ActionLabel), nameof(HasAction),
-                     nameof(SessionRunning),
+                     nameof(SessionRunning), nameof(CanStart),
                  })
         {
             Raise(name);
@@ -283,4 +311,38 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State)
         WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える",
         _ => "設定ファイルを読めなかった。未 trust とは限らない",
     };
+}
+
+/// <summary>
+/// 起動時の走査で人間に確かめてほしいもの（設計 §16-3）。
+/// </summary>
+/// <param name="Kind">何が起きているか。</param>
+/// <param name="Slug">対象の仕事。</param>
+/// <param name="Detail">人間に見せる1行。</param>
+public sealed record RecoveryItem(RecoveryKind Kind, string Slug, string Detail)
+{
+    public string KindText => Kind switch
+    {
+        RecoveryKind.MaybeSent => "送ったかもしれない",
+        _ => "読めない",
+    };
+
+    public bool IsMaybeSent => Kind is RecoveryKind.MaybeSent;
+
+    public bool IsUnreadable => Kind is RecoveryKind.Unreadable;
+
+    /// <summary>担当部門。<b>読めない仕事では null</b> —— 中の departmentId も信用できない（§16-3）。</summary>
+    public string? DepartmentId { get; init; }
+}
+
+public enum RecoveryKind
+{
+    /// <summary><c>Dispatched</c> のまま再起動を跨いだ。<b>自動再送しない</b>（§14-1）。</summary>
+    MaybeSent,
+
+    /// <summary>
+    /// <c>state.json</c> を読めなかった。<b>部門に紐づけられない</b> ——
+    /// 読めないなら中の <c>departmentId</c> も信用できない（§16-3）。
+    /// </summary>
+    Unreadable,
 }

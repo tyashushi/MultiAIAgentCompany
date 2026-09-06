@@ -95,6 +95,10 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
 
     public bool IsRunning(string departmentId) => _sessions.ContainsKey(departmentId);
 
+    /// <summary>dispatch の宛先。動いていない、または構造化でなければ null。</summary>
+    public IStructuredSession? StructuredSessionOf(string departmentId) =>
+        _sessions.TryGetValue(departmentId, out var session) ? session as IStructuredSession : null;
+
     /// <summary>観測が来たことを画面へ知らせる（部門ごとの一覧に控えるため）。</summary>
     public event EventHandler<(string DepartmentId, Evidence Evidence)>? Observed;
 
