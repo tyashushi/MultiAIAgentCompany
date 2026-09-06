@@ -319,6 +319,8 @@ public sealed class TaskDispatcherTests : IDisposable
         public ProcessIdentity Identity { get; } = new(1, 1, 1, DateTimeOffset.UnixEpoch);
         public DriveMode Mode => DriveMode.Structured;
         public event EventHandler<Evidence>? Observed;
+        public event EventHandler<LiveDiagnostic>? Diagnosed;
+        public IReadOnlyList<LiveDiagnostic> RecentDiagnostics(int count) => [];
         public event EventHandler<int>? Exited;
         public event EventHandler<ApprovalRequest>? ApprovalRequested;
         public event EventHandler<OutcomeVerdict>? TurnFinished;

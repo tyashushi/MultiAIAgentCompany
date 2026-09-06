@@ -9,6 +9,7 @@ public sealed class AntigravitySession : IStructuredSession
 {
     private readonly IAgentProcessChannel _channel;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly DiagnosticsLog _diagnostics = new();
     private readonly Task _readLoop;
     private readonly object _stopLock = new();
     private Task? _stopTask;
@@ -20,7 +21,7 @@ public sealed class AntigravitySession : IStructuredSession
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         DepartmentId = departmentId ?? throw new ArgumentNullException(nameof(departmentId));
         _channel.Exited += ChannelExited;
-        if (_channel is ChildProcessChannel child) child.StandardErrorLine += StandardErrorLine;
+        _channel.StandardErrorLine += StandardErrorLine;
         _readLoop = ReadLoopAsync();
     }
 
@@ -32,6 +33,9 @@ public sealed class AntigravitySession : IStructuredSession
 
     public event EventHandler<Evidence>? Observed;
     public event EventHandler<int>? Exited;
+
+    /// <inheritdoc />
+    public event EventHandler<LiveDiagnostic>? Diagnosed;
     // Antigravity にはこの種の通知が存在しない。IStructuredSession の契約を満たすだけで発火しない。
     public event EventHandler<ApprovalRequest>? ApprovalRequested { add { } remove { } }
     public event EventHandler<OutcomeVerdict>? TurnFinished;
@@ -103,7 +107,17 @@ public sealed class AntigravitySession : IStructuredSession
         // RedactedSummary は「秘密値を含まない、永続しうる要約」として定義されている（§10）。
         // だから中身をコピーせず、**分類だけ**を出す。
         Observe(ClassifyStandardError(line));
+
+        // 分類は永続してよい要約、こちらは中身（設計 §22）。**両方を出す** ——
+        // 分類だけでは「送ったのに何も起きない」の原因に辿り着けない。
+        // 取り置くのは、購読より前（起動の失敗）を取りこぼさないため（§22-2）。
+        var diagnostic = new LiveDiagnostic(DiagnosticStream.StandardError, line);
+        _diagnostics.Add(diagnostic);
+        SafeInvoke(() => Diagnosed?.Invoke(this, diagnostic), "Diagnosed");
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<LiveDiagnostic> RecentDiagnostics(int count) => _diagnostics.Recent(count);
 
     /// <summary>
     /// stderr の1行を、人間に見せてよい分類に落とす。<b>行の中身を含めない。</b>
@@ -170,7 +184,7 @@ public sealed class AntigravitySession : IStructuredSession
         {
             await StopAsync(CancellationToken.None).ConfigureAwait(false);
             _channel.Exited -= ChannelExited;
-            if (_channel is ChildProcessChannel child) child.StandardErrorLine -= StandardErrorLine;
+            _channel.StandardErrorLine -= StandardErrorLine;
             await _channel.DisposeAsync().ConfigureAwait(false);
             _writeGate.Dispose();
         }

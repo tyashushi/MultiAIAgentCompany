@@ -21,6 +21,23 @@ public sealed class AntigravityTests
     }
 
     [Fact]
+    public async Task stderrは分類と中身の両方を出す()
+    {
+        // 分類は永続してよい要約、診断は中身（設計 §22）。**両方要る。**
+        var channel = new FakeChannel([]);
+        await using var session = new AntigravitySession(channel, "review");
+        var observations = new List<Evidence>();
+        var diagnostics = new List<LiveDiagnostic>();
+        session.Observed += (_, evidence) => observations.Add(evidence);
+        session.Diagnosed += (_, line) => diagnostics.Add(line);
+
+        channel.RaiseStandardError("warning: ignoring unsupported stream input message event \"foo\"");
+
+        Assert.Contains("未知の event", Assert.Single(observations).RedactedSummary, StringComparison.Ordinal);
+        Assert.Contains("ignoring unsupported", Assert.Single(diagnostics).Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void 壊れた行と未知eventは例外ではなくUnknownになる()
     {
         Assert.IsType<AntigravityEvent.Unknown>(AntigravityStreamReader.ReadLine("{"));
@@ -176,6 +193,8 @@ public sealed class AntigravityTests
         public Task Completed => _completed.Task;
         public ProcessIdentity Identity { get; } = new(42, 0, 0, DateTimeOffset.UtcNow);
         public event EventHandler<int>? Exited;
+        public event EventHandler<string>? StandardErrorLine;
+        public void RaiseStandardError(string line) => StandardErrorLine?.Invoke(this, line);
         public void Release() => _start.TrySetResult();
         public async IAsyncEnumerable<string> ReadLinesAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {

@@ -36,6 +36,32 @@ public interface IAgentSession : IAsyncDisposable
     event EventHandler<Evidence>? Observed;
 
     event EventHandler<int>? Exited;
+
+    /// <summary>
+    /// 診断のための生の出力（設計 §22）。<b>ライブ表示専用</b>。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="Spoke"/> と同じ扱い —— 永続させない。</b>
+    /// <see cref="Status.Evidence"/> へ渡さない（§10 / §14-5）。
+    /// stderr には作業パス・コマンド・スタックトレース・秘密値が混ざり得るので、
+    /// <c>Observed</c> が運ぶのは<b>分類だけ</b>、こちらが<b>中身</b>を運ぶ。
+    /// <para>
+    /// これが要る理由は実測にある（§13-3 追記2）—— Antigravity は未知の input event を
+    /// stdout に何も返さず stderr にだけ警告して捨てる。分類だけでは
+    /// 「送ったのに何も起きない」の原因に辿り着けない。
+    /// </para>
+    /// </remarks>
+    event EventHandler<LiveDiagnostic>? Diagnosed;
+
+    /// <summary>
+    /// 購読より前に出ていた診断（設計 §22-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b>起動の失敗こそ、この機能が見せたいもの</b>（trust・login・ハンドシェイク）。
+    /// ところがそれは<b>購読するより前に</b>出る —— アダプタはハンドシェイクを終えてから
+    /// セッションを返すので、イベントだけでは取りこぼす。だからセッション自身が取り置く。
+    /// </remarks>
+    IReadOnlyList<LiveDiagnostic> RecentDiagnostics(int count);
 }
 
 /// <summary>
@@ -143,3 +169,30 @@ public readonly record struct ProcessIdentity(int Pid, int SessionId, int Proces
 /// </remarks>
 /// <param name="Text">発言の本文。<c>thinking</c> も <c>tool_use</c> も含まない（§17-5）。</param>
 public sealed record LiveAgentMessage(string Text);
+
+/// <summary>
+/// 診断の1行。<b>ライブ表示だけに使う</b>（設計 §22）。
+/// </summary>
+/// <remarks>
+/// <b>型名が性格を表している。</b> <see cref="LiveAgentMessage"/> と同じく、
+/// 保存も <see cref="Status.Evidence.RedactedSummary"/> への転記もしない（§10）。
+/// </remarks>
+/// <param name="Stream">どちらの出力か。</param>
+/// <param name="Text">
+/// 行の中身。<b>redact していない。</b> だから永続させない ——
+/// 秘密値が混ざり得る前提で、画面にだけ出す（§14-5）。
+/// </param>
+public sealed record LiveDiagnostic(DiagnosticStream Stream, string Text);
+
+/// <summary>診断の出どころ。</summary>
+public enum DiagnosticStream
+{
+    /// <summary>子プロセスの stderr。</summary>
+    StandardError,
+
+    /// <summary>
+    /// アプリ側で分かった経路の異常（読めなかった行、解釈できなかったイベント）。
+    /// <b>「出力が無い」を「正常」にしないため</b>に出す（§7）。
+    /// </summary>
+    Protocol,
+}

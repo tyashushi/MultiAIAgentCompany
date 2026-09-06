@@ -66,6 +66,18 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         };
         session.Exited += (_, exitCode) => tracker.OnExited(exitCode);
 
+        // 診断は**ライブ専用**（設計 §22）。観測（永続してよい要約）と別の経路で運ぶ。
+        session.Diagnosed += (_, diagnostic) => Diagnosed?.Invoke(this, (department.Id, diagnostic));
+
+        // **購読より前に出た分を流し込む**（§22-2）。trust・login・ハンドシェイクの失敗は
+        // ここに出るのに、アダプタはハンドシェイクを終えてからセッションを返す。
+        // 購読を先にしてから取り置きを流すので、その間の1行が二重に出ることはある ——
+        // **重複は害が無いが、取りこぼしは害がある。**
+        foreach (var diagnostic in session.RecentDiagnostics(50).Reverse())
+        {
+            Diagnosed?.Invoke(this, (department.Id, diagnostic));
+        }
+
         if (session is not IStructuredSession structured)
         {
             return;
@@ -101,6 +113,12 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
 
     /// <summary>観測が来たことを画面へ知らせる（部門ごとの一覧に控えるため）。</summary>
     public event EventHandler<(string DepartmentId, Evidence Evidence)>? Observed;
+
+    /// <summary>
+    /// 診断の生の行（設計 §22）。<b>保存しない。</b>
+    /// <see cref="Observed"/> と混ぜない —— あちらは redact 済みの要約で永続しうる。
+    /// </summary>
+    public event EventHandler<(string DepartmentId, LiveDiagnostic Diagnostic)>? Diagnosed;
 
     private static IAgentAdapter AdapterFor(DepartmentDefinition department) => department.Agent switch
     {

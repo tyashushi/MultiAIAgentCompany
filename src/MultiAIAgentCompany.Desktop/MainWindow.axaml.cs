@@ -208,6 +208,44 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 診断を出す（設計 §22）。<b>読むだけ。ターミナルではない。</b>
+    /// </summary>
+    /// <remarks>
+    /// v1 はターミナルを持たない（§22-1）。代わりに、<b>止まって見えるときに
+    /// 人間が見るべきもの</b>をここへ出す —— プロセスの素性、最後に観測したこと、
+    /// stderr の生の行。
+    /// <para>
+    /// <b>用件のボタン（§15-6 の段）にはしない。</b> 診断は「人間の出番」ではなく、
+    /// 人間が自分の判断で覗くもの。段に足すと <c>NeedsHuman</c> の意味が濁る。
+    /// </para>
+    /// </remarks>
+    private void OnShowDiagnostics(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not DepartmentTile tile)
+        {
+            return;
+        }
+
+        Select(tile);
+        Note($"—— {tile.Name} の診断 ——");
+        Note($"稼働 {tile.RuntimeText} / 活動 {tile.ActivityText} / 仕事 {tile.WorkText}");
+        Note(_runner?.IsRunning(tile.Id) is true
+            ? $"プロセス: 動いている（{tile.Agent} / {tile.Mode}）"
+            : $"プロセス: 動いていない（{tile.Agent} / {tile.Mode}）");
+
+        // **観測が無いことを「正常」と読ませない**（§7）。
+        Note(tile.RecentObservations.Count is 0
+            ? "観測: まだ何も観測していない"
+            : $"観測（最新）: {tile.RecentObservations[0]}");
+
+        Note(tile.Diagnostics.Summary);
+        foreach (var diagnostic in tile.Diagnostics.Recent(10))
+        {
+            Note($"[{diagnostic.Stream}] {diagnostic.Text}");
+        }
+    }
+
     /// <summary>起動。<b>仕事の用件とは別枠</b>（設計 §15-6）。</summary>
     private async void OnDepartmentStart(object? sender, RoutedEventArgs e)
     {

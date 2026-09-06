@@ -23,6 +23,16 @@ public partial class App : Application
                     tile.Record(item.Evidence);
                 }
             };
+            // 診断はライブ専用（設計 §22）。**観測と混ぜない** ——
+            // こちらは redact していない中身なので、保存も転記もしない。
+            runner.Diagnosed += (_, item) =>
+            {
+                foreach (var tile in composer.Shell.Departments.Where(t => t.Id == item.DepartmentId))
+                {
+                    tile.Diagnostics.Add(item.Diagnostic);
+                }
+            };
+
             var secretary = new SecretaryRunner(composer.Approvals);
             desktop.MainWindow = new MainWindow(composer, runner, secretary);
 

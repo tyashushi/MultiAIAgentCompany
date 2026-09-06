@@ -9,6 +9,7 @@ public sealed class CodexAppServerSession : IStructuredSession
 {
     private readonly IAgentProcessChannel _channel;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly DiagnosticsLog _diagnostics = new();
     private readonly Dictionary<string, CodexApprovalRequest> _approvalRequests = new(StringComparer.Ordinal);
     private readonly TaskCompletionSource _initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _threadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -33,6 +34,7 @@ public sealed class CodexAppServerSession : IStructuredSession
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
         _channel.Exited += ChannelExited;
+        _channel.StandardErrorLine += StandardErrorLine;
         _readLoop = ReadLoopAsync();
         _initialization = InitializeAsync(workspaceRoot, model);
     }
@@ -44,6 +46,9 @@ public sealed class CodexAppServerSession : IStructuredSession
 
     public event EventHandler<Evidence>? Observed;
     public event EventHandler<int>? Exited;
+
+    /// <inheritdoc />
+    public event EventHandler<LiveDiagnostic>? Diagnosed;
     public event EventHandler<ApprovalRequest>? ApprovalRequested;
     public event EventHandler<OutcomeVerdict>? TurnFinished;
 
@@ -306,6 +311,27 @@ public sealed class CodexAppServerSession : IStructuredSession
         catch (Exception) { }
     }
 
+    /// <summary>
+    /// stderr を診断ビューへ流す（設計 §22）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ここでは分類しない。</b> 分類（永続してよい要約）は <c>Observed</c> の仕事で、
+    /// こちらは<b>中身</b>を運ぶ。画面にだけ出し、保存しない（§10）。
+    /// </remarks>
+    private void StandardErrorLine(object? sender, string line)
+    {
+        // **購読より前の分も残す**（設計 §22-2）—— 起動の失敗はここに出る。
+        var diagnostic = new LiveDiagnostic(DiagnosticStream.StandardError, line);
+        _diagnostics.Add(diagnostic);
+
+        // **購読側の例外で stderr の読み出しを止めない。** 止まるとパイプが詰まって
+        // 子プロセスが停止する（stdout 側が SafeInvoke を使っているのと同じ理由）。
+        SafeInvoke(() => Diagnosed?.Invoke(this, diagnostic), "Diagnosed");
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<LiveDiagnostic> RecentDiagnostics(int count) => _diagnostics.Recent(count);
+
     private void ChannelExited(object? sender, int exitCode) => SafeInvoke(() => Exited?.Invoke(this, exitCode), "Exited");
 
     public Task StopAsync(CancellationToken ct)
@@ -320,6 +346,7 @@ public sealed class CodexAppServerSession : IStructuredSession
         {
             await StopAsync(CancellationToken.None).ConfigureAwait(false);
             _channel.Exited -= ChannelExited;
+            _channel.StandardErrorLine -= StandardErrorLine;
             await _channel.DisposeAsync().ConfigureAwait(false);
             _writeGate.Dispose();
         }

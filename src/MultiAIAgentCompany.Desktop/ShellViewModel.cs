@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Avalonia.Threading;
 using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
+using MultiAIAgentCompany.Core.Sessions;
 using MultiAIAgentCompany.Core.Status;
 using MultiAIAgentCompany.Core.Workspace;
 using CoreTaskStatus = MultiAIAgentCompany.Core.Coordination.TaskStatus;
@@ -169,6 +170,12 @@ public sealed class DepartmentTile : INotifyPropertyChanged
 
     /// <summary>直近の観測。「原因を見る」「観測を見る」で人間に出す。</summary>
     public IReadOnlyList<string> RecentObservations => _observations;
+
+    /// <summary>
+    /// 診断（設計 §22）。<b>観測と別に持つ</b> —— こちらは redact していない中身で、
+    /// 保存しない。ターミナルの代わりに<b>読むだけ</b>で出す。
+    /// </summary>
+    public DiagnosticsLog Diagnostics { get; } = new();
 
     /// <summary>
     /// 起動時の走査で「送ったかもしれない」と分かったか（設計 §14-1 / §16-3）。

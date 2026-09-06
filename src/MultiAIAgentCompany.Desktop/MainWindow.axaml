@@ -273,6 +273,13 @@
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
 
+                                    <!-- 診断は**読むだけ**（設計 §22）。v1 はターミナルを持たない。
+                                         用件のボタンとは別枠 —— 人間が自分の判断で覗くもの。 -->
+                                    <Button Content="診断を見る" IsVisible="{Binding IsSelected}"
+                                            Click="OnShowDiagnostics" FontSize="11" Margin="0,4,0,0"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" />
+
                                     <!-- 報告を読んだあとに決めること（設計 §19-3）。
                                          **「報告を読む」ボタンには畳まない** —— 読む前に
                                          受理か差し戻しかは決まらない。 -->

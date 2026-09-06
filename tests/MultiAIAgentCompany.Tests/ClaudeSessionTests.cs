@@ -10,6 +10,50 @@ namespace MultiAIAgentCompany.Tests;
 public sealed class ClaudeSessionTests
 {
     [Fact]
+    public async Task 購読より前のstderrも残る()
+    {
+        // **起動の失敗こそ見せたいもの**（trust・login・ハンドシェイク）。
+        // それは購読より前に出る（設計 §22-2）。
+        var channel = new FakeChannel([]);
+        await using var session = new ClaudeCodeStructuredSession(channel, "engineering");
+
+        channel.RaiseStandardError("Error: not trusted");
+
+        Assert.Equal("Error: not trusted", Assert.Single(session.RecentDiagnostics(10)).Text);
+    }
+
+    [Fact]
+    public async Task 診断の購読側が例外を投げてもstderrを読み続ける()
+    {
+        // 止まるとパイプが詰まって子プロセスが停止する（§22-2 / §5）。
+        var channel = new FakeChannel([]);
+        await using var session = new ClaudeCodeStructuredSession(channel, "engineering");
+        session.Diagnosed += (_, _) => throw new InvalidOperationException("購読側の事故");
+
+        channel.RaiseStandardError("1行目");
+        channel.RaiseStandardError("2行目");
+
+        Assert.Equal(2, session.RecentDiagnostics(10).Count);
+    }
+
+    [Fact]
+    public async Task stderrは中身のまま診断へ流す()
+    {
+        // 診断はライブ専用（設計 §22）。**観測（要約）と別の経路**で中身を運ぶ ——
+        // 分類だけでは「送ったのに何も起きない」の原因に辿り着けない。
+        var channel = new FakeChannel([]);
+        await using var session = new ClaudeCodeStructuredSession(channel, "engineering");
+        var diagnostics = new List<LiveDiagnostic>();
+        session.Diagnosed += (_, line) => diagnostics.Add(line);
+
+        channel.RaiseStandardError("warning: something happened");
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(DiagnosticStream.StandardError, diagnostic.Stream);
+        Assert.Equal("warning: something happened", diagnostic.Text);
+    }
+
+    [Fact]
     public async Task allowは承認を一度だけ発火し_Bashを題にする()
     {
         var channel = new FakeChannel(ReadFixture("allow.stdout.jsonl"));
@@ -186,6 +230,8 @@ public sealed class ClaudeSessionTests
         public Task Completed => _completed.Task;
         public ProcessIdentity Identity { get; } = new(42, 0, 0, DateTimeOffset.UtcNow);
         public event EventHandler<int>? Exited;
+        public event EventHandler<string>? StandardErrorLine;
+        public void RaiseStandardError(string line) => StandardErrorLine?.Invoke(this, line);
 
         public void Release() => _start.TrySetResult();
 

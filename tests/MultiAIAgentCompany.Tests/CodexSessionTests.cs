@@ -10,6 +10,19 @@ namespace MultiAIAgentCompany.Tests;
 public sealed class CodexSessionTests
 {
     [Fact]
+    public async Task stderrは中身のまま診断へ流す()
+    {
+        var channel = new FakeChannel([]);
+        await using var session = new CodexAppServerSession(channel, "implementation", FixtureWorkspace, "gpt-5.6-terra");
+        var diagnostics = new List<LiveDiagnostic>();
+        session.Diagnosed += (_, line) => diagnostics.Add(line);
+
+        channel.RaiseStandardError("rmcp::transport::worker: worker quit");
+
+        Assert.Equal("rmcp::transport::worker: worker quit", Assert.Single(diagnostics).Text);
+    }
+
+    [Fact]
     public async Task acceptは握手を1から3の順に進め承認を一度だけ発火する()
     {
         var channel = new FakeChannel(ReadFixture("accept.stdout.jsonl"));
@@ -157,6 +170,8 @@ public sealed class CodexSessionTests
         public Task Completed => _completed.Task;
         public ProcessIdentity Identity { get; } = new(42, 0, 0, DateTimeOffset.UtcNow);
         public event EventHandler<int>? Exited;
+        public event EventHandler<string>? StandardErrorLine;
+        public void RaiseStandardError(string line) => StandardErrorLine?.Invoke(this, line);
         public void Release() => _start.TrySetResult();
         public async IAsyncEnumerable<string> ReadLinesAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {

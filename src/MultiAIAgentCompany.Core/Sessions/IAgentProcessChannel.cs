@@ -14,4 +14,13 @@ public interface IAgentProcessChannel : IAsyncDisposable
     Task StopAsync(CancellationToken ct);
 
     event EventHandler<int>? Exited;
+
+    /// <summary>
+    /// stderr の行。<b>stdout の構造化ストリームとは混ぜない</b>（設計 §22）。
+    /// </summary>
+    /// <remarks>
+    /// ここに載るのは <b>redact していない生の行</b>。永続させず、ライブ表示と
+    /// 分類（<see cref="Status.Evidence"/>）にだけ使う。
+    /// </remarks>
+    event EventHandler<string>? StandardErrorLine;
 }
