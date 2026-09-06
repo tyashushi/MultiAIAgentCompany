@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Avalonia.Threading;
 using MultiAIAgentCompany.Core.Agents;
+using MultiAIAgentCompany.Core.Coordination;
 using MultiAIAgentCompany.Core.Status;
 using MultiAIAgentCompany.Core.Workspace;
 using CoreTaskStatus = MultiAIAgentCompany.Core.Coordination.TaskStatus;
@@ -38,6 +39,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// <b>一過性のログ行にしない</b> —— 流れて消えると、自動再送しない契約を人間が守れない。
     /// </summary>
     public ObservableCollection<RecoveryItem> Recovery { get; } = [];
+
+    /// <summary>
+    /// 秘書が publish した未処理の提案（設計 §17-6）。
+    /// <b>「仕事にする」は自由入力欄ではなく、この具体的な提案に出す</b>（§17-4）。
+    /// </summary>
+    public ObservableCollection<ProposalCard> Proposals { get; } = [];
 
     /// <summary>
     /// 秘書が居ないときも中央ペインを空にしない（設計 §17-4）——
@@ -373,4 +380,22 @@ public enum RecoveryKind
     /// 読めないなら中の <c>departmentId</c> も信用できない（§16-3）。
     /// </summary>
     Unreadable,
+}
+
+/// <summary>秘書の提案1件（設計 §17-6）。<b>まだ仕事ではない。</b></summary>
+public sealed record ProposalCard(SecretaryProposal Proposal, string DepartmentLabel, bool CanMakeTask)
+{
+    public string Id => Proposal.Id;
+
+    public string Body => Proposal.Body;
+
+    /// <summary>宛先。<b>知らない部門でも捨てず、そう出す</b>（§17-6）。</summary>
+    public string TargetText => DepartmentLabel;
+
+    public bool HasProblem => !CanMakeTask;
+
+    /// <summary>なぜ仕事にできないか。<b>捨てないので、理由を出す</b>（§17-6）。</summary>
+    public string ProblemText => string.IsNullOrWhiteSpace(Body)
+        ? "本文が空なので仕事にできない。秘書に書き直してもらうか、やめる"
+        : "宛先が分からないので仕事にできない。秘書に部門を聞き直すか、やめる";
 }

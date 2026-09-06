@@ -67,6 +67,8 @@ public sealed class ShellComposer
 
     public CompanyScanner? Scanner { get; private set; }
 
+    public SecretaryOutbox? Outbox { get; private set; }
+
     /// <summary>
     /// フォルダが選ばれたときに、各 CLI の trust を読み直す（設計 §13-9）。
     /// <b>書き込みはしない。</b>
@@ -84,6 +86,14 @@ public sealed class ShellComposer
         Leases = new LeaseStore(paths, _clock);
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
         Scanner = new CompanyScanner(paths, Tasks);
+        Outbox = new SecretaryOutbox(paths);
+
+        // protocol の正本を置く（§17-6）。起動時に送るのは「これを読んで」だけ。
+        await SecretaryReadme.WriteAsync(paths,
+            [.. _definitions.Values.Select(d =>
+                $"- `{d.Id}` … {d.DisplayName}（{d.Responsibility}）"
+                + (d.Mode is DriveMode.Tui ? " **TUI。仕事にはできるが、人間が手で送る**" : string.Empty))],
+            ct);
         Shell.WorkspaceLabel = root;
         Shell.Trust.Clear();
         foreach (var row in rows)
@@ -107,6 +117,7 @@ public sealed class ShellComposer
 
         var result = await Scanner.SyncAsync(kind, ct);
         await PushWorkStatesAsync(ct);
+        RefreshProposals();
 
         if (kind is CompanyScanKind.Startup)
         {
@@ -200,6 +211,35 @@ public sealed class ShellComposer
             {
                 tile.CurrentTaskSlug = state.Slug;
             }
+        }
+    }
+
+    /// <summary>
+    /// 未処理の提案を読み直す（設計 §17-6）。<b>outbox が正本</b>なので、
+    /// アプリ側に処理済みの印を持たない。
+    /// </summary>
+    private void RefreshProposals()
+    {
+        if (Outbox is null)
+        {
+            return;
+        }
+
+        Shell.Proposals.Clear();
+        foreach (var proposal in Outbox.Read())
+        {
+            // 知らない部門でも捨てない。人間に見せて判断させる（§17-6）。
+            var known = proposal.DepartmentId is { } id && _definitions.TryGetValue(id, out var definition);
+            var label = proposal.DepartmentId is null
+                ? "宛先が書かれていない"
+                : known
+                    ? _definitions[proposal.DepartmentId].DisplayName
+                    : $"知らない部門: {proposal.DepartmentId}";
+
+            // 本文が空の提案を「仕事にできる」にしない —— 仕事を作ってから
+            // 指示書を作れずに落ちる（レビューで発覚）。
+            Shell.Proposals.Add(new ProposalCard(
+                proposal, label, known && !string.IsNullOrWhiteSpace(proposal.Body)));
         }
     }
 

@@ -120,6 +120,34 @@
                 </Grid>
             </StackPanel>
 
+            <!-- 秘書の提案（設計 §17-6）。**「仕事にする」は自由入力欄ではなく、
+                 この具体的な提案に出す**（§17-4）。 -->
+            <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Proposals}" Margin="0,0,0,6">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:ProposalCard">
+                        <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,6">
+                            <StackPanel>
+                                <TextBlock FontWeight="Bold">
+                                    <Run Text="秘書からの提案 → " /><Run Text="{Binding TargetText}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding Body}" TextWrapping="Wrap" FontSize="11"
+                                           Margin="0,2,0,0" MaxHeight="120" />
+                                <WrapPanel Margin="0,6,0,0">
+                                    <!-- 宛先が分からない提案は仕事にできない。**捨てもしない**（§17-6）。 -->
+                                    <Button Content="仕事にする" IsEnabled="{Binding CanMakeTask}"
+                                            FontSize="11" Margin="0,0,4,0" Click="OnProposalAccept" />
+                                    <Button Content="やめる" FontSize="11" Click="OnProposalReject" />
+                                </WrapPanel>
+                                <TextBlock Text="{Binding ProblemText}"
+                                           IsVisible="{Binding HasProblem}" FontSize="11" Margin="0,4,0,0"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
             <!-- (a) ランタイム承認。ボタンは提示された決定から作る（設計 §5）——
                  版で変わる語彙をここに書き足さない。
                  (b) 判断の相談はここに出さない。あれは .company/ のファイルで扱う（§3 / §6）。 -->

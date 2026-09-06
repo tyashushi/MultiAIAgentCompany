@@ -21,6 +21,12 @@ public partial class MainWindow : Window
     private SecretaryRunner? _secretary;
 
     /// <summary>
+    /// いま仕事にしている最中の提案。<b>同じ提案が2つの仕事にならないようにする</b> ——
+    /// 二度押しはクラッシュを待たずに起きる。
+    /// </summary>
+    private readonly HashSet<string> _acceptingProposals = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// 回答の送信で例外が出た仕事。<b>自動で送り直さない</b>（設計 §16-5 / §14-1）——
     /// 届いたかもしれないので、5秒ごとに送り直すと同じ回答が何度も届く。
     /// </summary>
@@ -255,6 +261,10 @@ public partial class MainWindow : Window
                 Note(failure);
                 return;
             }
+
+            // protocol の正本は README。**中身を会話に埋めない**（設計 §17-6）。
+            await _secretary.SendAsync(
+                SecretaryReadme.StartupMessage(workspace.Company), CancellationToken.None);
         }
 
         ClearMessage();
@@ -552,6 +562,97 @@ public partial class MainWindow : Window
             _composer.Shell.Recovery.Remove(item);
         }
 
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    /// <summary>
+    /// 提案を仕事にする（設計 §17-6）。<b>タスクを作って instruction.md を書いてから</b>
+    /// outbox の文書を移す —— 途中で落ちたら提案は残る（失うよりまし）。
+    /// </summary>
+    private async void OnProposalAccept(object? sender, RoutedEventArgs e)
+    {
+        if (_composer is null || (sender as Control)?.DataContext is not ProposalCard card
+            || card.Proposal.DepartmentId is not { } departmentId
+            || _composer.Tasks is not { } tasks || _composer.Dispatcher is not { } dispatcher
+            || _composer.Workspace is not { } workspace || _composer.Outbox is not { } outbox)
+        {
+            return;
+        }
+
+        // **outbox が未処理の正本**（§17-6）。まだそこに在ることを確かめてから作る ——
+        // 二度押しや、別経路で処理済みになっていた場合に、1つの提案が2つの仕事になる。
+        if (!_acceptingProposals.Add(card.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!File.Exists(Path.Combine(workspace.Company.SecretaryOutbox, $"{card.Id}.md")))
+            {
+                Note($"提案 {card.Id} は既に処理されている");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(card.Body))
+            {
+                Note($"提案 {card.Id} は本文が空なので仕事にできない");
+                return;
+            }
+
+            await AcceptCoreAsync(card, departmentId, tasks, dispatcher, workspace, outbox);
+        }
+        finally
+        {
+            _acceptingProposals.Remove(card.Id);
+        }
+
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    private async Task AcceptCoreAsync(
+        ProposalCard card, string departmentId, TaskStore tasks, TaskDispatcher dispatcher,
+        MultiAIAgentCompany.Core.Workspace.WorkspaceRef workspace, SecretaryOutbox outbox)
+    {
+        var slug = $"task-{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4]}";
+        if (await tasks.CreateAsync(slug, departmentId, CancellationToken.None) is not TaskWriteResult.Written created)
+        {
+            Note($"仕事を作れなかった: {slug}");
+            return;
+        }
+
+        await File.WriteAllTextAsync(
+            workspace.Company.Instruction(slug),
+            CompanyInstruction.Compose(card.Body, workspace.Company, slug),
+            CancellationToken.None);
+
+        // ここまで済んでから移す（§17-6）。
+        outbox.Accept(card.Id, slug, DateTimeOffset.Now);
+
+        var result = await dispatcher.DispatchAsync(
+            created.State, _composer.DefinitionOf(departmentId), SessionOf(departmentId),
+            TimeSpan.FromMinutes(30), CancellationToken.None);
+
+        Note(result switch
+        {
+            DispatchResult.Dispatched => $"{card.TargetText} に {slug} を渡した",
+            DispatchResult.NeedsHuman needsHuman => $"{slug}: {needsHuman.Reason}（人間が送る）",
+            DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
+            DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に部門を起動する）",
+            _ => $"{slug}: 渡せなかった",
+        });
+    }
+
+    /// <summary>提案をやめる。<b>消さずに移す</b>（§16-4 / §17-6）。</summary>
+    private async void OnProposalReject(object? sender, RoutedEventArgs e)
+    {
+        if (_composer?.Outbox is not { } outbox || (sender as Control)?.DataContext is not ProposalCard card)
+        {
+            return;
+        }
+
+        outbox.Reject(card.Id, DateTimeOffset.Now);
+        Note($"提案 {card.Id} をやめた（記録は残っている）");
         await ScanAsync(CompanyScanKind.Periodic);
     }
 

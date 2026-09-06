@@ -40,6 +40,23 @@ public sealed class CompanyPaths
     /// </summary>
     public string UnreadableRoot => Path.Combine(Root, "unreadable");
 
+    /// <summary>秘書の領域（設計 §17-6）。</summary>
+    public string SecretaryRoot => Path.Combine(Root, "secretary");
+
+    /// <summary>protocol の正本。<b>会話やコード中の文字列に寄せない</b>（§17-6）。</summary>
+    public string SecretaryReadme => Path.Combine(SecretaryRoot, "README.md");
+
+    /// <summary><b>未処理の提案の正本</b>。走査はここだけを見る（§17-6）。</summary>
+    public string SecretaryOutbox => Path.Combine(SecretaryRoot, "outbox");
+
+    /// <summary>受理した提案の保管場所。<b>消さずに移す</b>（§16-4 / §17-6）。</summary>
+    public string SecretaryAccepted => Path.Combine(SecretaryRoot, "processed", "accepted");
+
+    /// <summary>
+    /// 却下した提案の保管場所。<b>消すと「提案があったが仕事にしなかった」が失われる</b>。
+    /// </summary>
+    public string SecretaryRejected => Path.Combine(SecretaryRoot, "processed", "rejected");
+
     /// <summary>
     /// 権利の置き場所。<b>ワークスペース全体で1ファイル</b>（設計 §14-2）。
     /// タスクごとに持たせると、別タスクに別部門の有効な lease を同時に置けてしまう。
