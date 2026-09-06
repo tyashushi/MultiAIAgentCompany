@@ -94,7 +94,7 @@ public sealed class ShellComposer
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
-        Scanner = new CompanyScanner(paths, Tasks, Leases);
+        Scanner = new CompanyScanner(paths, Tasks, Leases, _clock);
         Outbox = new SecretaryOutbox(paths);
 
         Shell.WorkspaceLabel = root;
@@ -154,6 +154,11 @@ public sealed class ShellComposer
                 Shell.Recovery.Add(new RecoveryItem(
                     RecoveryKind.UnreadableLease, ".company/lease.json",
                     $"{leaseReason}。**この間はどの部門にも仕事を渡せない**"));
+            }
+
+            if (result.ExpiredWriteLease is { } expired)
+            {
+                NoteExpiredWriteLease(expired);
             }
 
             foreach (var broken in result.Unreadable)
@@ -284,6 +289,53 @@ public sealed class ShellComposer
         CoreTaskStatus.InProgress => 1,
         _ => 0,
     };
+
+    /// <summary>
+    /// 失効した書き込み権を未解決項目に出す（設計 §24-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b>起動時の走査と、dispatch で弾かれたときの両方から呼ぶ。</b>
+    /// ワークスペースを開いたあとに失効した場合、起動時の走査は二度と回らない ——
+    /// **「左の一覧から外して」と言いながら、その一覧に項目が無い**ことになる（レビューで発覚）。
+    /// <para>
+    /// <b>作る場所を1つにする。</b> 二重の復旧 UI も、文言のずれも作らない（§16-4）。
+    /// </para>
+    /// </remarks>
+    public void NoteExpiredWriteLease(LeaseHolder expired)
+    {
+        ArgumentNullException.ThrowIfNull(expired);
+
+        if (Shell.Recovery.Any(item => item.Kind is RecoveryKind.ExpiredLease))
+        {
+            return;
+        }
+
+        // **アプリが言えることだけを言う**（設計 §24-2 / §9）。
+        // **lease が切れてもセッションは死なない**（レビューで発覚）——
+        // 30分の lease が切れただけで動き続けている部門はふつうにある。
+        // 「セッションを持っていない」と無条件に言うと、**動いている相手の権利を
+        // 外させる嘘の安心**になる。分からないときは言わない。
+        // **部門の保持者のときだけ部門を引く**（§17-2）。秘書と部門は `Kind` で区別されるので、
+        // ID だけで引くと、`secretary` という ID の部門があったとき別のプロセスの話をする。
+        var session = expired.Holder.Kind is ActorKind.Department
+            ? Shell.Departments.FirstOrDefault(tile => tile.Id == expired.Holder.Id)?.SessionRunning
+            : null;
+        var about = session switch
+        {
+            true => "**このアプリはその部門のセッションをまだ持っている**（外すと動いている相手の権利を消す）",
+            false => "このアプリはその部門のセッションを持っていないが、別のアプリや手で起動した CLI までは分からない",
+            null => "その保持者がいま動いているかは、このアプリからは分からない",
+        };
+
+        Shell.Recovery.Add(new RecoveryItem(
+            RecoveryKind.ExpiredLease, ".company/lease.json",
+            $"{expired.Holder.Id} が {expired.AcquiredAt.ToLocalTime():MM/dd HH:mm} に取り、"
+            + $"{expired.ExpiresAt.ToLocalTime():MM/dd HH:mm} に失効（仕事: {expired.TaskSlug}）。"
+            + $"**待っても空かない。** {about}")
+        {
+            Lease = expired,
+        });
+    }
 
     /// <summary>
     /// 秘書の protocol の正本を置く（設計 §17-6）。

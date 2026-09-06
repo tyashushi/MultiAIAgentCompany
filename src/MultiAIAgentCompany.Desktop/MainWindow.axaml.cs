@@ -246,6 +246,36 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 書き込み権で弾かれたときの言い方（設計 §24-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「待つ」と言ってよいのは、有効な保持者がいるときだけ。</b>
+    /// 失効した保持者は<b>待っても消えない</b> —— §14-2 が時間切れだけでの奪取を禁じているので、
+    /// 人間が引き取ると決めない限り永久に空かない。実機で「失敗ではない。待つ」と出て、
+    /// 待っても直らなかった（2026-09-06）。
+    /// </remarks>
+    private static string BlockedText(DispatchResult.Blocked blocked) =>
+        $"{blocked.Reason}（失敗ではない。待つ）";
+
+    /// <summary>
+    /// 失効した書き込み権で弾かれたとき（設計 §24-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ここに2つ目の復旧 UI を作らない。</b> 左の「確かめてほしいこと」が正本で、
+    /// ここはそこへ誘導するだけ（§16-4 と二重にしない）。
+    /// </remarks>
+    private string ExpiredLeaseText(DispatchResult.BlockedByExpiredLease expired)
+    {
+        // **誘導する前に、誘導先を作る**（レビューで発覚）。ワークスペースを開いたあとに
+        // 失効した場合、起動時の走査は二度と回らないので、一覧は空のままだった。
+        _composer?.NoteExpiredWriteLease(expired.Holder);
+
+        return $"{expired.Reason}。**待っても空かない** —— "
+            + $"左の「確かめてほしいこと」から外す（{expired.Holder.Holder.Id} が "
+            + $"{expired.Holder.ExpiresAt.ToLocalTime():MM/dd HH:mm} に失効）";
+    }
+
     /// <summary>起動。<b>仕事の用件とは別枠</b>（設計 §15-6）。</summary>
     private async void OnDepartmentStart(object? sender, RoutedEventArgs e)
     {
@@ -295,7 +325,8 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {slug} を渡した",
-            DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
+            DispatchResult.Blocked blocked => $"{slug}: {BlockedText(blocked)}",
+            DispatchResult.BlockedByExpiredLease expired => $"{slug}: {ExpiredLeaseText(expired)}",
             DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に「起動する」）",
 
@@ -430,7 +461,8 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {state.Slug} を差し戻して送り直した",
-            DispatchResult.Blocked blocked => $"{state.Slug}: {blocked.Reason}（失敗ではない。待つ）",
+            DispatchResult.Blocked blocked => $"{state.Slug}: {BlockedText(blocked)}",
+            DispatchResult.BlockedByExpiredLease expired => $"{state.Slug}: {ExpiredLeaseText(expired)}",
             DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
             DispatchResult.Conflicted conflicted => $"{state.Slug}: {conflicted.Reason}",
@@ -734,7 +766,8 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {slug} を渡した",
-            DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
+            DispatchResult.Blocked blocked => $"{slug}: {BlockedText(blocked)}",
+            DispatchResult.BlockedByExpiredLease expired => $"{slug}: {ExpiredLeaseText(expired)}",
             DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}",
             DispatchResult.Conflicted conflicted => $"{slug}: {conflicted.Reason}",
@@ -904,7 +937,7 @@ public partial class MainWindow : Window
         }
 
         // lease は仕事ではないので、仕事のフォルダを引かない（設計 §23-1）。
-        var directory = item.IsUnreadableLease
+        var directory = item.IsUnreadableLease || item.IsExpiredLease
             ? workspace.Company.Root
             : workspace.Company.TaskDirectory(item.Slug);
         try
@@ -968,6 +1001,46 @@ public partial class MainWindow : Window
             : $"書き込み権を隔離して作り直した（元は消えていない）→ {moved}");
 
         if (moved is not null)
+        {
+            _composer.Shell.Recovery.Remove(item);
+        }
+
+        await ScanAsync(CompanyScanKind.Startup);
+    }
+
+    /// <summary>
+    /// 失効した書き込み権を外す（設計 §24-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b>§14-2 を破っていない。</b> 根拠は時間ではなく、人間が
+    /// 「その保持者はもう動いていない」と判断したこと。
+    /// <b>押した時点でもう一度読む</b> —— 有効な保持者に変わっていたら外さない。
+    /// </remarks>
+    private async void OnRecoveryReleaseExpiredLease(object? sender, RoutedEventArgs e)
+    {
+        if (Item(sender) is not { Lease: { } judged } item || _composer?.Leases is not { } leases)
+        {
+            return;
+        }
+
+        if (await leases.ReadAsync(CancellationToken.None) is not LeaseReadResult.Found found)
+        {
+            Note("書き込み権を読めない（先に隔離する）");
+            return;
+        }
+
+        var write = await leases.ReleaseExpiredAsync(
+            found.Leases, LeaseKind.Write, judged, CancellationToken.None);
+        Note(write switch
+        {
+            LeaseWriteResult.Written => "失効した書き込み権を外した。これで仕事を渡せる",
+            LeaseWriteResult.Denied denied => $"外さなかった: {denied.Reason}",
+            LeaseWriteResult.NotHeld notHeld => $"外すものが無かった: {notHeld.Reason}",
+            LeaseWriteResult.Conflicted conflicted => $"外さなかった: {conflicted.Reason}（もう一度読む）",
+            _ => "外せなかった",
+        });
+
+        if (write is LeaseWriteResult.Written)
         {
             _composer.Shell.Recovery.Remove(item);
         }
@@ -1075,7 +1148,8 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{card.TargetText} に {slug} を渡した",
-            DispatchResult.Blocked blocked => $"{slug}: {blocked.Reason}（失敗ではない。待つ）",
+            DispatchResult.Blocked blocked => $"{slug}: {BlockedText(blocked)}",
+            DispatchResult.BlockedByExpiredLease expired => $"{slug}: {ExpiredLeaseText(expired)}",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に部門を起動する）",
             DispatchResult.Conflicted conflicted => $"{slug}: {conflicted.Reason}",
             _ => $"{slug}: 渡せなかった（{result.GetType().Name}）",

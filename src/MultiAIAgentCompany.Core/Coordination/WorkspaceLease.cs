@@ -49,6 +49,17 @@ public sealed record LeaseHolder(
 {
     /// <summary>その時点で有効か。<b>取得前は有効ではない</b>（初版は未来の lease も有効にしていた）。</summary>
     public bool IsValidAt(DateTimeOffset now) => AcquiredAt <= now && now < ExpiresAt;
+
+    /// <summary>
+    /// その時点で失効しているか（設計 §24-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="IsValidAt"/> の否定ではない。</b> 取得時刻が未来のもの
+    /// （時計のずれ・手編集）は「有効でない」が**まだ始まっていない**ので、失効ではない。
+    /// 否定で判定すると、外せないものを「外してください」と人間に出すことになる
+    /// （レビューで2度出た）。
+    /// </remarks>
+    public bool IsExpiredAt(DateTimeOffset now) => now >= ExpiresAt;
 }
 
 /// <summary>

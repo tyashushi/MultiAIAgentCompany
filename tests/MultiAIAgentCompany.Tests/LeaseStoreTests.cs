@@ -91,13 +91,13 @@ public sealed class LeaseStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task 失効した保持者がいても既定ではDeniedでファイルを変更しない()
+    public async Task 失効した保持者がいても既定ではDeniedExpiredでファイルを変更しない()
     {
         var acquired = await AcquireAsync(WorkspaceLeases.Empty, LeaseKind.Write, "implementation", "feature", TimeSpan.FromMinutes(1));
         _clock.Advance(TimeSpan.FromMinutes(2));
         var before = await File.ReadAllTextAsync(_workspace.Paths.Lease);
 
-        var denied = Assert.IsType<LeaseWriteResult.Denied>(await _store.AcquireAsync(acquired.Leases, LeaseKind.Write,
+        var denied = Assert.IsType<LeaseWriteResult.DeniedExpired>(await _store.AcquireAsync(acquired.Leases, LeaseKind.Write,
             Actor.OfDepartment("review"), "review", TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None));
 
         Assert.Contains("失効", denied.Reason);

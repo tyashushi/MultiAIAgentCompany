@@ -76,14 +76,16 @@ public sealed class TaskDispatcherTests : IDisposable
     }
 
     [Fact]
-    public async Task 失効したleaseを勝手に奪わずBlockedにする()
+    public async Task 失効したleaseを勝手に奪わず待っても空かないと言う()
     {
         var expected = await CreateDraftAsync();
         var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
         await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("review"), "other", TimeSpan.FromMinutes(1), LeaseTakeover.Deny, CancellationToken.None);
         _clock.Advance(TimeSpan.FromMinutes(2));
 
-        var result = Assert.IsType<DispatchResult.Blocked>(await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation")));
+        // **Blocked と型で分ける**（設計 §24-1）。同じ型に潰すと UI が両方に「待つ」と言う。
+        var result = Assert.IsType<DispatchResult.BlockedByExpiredLease>(
+            await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation")));
 
         Assert.Contains("失効", result.Reason);
         Assert.Equal(CoreTaskStatus.Drafted, (await ReadStateAsync()).Status);

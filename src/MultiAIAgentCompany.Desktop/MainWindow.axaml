@@ -52,6 +52,18 @@
                                                 Click="OnRecoveryRescan" />
                                     </WrapPanel>
 
+                                    <!-- 失効した書き込み権（設計 §24-2）。**時間では空かない。**
+                                         外す根拠は時間ではなく、人間が「もう動いていない」と
+                                         判断したこと（§14-2）。 -->
+                                    <WrapPanel IsVisible="{Binding IsExpiredLease}" Margin="0,4,0,0">
+                                        <Button Content="失効した書き込み権を外す" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryReleaseExpiredLease" />
+                                        <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryOpenFolder" />
+                                        <Button Content="もう一度読む" FontSize="11" Margin="0,0,4,4"
+                                                Click="OnRecoveryRescan" />
+                                    </WrapPanel>
+
                                     <WrapPanel IsVisible="{Binding IsUnreadable}" Margin="0,4,0,0">
                                         <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
                                                 Click="OnRecoveryOpenFolder" />

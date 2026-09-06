@@ -32,11 +32,16 @@ public sealed class CompanyScanner
     private readonly TaskStore _tasks;
     private readonly LeaseStore? _leases;
 
-    public CompanyScanner(CompanyPaths paths, TaskStore tasks, LeaseStore? leases = null)
+    /// <summary>時刻。<b>自分で `UtcNow` を呼ばない</b> —— 失効の判定に使うので、テストで動かせないと固定できない。</summary>
+    private readonly TimeProvider _clock;
+
+    public CompanyScanner(
+        CompanyPaths paths, TaskStore tasks, LeaseStore? leases = null, TimeProvider? clock = null)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _leases = leases;
+        _clock = clock ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -127,12 +132,27 @@ public sealed class CompanyScanner
 
         // **読めない lease は一時エラーではなく復旧項目**（設計 §23-1）。
         // dispatch のたびに「渡せなかった」と出すだけだと、人間は次も押して次も失敗する。
-        var unreadableLease = kind is CompanyScanKind.Startup && _leases is not null
-            && await _leases.ReadAsync(ct) is LeaseReadResult.Unreadable brokenLease
-                ? LeaseRecovery.Describe(brokenLease.Reason, await ReadLeaseTextAsync(ct))
-                : null;
+        string? unreadableLease = null;
+        LeaseHolder? expiredLease = null;
+        if (kind is CompanyScanKind.Startup && _leases is not null)
+        {
+            switch (await _leases.ReadAsync(ct))
+            {
+                case LeaseReadResult.Unreadable brokenLease:
+                    unreadableLease = LeaseRecovery.Describe(brokenLease.Reason, await ReadLeaseTextAsync(ct));
+                    break;
 
-        return new CompanyScanResult(applied, blocked, unreadable, dispatched, unreadableLease);
+                // **失効した保持者も未解決項目**（設計 §24-2）。時間では空かないので、
+                // dispatch のたびに弾かれるだけの状態が永久に続く。
+                case LeaseReadResult.Found found
+                    when found.Leases.Holders.TryGetValue(LeaseKind.Write, out var holder)
+                        && holder.IsExpiredAt(_clock.GetUtcNow()):
+                    expiredLease = holder;
+                    break;
+            }
+        }
+
+        return new CompanyScanResult(applied, blocked, unreadable, dispatched, unreadableLease, expiredLease);
     }
 
     private async Task<(TaskStatus To, string Because)?> FindTransitionAsync(TaskState state, CancellationToken ct)
@@ -206,6 +226,10 @@ public sealed class CompanyScanner
 /// <param name="Blocked">遷移すべきだが書けなかったもの（理由つき）。</param>
 /// <param name="Unreadable">state.json を読めなかった仕事。部門に紐づけられない（設計 §16-3）。</param>
 /// <param name="Dispatched">送ったかもしれないまま残っている仕事（設計 §14-1）。自動再送しない。</param>
+/// <param name="ExpiredWriteLease">
+/// 失効した書き込み権の保持者（設計 §24）。<b>待っても空かない</b>ので、
+/// 人間が外すまでこのワークスペースでは誰にも仕事を渡せない。無ければ null。
+/// </param>
 /// <param name="UnreadableLease">
 /// <c>lease.json</c> を読めなかった理由（設計 §23）。<b>これがあると全部の dispatch が止まる</b>ので、
 /// 一時エラーではなく人間に見せる未解決項目として運ぶ。読めているなら null。
@@ -215,7 +239,8 @@ public sealed record CompanyScanResult(
     IReadOnlyList<BlockedTransition> Blocked,
     IReadOnlyList<UnreadableTask> Unreadable,
     IReadOnlyList<TaskState> Dispatched,
-    string? UnreadableLease = null);
+    string? UnreadableLease = null,
+    LeaseHolder? ExpiredWriteLease = null);
 
 public sealed record AppliedTransition(string Slug, TaskStatus From, TaskStatus To, string Because);
 public sealed record BlockedTransition(string Slug, TaskStatus From, TaskStatus To, string Reason);

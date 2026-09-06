@@ -373,6 +373,10 @@ public sealed class TaskDispatcher
         {
             LeaseWriteResult.Written => null,
             LeaseWriteResult.Denied denied => new DispatchResult.Blocked(denied.Reason, denied.Holder),
+
+            // **待っても空かない**（設計 §24-1）。UI に「待つ」と言わせないため型で分ける。
+            LeaseWriteResult.DeniedExpired expired =>
+                new DispatchResult.BlockedByExpiredLease(expired.Reason, expired.Holder),
             LeaseWriteResult.Conflicted conflicted => new DispatchResult.Conflicted(conflicted.Reason),
             LeaseWriteResult.NotHeld notHeld => new DispatchResult.Conflicted(notHeld.Reason),
             _ => throw new InvalidOperationException("未知の LeaseWriteResult です"),
@@ -389,7 +393,14 @@ public abstract record DispatchResult
     // 人間の出番は `DepartmentCallToAction.NeedsHuman`（§15-6）が受け持つ ——
     // 同じ名前で意味の違うものを2つ置かない。
 
+    /// <summary>有効な保持者がいて渡せない。<b>待てば空く可能性がある。</b></summary>
     public sealed record Blocked(string Reason, LeaseHolder Holder) : DispatchResult;
+
+    /// <summary>
+    /// 失効した保持者がいて渡せない（設計 §24）。<b>待っても空かない。</b>
+    /// 人間が「確かめてほしいこと」から外すまで、このワークスペースでは誰にも渡せない。
+    /// </summary>
+    public sealed record BlockedByExpiredLease(string Reason, LeaseHolder Holder) : DispatchResult;
 
     public sealed record Rejected(string Reason) : DispatchResult;
 

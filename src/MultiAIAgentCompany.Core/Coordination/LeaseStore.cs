@@ -96,7 +96,19 @@ public sealed class LeaseStore
 
             if (takeover is LeaseTakeover.Deny)
             {
-                return new LeaseWriteResult.Denied("失効した保持者がいます（明示的な奪取許可が必要です）", holder);
+                // **失効と「まだ始まっていない」を分ける**（§24-2）。
+                // 未来の取得時刻を失効として返すと、UI が「待っても空かない」と言い、
+                // 外そうとしても外せない状態を作る。
+                return holder.IsExpiredAt(now)
+                    ? new LeaseWriteResult.DeniedExpired("失効した保持者がいます（時間では空きません）", holder)
+                    : new LeaseWriteResult.Denied("取得時刻が未来の保持者がいます", holder);
+            }
+
+            // **`AllowExpired` は「失効したものを置き換えてよい」。**
+            // まだ始まっていない保持者は失効ではないので、ここも通さない（§24-2）。
+            if (!holder.IsExpiredAt(now))
+            {
+                return new LeaseWriteResult.Denied("取得時刻が未来の保持者がいます", holder);
             }
         }
 
@@ -139,6 +151,67 @@ public sealed class LeaseStore
             [kind] = holder with { ExpiresAt = now + duration },
         };
         return await WriteAsync(new WorkspaceLeases(checked(current.Revision + 1), nextHolders), ct);
+    }
+
+    /// <summary>
+    /// 失効した保持者を外す（設計 §24-2）。<b>人間が押したときだけ呼ぶ。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b>§14-2 の「時間切れだけを根拠に奪わない」を破っていない。</b> 根拠は時間ではなく、
+    /// <b>人間が「その保持者はもう動いていない」と判断したこと</b>。アプリが言えるのは
+    /// 「このアプリが管理しているセッションに該当する保持者はいない」までで、
+    /// 別インスタンス・手動起動の CLI・クラッシュ後の残存までは分からない（§9）。
+    /// <para>
+    /// <b>有効な保持者は外さない。</b> それは奪取であって、この操作ではない。
+    /// </para>
+    /// </remarks>
+    public async Task<LeaseWriteResult> ReleaseExpiredAsync(
+        WorkspaceLeases expected, LeaseKind kind, LeaseHolder judged, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(judged);
+        ct.ThrowIfCancellationRequested();
+
+        var currentResult = await ReadAsync(ct);
+        if (currentResult is LeaseReadResult.Unreadable unreadable)
+        {
+            return new LeaseWriteResult.Conflicted($"lease.json を検証できません: {unreadable.Reason}");
+        }
+
+        var current = ((LeaseReadResult.Found)currentResult).Leases;
+        if (current.Revision != expected.Revision)
+        {
+            return RevisionConflict(expected, current);
+        }
+
+        var now = _clock.GetUtcNow();
+        if (!current.Holders.TryGetValue(kind, out var holder))
+        {
+            return new LeaseWriteResult.NotHeld("その権利には保持者がいません");
+        }
+
+        // **「有効でない」と「失効した」は違う**（レビューで発覚）。
+        // `IsValidAt` は取得時刻が未来のもの（時計のずれ・手編集）も false にするが、
+        // それは**まだ始まっていない** lease であって、外してよいものではない。
+        if (!holder.IsExpiredAt(now))
+        {
+            return new LeaseWriteResult.Denied(
+                holder.IsValidAt(now) ? "まだ有効な保持者です（外しません）" : "まだ失効していません（外しません）",
+                holder);
+        }
+
+        // **人間が見て判断したのは `judged`。** 画面に出してから押すまでの間に
+        // lease.json が変わっていたら、**別の保持者を外すことになる**（レビューで発覚）。
+        // 人間の明示的な判断が根拠なので、判断の対象が変わったら実行しない。
+        if (holder != judged)
+        {
+            return new LeaseWriteResult.Conflicted(
+                $"表示していた保持者と違います（表示: {judged.Holder.Id} / 現在: {holder.Holder.Id}）");
+        }
+
+        var remaining = new Dictionary<LeaseKind, LeaseHolder>(current.Holders);
+        remaining.Remove(kind);
+        return await WriteAsync(new WorkspaceLeases(checked(current.Revision + 1), remaining), ct);
     }
 
     public async Task<LeaseWriteResult> ReleaseAsync(WorkspaceLeases expected, LeaseKind kind, Actor actor,
@@ -245,7 +318,18 @@ public abstract record LeaseReadResult
 public abstract record LeaseWriteResult
 {
     public sealed record Written(WorkspaceLeases Leases) : LeaseWriteResult;
+    /// <summary>有効な保持者がいる。<b>待てば空く可能性がある。</b></summary>
     public sealed record Denied(string Reason, LeaseHolder Holder) : LeaseWriteResult;
+
+    /// <summary>
+    /// 失効した保持者がいる。<b>待っても空かない</b>（設計 §24-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="Denied"/> と型で分ける。</b> §14-2 が時間切れだけでの奪取を禁じているので、
+    /// 人間が外すと決めない限り永久に空かない —— 同じ型に潰すと、UI が両方に
+    /// 「待つ」と言う（実機で出た。2026-09-06）。
+    /// </remarks>
+    public sealed record DeniedExpired(string Reason, LeaseHolder Holder) : LeaseWriteResult;
     public sealed record NotHeld(string Reason) : LeaseWriteResult;
     public sealed record Conflicted(string Reason) : LeaseWriteResult;
 }
