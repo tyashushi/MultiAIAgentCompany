@@ -65,7 +65,15 @@
                         <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                                 BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,6">
                             <Grid ColumnDefinitions="Auto,*">
-                                <TextBlock Grid.Column="0" Text="{Binding Glyph}" FontSize="24" Margin="0,0,8,0" />
+                                <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
+                                <Grid Grid.Column="0" Width="40" Height="40" Margin="0,0,8,0">
+                                    <TextBlock Text="{Binding Glyph}" FontSize="24"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding BadgeGlyph}" FontSize="13"
+                                               HorizontalAlignment="Right" VerticalAlignment="Top" />
+                                    <TextBlock Text="{Binding RuntimeGlyph}" FontSize="13"
+                                               HorizontalAlignment="Left" VerticalAlignment="Bottom" />
+                                </Grid>
                                 <StackPanel Grid.Column="1">
                                     <TextBlock FontWeight="Bold">
                                         <Run Text="{Binding Name}" />

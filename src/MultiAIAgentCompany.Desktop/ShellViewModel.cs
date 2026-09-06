@@ -36,16 +36,19 @@ public sealed class ShellViewModel
             SecretaryTranscript = ["秘書はまだ起動していない"],
             Departments =
             [
+                // 絵ができるまでの仮置き。§15 の3層が同時に見える組み合わせにしてある ——
+                // 「働いているが別の仕事の報告が人間待ち」「倒れているが仕事は残っている」が
+                // 1枚で読めることを、起動して目で確かめるため。
                 DepartmentTile.Placeholder("設計", AgentKind.ClaudeCode, DriveMode.Structured,
-                    RuntimeState.Exited, ActivityState.Unknown, null, now),
+                    RuntimeState.Running, ActivityState.Working, null, now),
                 DepartmentTile.Placeholder("実装", AgentKind.CodexCli, DriveMode.Structured,
-                    RuntimeState.Exited, ActivityState.Unknown, null, now),
-                DepartmentTile.Placeholder("調査", AgentKind.AntigravityCli, DriveMode.Tui,
-                    RuntimeState.Exited, ActivityState.Unknown, null, now),
-                DepartmentTile.Placeholder("レビュー", AgentKind.CodexCli, DriveMode.Structured,
-                    RuntimeState.Exited, ActivityState.Unknown, null, now),
+                    RuntimeState.Running, ActivityState.AwaitingApproval, CoreTaskStatus.InProgress, now),
+                DepartmentTile.Placeholder("調査", AgentKind.AntigravityCli, DriveMode.Structured,
+                    RuntimeState.Running, ActivityState.Consulting, CoreTaskStatus.AwaitingAnswer, now),
+                DepartmentTile.Placeholder("レビュー", AgentKind.ClaudeCode, DriveMode.Structured,
+                    RuntimeState.Running, ActivityState.Working, CoreTaskStatus.Reported, now),
                 DepartmentTile.Placeholder("テスト", AgentKind.CodexCli, DriveMode.Structured,
-                    RuntimeState.Exited, ActivityState.Unknown, null, now),
+                    RuntimeState.Failed, ActivityState.Unknown, CoreTaskStatus.Dispatched, now),
             ],
         };
     }
@@ -69,19 +72,44 @@ public sealed class DepartmentTile
     public string WorkText => Status.Work is null ? "—" : Status.Work.Value.ToString();
 
     /// <summary>
-    /// 人型アイコン。設計 §3 —— <b>(a) 承認まちと (b) 相談中を同じ絵にしない。</b>
-    /// 同じ絵にすると、人間がターミナルを開くべきか
-    /// <c>.company/</c> のドキュメントを読むべきかが分からなくなる。
+    /// 人型アイコンの3層（設計 §15）。<b>この対応は Core が決める</b> ——
+    /// 「どの状態で人間が何をすべきか」は業務ロジックであって、表示の都合ではない（§4）。
     /// </summary>
-    public string Glyph => Status.Activity.Value switch
+    public DepartmentCallToAction Call => DepartmentCallToAction.From(Status);
+
+    /// <summary>
+    /// ポーズ。<b>(a) 承認まちと (b) 相談中を同じ絵にしない</b>（設計 §3）——
+    /// 人間の行き先が違う。ここは絵ができるまでの仮置き。
+    /// </summary>
+    public string Glyph => Call.Pose switch
     {
-        ActivityState.Working => "🏃",
-        ActivityState.Resting => "🧍",
-        ActivityState.AwaitingApproval => "🙋",   // (a) → ターミナル / 承認ボタンへ
-        ActivityState.Consulting => "💬",         // (b) → .company/ のドキュメントへ
-        ActivityState.Degraded => "🤕",
+        DepartmentPose.Working => "🏃",
+        DepartmentPose.Resting => "🧍",
+        DepartmentPose.AwaitingApproval => "🙋",   // (a) → 承認ボタン / ターミナルへ
+        DepartmentPose.Consulting => "💬",         // (b) → .company/ のドキュメントへ
+        DepartmentPose.Degraded => "🤕",
         _ => "❔",
     };
+
+    /// <summary>右上のバッジ。人間の返事を待つ仕事があるときだけ（設計 §15-3）。</summary>
+    public string BadgeGlyph => Call.Badge switch
+    {
+        DepartmentBadge.NeedsAnswer => "❓",
+        DepartmentBadge.NeedsAcceptance => "📝",
+        DepartmentBadge.NeedsDeliveryCheck => "📮",
+        _ => string.Empty,
+    };
+
+    /// <summary>左下の印。稼働状態の担当（設計 §15-4）。</summary>
+    public string RuntimeGlyph => Call.RuntimeMark switch
+    {
+        DepartmentRuntimeMark.Down => "⚠️",
+        DepartmentRuntimeMark.Ended => "⏹",
+        _ => string.Empty,
+    };
+
+    /// <summary>人間の出番があるか。無ければ眺めているだけでよい。</summary>
+    public bool NeedsHuman => Call.NeedsHuman;
 
     /// <summary>状態の根拠。<b>状態だけを見せない</b>（設計 §7）。</summary>
     public string EvidenceText =>
