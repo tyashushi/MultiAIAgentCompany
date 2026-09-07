@@ -97,10 +97,10 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
-    public void 既定の5部門は能力の既定モードを使う()
+    public void 既定の部門は能力の既定モードを使う()
     {
         var departments = DepartmentStore.CreateDefaultDepartments();
-        Assert.Equal(5, departments.Count);
+        Assert.Equal(7, departments.Count);
         Assert.All(departments, d => Assert.Equal(AgentCapabilities.For(d.Agent).DefaultDriveMode, d.Mode));
     }
 
@@ -112,15 +112,52 @@ public sealed class DepartmentStoreTests : IDisposable
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
     [Fact]
-    public void 既定の5部門はすべて構造化になる()
+    public void 既定の部門はすべて構造化になる()
     {
         // 2026-09-06 に Antigravity の既定を Structured へ変えた（§5 / §13-3 追記2）。
         // これで v1 の部門はすべて構造化で動き、部門を動かすために PTY は要らない。
         // TUI セッションが入るまで、ここが Tui を含むと起動できない部門ができる。
         var departments = DepartmentStore.CreateDefaultDepartments();
 
-        Assert.Equal(5, departments.Count);
+        Assert.Equal(7, departments.Count);
         Assert.All(departments, department => Assert.Equal(DriveMode.Structured, department.Mode));
+    }
+
+    [Fact]
+    public void 設計レビューだけが読むだけの部門()
+    {
+        // **書き込み権を取るかどうかが変わる**（設計 §29-1）。
+        // 安全側の既定は「取る」なので、読むだけと宣言したものだけがここに出る。
+        var readsOnly = DepartmentStore.CreateDefaultDepartments()
+            .Where(department => department.ReadsOnly)
+            .Select(department => department.Id)
+            .ToArray();
+
+        Assert.Equal(["design-review-consistency", "design-review-outside"], readsOnly);
+    }
+
+    [Fact]
+    public void 設計レビューの2部門は違う問いを持つ()
+    {
+        // 同じ問いを2人に投げると、費用は2倍で発見はほとんど増えない（§29-2）。
+        var paths = new CompanyPaths(_root);
+        var consistency = CompanyInstruction.ComposeDesignReview(
+            "docs/x.md", DesignReviewLens.Consistency, paths, "task-1");
+        var outside = CompanyInstruction.ComposeDesignReview(
+            "docs/x.md", DesignReviewLens.Outside, paths, "task-1");
+
+        Assert.Contains("矛盾している", consistency, StringComparison.Ordinal);
+        Assert.Contains("使う人が、何に困るか", outside, StringComparison.Ordinal);
+        Assert.NotEqual(consistency, outside);
+
+        // どちらも「作業ツリーは書き換えない」と言う（読むだけの部門なので）。
+        Assert.All([consistency, outside],
+            text => Assert.Contains("作業ツリーのファイルを書き換えない", text, StringComparison.Ordinal));
+
+        // **報告まで禁じない**（レビューで発覚）。禁じると、忠実な CLI は report.md も
+        // 書かずに正常終了し、仕事が Dispatched のまま止まる。
+        Assert.All([consistency, outside],
+            text => Assert.Contains("report.md", text, StringComparison.Ordinal));
     }
 
 }

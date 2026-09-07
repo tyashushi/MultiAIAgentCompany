@@ -279,6 +279,56 @@ public sealed class TaskDispatcherTests : IDisposable
         return state;
     }
 
+    [Fact]
+    public async Task 読むだけの部門は書き込み権を取らない()
+    {
+        // **2人のレビュアーが同じ文書を読むだけで直列化されない**（設計 §29-1 / §14-2）。
+        var expected = await CreateDraftAsync();
+
+        Assert.IsType<DispatchResult.Dispatched>(await _dispatcher.DispatchAsync(
+            expected, ReadOnlyDepartment, new FakeSession("implementation"),
+            TimeSpan.FromMinutes(10), CancellationToken.None));
+
+        var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None));
+        Assert.True(leases.Leases.CanAcquire(LeaseKind.Write, _clock.GetUtcNow()));
+    }
+
+    [Fact]
+    public async Task 読むだけの部門も書いている最中は待つ()
+    {
+        // **取らないことと、無視することは違う**（設計 §29-1、レビューで発覚）。
+        // 書き換え中の作業ツリーを読むと、途中の状態を読んで誤った指摘を出す。
+        var expected = await CreateDraftAsync();
+        var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
+        await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("review"), "other",
+            TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None);
+
+        var result = Assert.IsType<DispatchResult.Blocked>(await _dispatcher.DispatchAsync(
+            expected, ReadOnlyDepartment, new FakeSession("implementation"),
+            TimeSpan.FromMinutes(10), CancellationToken.None));
+
+        Assert.Contains("書き込み中", result.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 失効した書き手は読むだけの部門を止めない()
+    {
+        // 失効した保持者は書いていない（§24 と同じ判定）。
+        var expected = await CreateDraftAsync();
+        var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
+        await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("review"), "other",
+            TimeSpan.FromMinutes(1), LeaseTakeover.Deny, CancellationToken.None);
+        _clock.Advance(TimeSpan.FromMinutes(2));
+
+        Assert.IsType<DispatchResult.Dispatched>(await _dispatcher.DispatchAsync(
+            expected, ReadOnlyDepartment, new FakeSession("implementation"),
+            TimeSpan.FromMinutes(10), CancellationToken.None));
+    }
+
+    private static readonly DepartmentDefinition ReadOnlyDepartment =
+        new("implementation", "設計レビュー", "設計を読む", AgentKind.CodexCli, DriveMode.Structured,
+            Model: null, ReadsOnly: true);
+
     private async Task<TaskState> CreateDraftAsync()
     {
         var state = Assert.IsType<TaskWriteResult.Written>(await _tasks.CreateAsync("feature", "implementation", CancellationToken.None)).State;

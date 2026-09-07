@@ -10,8 +10,23 @@ namespace MultiAIAgentCompany.Core.Workspace;
 /// <param name="Agent">担当する CLI。</param>
 /// <param name="Mode">駆動モード。</param>
 /// <param name="Model">CLI に渡すモデル。null なら CLI の設定に任せる。</param>
+/// <param name="ReadsOnly">
+/// 作業ツリーを<b>書き換えない</b>部門か（設計 §29-1）。
+/// </param>
+/// <remarks>
+/// <b><see cref="ReadsOnly"/> は書き込み権を取るかどうかを決める</b>（§14-2）。
+/// 読むだけの部門（設計レビューなど）が Write lease を取ると、**同時に1つしか動けない** ——
+/// 2人のレビュアーに同じ文書を読ませるだけで直列化される。
+/// 成果物は <c>report.md</c> で、調整文書への書き込みは lease の対象外（§14-2）。
+/// <para>
+/// <b>これは「書かない」という宣言であって、強制ではない。</b> CLI は実際には書ける ——
+/// 守らせるのは指示書（§16-1 の publish 契約と同じ姿勢）。
+/// だから<b>安全側の既定は false</b>（＝ lease を取る）。
+/// </para>
+/// </remarks>
 public sealed record DepartmentDefinition(
-    string Id, string DisplayName, string Responsibility, AgentKind Agent, DriveMode Mode, string? Model = null);
+    string Id, string DisplayName, string Responsibility, AgentKind Agent, DriveMode Mode,
+    string? Model = null, bool ReadsOnly = false);
 
 /// <remarks>
 /// <b>record の等値比較は <see cref="Departments"/> を要素で見ない</b>
@@ -99,6 +114,18 @@ public sealed class DepartmentStore
         new("research", "調査", "技術的な選択肢と根拠を調査する。", AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode),
         new("review", "レビュー", "変更をレビューし、懸念を報告する。", AgentKind.ClaudeCode, AgentCapabilities.For(AgentKind.ClaudeCode).DefaultDriveMode),
         new("testing", "テスト", "テストを実行し、結果を報告する。", AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode),
+
+        // **設計レビューは2人**（設計 §29-2）。同じ文書を読ませるが、**問いを分ける** ——
+        // 同じ問いを2人に投げると、費用は2倍で発見はほとんど増えない。
+        // どちらも作業ツリーを書き換えないので `ReadsOnly`（§29-1）。
+        new("design-review-consistency", "設計レビュー（整合）",
+            "設計文書が、他の節と矛盾していないかを見る。",
+            AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode,
+            Model: null, ReadsOnly: true),
+        new("design-review-outside", "設計レビュー（外から）",
+            "その設計で作られたものを使う人が、何に困るかを見る。",
+            AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
+            Model: null, ReadsOnly: true),
     ];
 
     private static string? Validate(IReadOnlyList<DepartmentDefinition>? departments)

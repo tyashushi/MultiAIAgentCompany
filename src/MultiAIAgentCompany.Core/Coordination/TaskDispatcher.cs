@@ -52,7 +52,13 @@ public sealed class TaskDispatcher
             return new DispatchResult.Rejected("instruction.md が無いか空です");
         }
 
-        var leaseResult = await AcquireOrRenewWriteLeaseAsync(expected, department, leaseDuration, ct);
+        // **読むだけの部門は書き込み権を「取らない」。ただし「無視しない」**
+        // （設計 §29-1、レビューで発覚）。取らないだけにすると、
+        // **書いている最中の作業ツリーを読む**ことになり、途中の状態を読んで誤った指摘を出す。
+        // 避けたかったのは「読む部門どうしの直列化」であって、書き手との排他ではない。
+        var leaseResult = department.ReadsOnly
+            ? await BlockWhileWritingAsync(ct)
+            : await AcquireOrRenewWriteLeaseAsync(expected, department, leaseDuration, ct);
         if (leaseResult is DispatchResult leaseFailure)
         {
             return leaseFailure;
@@ -65,10 +71,10 @@ public sealed class TaskDispatcher
             // 遷移が通らなかったなら dispatch は始まっていない。
             // 取った lease を握ったままにすると、他の部門が失効まで待たされる（§14-2）。
             case TaskWriteResult.Rejected rejected:
-                await ReleaseWriteLeaseAsync(department, ct);
+                await ReleaseIfHeldAsync(department, ct);
                 return new DispatchResult.Rejected(rejected.Reason);
             case TaskWriteResult.Conflicted conflicted:
-                await ReleaseWriteLeaseAsync(department, ct);
+                await ReleaseIfHeldAsync(department, ct);
                 return new DispatchResult.Conflicted(conflicted.Reason);
             case TaskWriteResult.Written written:
                 // Structured なのに session が無い場合は最初に弾いてある（この上）。
@@ -90,10 +96,36 @@ public sealed class TaskDispatcher
     }
 
     /// <summary>
+    /// 書いている部門が居る間は渡さない（設計 §29-1）。<b>権利は取らない。</b>
+    /// </summary>
+    /// <remarks>
+    /// 読むだけの部門どうしは**互いに待たない**が、**書き手とは待つ** ——
+    /// 書き換え中の作業ツリーを読むと、途中の状態を読んで誤った指摘を出す。
+    /// <b>失効した保持者は書いていない</b>ので、そこは通す（§24 と同じ判定）。
+    /// </remarks>
+    private async Task<DispatchResult?> BlockWhileWritingAsync(CancellationToken ct)
+    {
+        // 「読めない」以外を Found と決めつけない。**種類が増えたときに落ちる**（レビューで指摘）。
+        if (await _leases.ReadAsync(ct) is not LeaseReadResult.Found found)
+        {
+            return new DispatchResult.Conflicted("lease.json を検証できません");
+        }
+
+        return found.Leases.Holders.TryGetValue(LeaseKind.Write, out var holder)
+                && holder.IsValidAt(_clock.GetUtcNow())
+            ? new DispatchResult.Blocked("書き込み中の部門がいます（読むだけの仕事も、書き終わるまで待つ）", holder)
+            : null;
+    }
+
+    /// <summary>
     /// dispatch が始まらなかったときに Write lease を返す。
     /// <b>ここで失敗しても外へ投げない</b> —— 呼び出し元に返すべきは元の理由であって、
     /// 後始末の失敗ではない。lease は時間でも解ける（§14-2）。
     /// </summary>
+    /// <remarks>取っていない部門（<c>ReadsOnly</c>）では何もしない（設計 §29-1）。</remarks>
+    private Task ReleaseIfHeldAsync(DepartmentDefinition department, CancellationToken ct) =>
+        department.ReadsOnly ? Task.CompletedTask : ReleaseWriteLeaseAsync(department, ct);
+
     private async Task ReleaseWriteLeaseAsync(DepartmentDefinition department, CancellationToken ct)
     {
         try
@@ -290,7 +322,10 @@ public sealed class TaskDispatcher
             return new DispatchResult.Rejected("Structured 部門には構造化セッションが必要です");
         }
 
-        var leaseResult = await AcquireOrRenewWriteLeaseAsync(expected, department, leaseDuration, ct);
+        // 読むだけの部門は取らないが、書き手が居る間は待つ（設計 §29-1）。送り直しでも同じ。
+        var leaseResult = department.ReadsOnly
+            ? await BlockWhileWritingAsync(ct)
+            : await AcquireOrRenewWriteLeaseAsync(expected, department, leaseDuration, ct);
         if (leaseResult is DispatchResult leaseFailure)
         {
             return leaseFailure;
@@ -301,10 +336,10 @@ public sealed class TaskDispatcher
         switch (transition)
         {
             case TaskWriteResult.Rejected rejected:
-                await ReleaseWriteLeaseAsync(department, ct);
+                await ReleaseIfHeldAsync(department, ct);
                 return new DispatchResult.Rejected(rejected.Reason);
             case TaskWriteResult.Conflicted conflicted:
-                await ReleaseWriteLeaseAsync(department, ct);
+                await ReleaseIfHeldAsync(department, ct);
                 return new DispatchResult.Conflicted(conflicted.Reason);
         }
 
