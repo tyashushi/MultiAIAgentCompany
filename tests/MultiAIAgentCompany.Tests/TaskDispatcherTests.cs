@@ -309,6 +309,7 @@ public sealed class TaskDispatcherTests : IDisposable
         public event EventHandler<Evidence>? Observed;
         public event EventHandler<LiveDiagnostic>? Diagnosed;
         public IReadOnlyList<LiveDiagnostic> RecentDiagnostics(int count) => [];
+        public AgentModel? ObservedModel => null;
         public event EventHandler<int>? Exited;
         public event EventHandler<ApprovalRequest>? ApprovalRequested;
         public event EventHandler<OutcomeVerdict>? TurnFinished;

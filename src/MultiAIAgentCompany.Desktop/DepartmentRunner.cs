@@ -20,40 +20,132 @@ namespace MultiAIAgentCompany.Desktop;
 /// </remarks>
 public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
 {
+    /// <summary>
+    /// 動いているセッション。<b>必ず <c>_startGate</c> の下で触る</b>（レビューで発覚）——
+    /// 起動の完了はスレッドプール、読み出しは UI スレッドなので、素の Dictionary では壊れる。
+    /// </summary>
     private readonly Dictionary<string, IAgentSession> _sessions = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// 「いまの世代」（設計 §26-1、§17-7 と同じ形）。
+    /// </summary>
+    /// <remarks>
+    /// <b>起動中の停止を成立させるためにある。</b> 止めるときに <c>_sessions</c> しか見ないと、
+    /// **走っている起動を取りこぼす** —— そのあと起動が完了して、前のフォルダで動く部門が残る
+    /// （レビューで発覚）。
+    /// </remarks>
+    private int _generation;
+
+    /// <summary>走っている起動。<b>停止はこれを待つ。</b></summary>
+    private readonly List<Task> _starting = [];
+
+    /// <summary>起動処理中の部門。<b>起動が終わるまで `_sessions` には入らない。</b></summary>
+    private readonly HashSet<string> _startingIds = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// 上の2つを守る錠（設計 §26-1）。
+    /// </summary>
+    /// <remarks>
+    /// 起動は UI スレッド以外からも終わるので、素の <c>List</c> / <c>HashSet</c> を
+    /// そのまま触ると壊れる（レビューで発覚）。
+    /// </remarks>
+    private readonly object _startGate = new();
 
     /// <summary>
     /// 部門を起動する。既に動いていれば何もしない。
     /// </summary>
-    /// <returns>起動できなかった理由。成功なら null。</returns>
-    public async Task<string?> StartAsync(
+    /// <returns>起動の結末（設計 §26-1）。</returns>
+    public async Task<DepartmentStart> StartAsync(
         DepartmentDefinition department, WorkspaceRef workspace, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(department);
         ArgumentNullException.ThrowIfNull(workspace);
 
-        if (_sessions.ContainsKey(department.Id))
+        // **起動処理中も見る**（レビューで発覚）。`_sessions` は起動が終わってから入るので、
+        // 二度押しすると**同じ部門の CLI が2つ立ち**、片方は参照を失って孤児になる。
+        lock (_startGate)
         {
-            return null;
+            if (_sessions.ContainsKey(department.Id))
+            {
+                return new DepartmentStart.AlreadyRunning();
+            }
+
+            if (!_startingIds.Add(department.Id))
+            {
+                return new DepartmentStart.AlreadyStarting();
+            }
         }
 
         var tracker = composer.TrackerOf(department.Id);
         tracker.OnStarting();
 
+        // 前の観測は、この起動の話ではない（§27-3）。
+        ForgetModel(department.Id);
+
+        // **「走っている」印を、起動を始める前に立てる**（レビューで発覚）。
+        // タスクを作ってから登録するまでの隙間で停止が走ると、
+        // **待つべき起動が待たれない**まま前のフォルダのロックが返る。
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int generation;
+        lock (_startGate)
+        {
+            generation = _generation;
+            _starting.Add(pending.Task);
+        }
+
+        try
+        {
+            return await StartCoreAsync(department, workspace, tracker, generation, ct);
+        }
+        finally
+        {
+            lock (_startGate)
+            {
+                _starting.Remove(pending.Task);
+                _startingIds.Remove(department.Id);
+            }
+
+            pending.TrySetResult();
+        }
+    }
+
+    private async Task<DepartmentStart> StartCoreAsync(
+        DepartmentDefinition department, WorkspaceRef workspace, DepartmentStatusTracker tracker,
+        int generation, CancellationToken ct)
+    {
         try
         {
             var adapter = AdapterFor(department);
             var session = await adapter.StartAsync(workspace, department.Id, department.Mode, ct);
-            _sessions[department.Id] = session;
+
+            // **起動している間に切り替えられていたら、これは前のフォルダの部門**（§26-1）。
+            // ここで登録すると、画面は新しいフォルダなのに CLI は前を触ったまま残る。
+            if (generation != _generation)
+            {
+                await session.DisposeAsync();
+                tracker.OnExited(0);
+
+                // **成功として返さない**（レビューで発覚）。null を返すと呼び出し元が
+                // 「起動した」と記録し、そのあと走査まで走る —— 切り替えの最中に
+                // 前のフォルダを触りに行く。
+                return new DepartmentStart.Superseded();
+            }
+
+            lock (_startGate)
+            {
+                _sessions[department.Id] = session;
+            }
+
             Wire(department, session, tracker);
-            return null;
+            PublishModel(department.Id, session);
+            return new DepartmentStart.Started();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // 起動できなかったことを、起動したことにしない。
             // trust が無い・CLI が入っていない・モードが未対応、いずれもここに来る。
             tracker.OnExited(-1);
-            return $"{department.DisplayName} を起動できなかった: {exception.Message}";
+            return new DepartmentStart.Failed($"{department.DisplayName} を起動できなかった: {exception.Message}");
         }
     }
 
@@ -63,6 +155,10 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         {
             tracker.OnObserved(evidence);
             Observed?.Invoke(this, (department.Id, evidence));
+
+            // モデルは init / handshake で分かる。**いつ来るかは CLI 次第**なので、
+            // 観測のたびに拾い直す（設計 §27）。
+            PublishModel(department.Id, session);
         };
         session.Exited += (_, exitCode) => tracker.OnExited(exitCode);
 
@@ -95,21 +191,69 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         };
     }
 
+    /// <summary>
+    /// CLI が申告したモデルをタイルへ渡す（設計 §27）。
+    /// </summary>
+    /// <remarks><b>未観測なら何も入れない。</b> 設定値で埋めない。</remarks>
+    private void PublishModel(string departmentId, IAgentSession session)
+    {
+        // **読み取りループから UI を触らない**（レビューで発覚）。他の通知と同じく
+        // UI スレッドへ載せる —— 直に触ると Avalonia の検査に引っかかるか、黙って落ちる。
+        var model = session.ObservedModel;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var tile in composer.Shell.Departments.Where(t => t.Id == departmentId))
+            {
+                tile.ObservedModel = model;
+            }
+        });
+    }
+
+    /// <summary>
+    /// 観測したモデルを消す（設計 §27-3）。
+    /// </summary>
+    /// <remarks>
+    /// <b>古い観測を出しっぱなしにしない</b>（レビューで発覚）。見出しは「いま動いている
+    /// CLI が申告したモデル」なので、止めたあとや別のフォルダに切り替えたあとも
+    /// 前の値が残っていると嘘になる。
+    /// </remarks>
+    private void ForgetModel(string departmentId) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var tile in composer.Shell.Departments.Where(t => t.Id == departmentId))
+            {
+                tile.ObservedModel = null;
+            }
+        });
+
     /// <summary>この部門へ直接1メッセージ送る。</summary>
     /// <remarks>
     /// <b>これは調整基盤の経路ではない。</b> 本来は秘書が <c>instruction.md</c> を書き、
     /// アプリが dispatch する（§6 / §14-1）。ここは配線を実物で確かめるための直通路。
     /// </remarks>
     public Task SendAsync(string departmentId, string text, CancellationToken ct) =>
-        _sessions.TryGetValue(departmentId, out var session) && session is IStructuredSession structured
+        SessionOf(departmentId) is IStructuredSession structured
             ? structured.SendUserMessageAsync(text, ct)
             : Task.CompletedTask;
 
-    public bool IsRunning(string departmentId) => _sessions.ContainsKey(departmentId);
+    public bool IsRunning(string departmentId)
+    {
+        lock (_startGate)
+        {
+            return _sessions.ContainsKey(departmentId);
+        }
+    }
 
     /// <summary>dispatch の宛先。動いていない、または構造化でなければ null。</summary>
-    public IStructuredSession? StructuredSessionOf(string departmentId) =>
-        _sessions.TryGetValue(departmentId, out var session) ? session as IStructuredSession : null;
+    public IStructuredSession? StructuredSessionOf(string departmentId) => SessionOf(departmentId) as IStructuredSession;
+
+    private IAgentSession? SessionOf(string departmentId)
+    {
+        lock (_startGate)
+        {
+            return _sessions.TryGetValue(departmentId, out var session) ? session : null;
+        }
+    }
 
     /// <summary>観測が来たことを画面へ知らせる（部門ごとの一覧に控えるため）。</summary>
     public event EventHandler<(string DepartmentId, Evidence Evidence)>? Observed;
@@ -132,9 +276,60 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// 全部門を終了する。<b>ウィンドウを閉じたときにここへ来る</b>（設計 §9）——
     /// v1 はバックグラウンド継続を持たない。無人運転に近づくため。
     /// </summary>
+    /// <summary>
+    /// いま動いている部門を全部止める（設計 §26-1）。<b>この後も使える。</b>
+    /// </summary>
+    /// <remarks>
+    /// ワークスペースを切り替えるときに要る。**止めずに切り替えると、部門は前のフォルダで
+    /// 動き続ける** —— 画面は B なのに CLI は A を触っており、A のロックを返した瞬間に
+    /// 別のアプリが A を開ける（レビューで発覚）。
+    /// </remarks>
+    public async Task StopAllAsync()
+    {
+        // 世代を進めてから待つ。走っている起動は、自分が古いと分かって自分で閉じる。
+        _generation++;
+        Task[] pending;
+        lock (_startGate)
+        {
+            pending = [.. _starting];
+        }
+
+        foreach (var starting in pending)
+        {
+            try
+            {
+                await starting;
+            }
+            catch (Exception)
+            {
+                // 起動の失敗はもう関係ない。停止はここで止まらない。
+            }
+        }
+
+        // **UI スレッドで触る**（レビューで発覚）。終了処理は `Task.Run` の中から来るので、
+        // ここで直に書くとスレッド違反で落ち、**その先の秘書の後始末が飛ぶ**。
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var tile in composer.Shell.Departments)
+            {
+                tile.SessionRunning = false;
+                tile.ObservedModel = null;
+            }
+        });
+
+        await DisposeAsync();
+    }
+
     public async ValueTask DisposeAsync()
     {
-        foreach (var session in _sessions.Values)
+        IAgentSession[] sessions;
+        lock (_startGate)
+        {
+            sessions = [.. _sessions.Values];
+            _sessions.Clear();
+        }
+
+        foreach (var session in sessions)
         {
             try
             {
@@ -145,7 +340,25 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
                 // 1つ落とせなくても残りの後始末を続ける。
             }
         }
-
-        _sessions.Clear();
     }
+}
+
+/// <summary>部門を起動した結果（設計 §26-1）。</summary>
+public abstract record DepartmentStart
+{
+    public sealed record Started : DepartmentStart;
+
+    public sealed record Failed(string Reason) : DepartmentStart;
+
+    /// <summary>もう動いている。<b>「起動した」と言わない</b>（設計 §27-4）。</summary>
+    public sealed record AlreadyRunning : DepartmentStart;
+
+    /// <summary>いま起動処理中。二度押しはここに来る。</summary>
+    public sealed record AlreadyStarting : DepartmentStart;
+
+    /// <summary>
+    /// 起動している間にワークスペースが切り替わったので捨てた。
+    /// <b>失敗ではないが、成功でもない。</b>
+    /// </summary>
+    public sealed record Superseded : DepartmentStart;
 }

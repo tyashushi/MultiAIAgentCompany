@@ -44,6 +44,9 @@ public sealed class CodexAppServerSession : IStructuredSession
     public DriveMode Mode => DriveMode.Structured;
     public string? DetectedVersion { get; private set; }
 
+    /// <inheritdoc />
+    public AgentModel? ObservedModel { get; private set; }
+
     public event EventHandler<Evidence>? Observed;
     public event EventHandler<int>? Exited;
 
@@ -224,6 +227,12 @@ public sealed class CodexAppServerSession : IStructuredSession
             // 版はここでしか取れない。検出器は版依存（設計 §7）なので、
             // 取れるのに取らないと「どの版のプロトコルを読んでいるか」が分からないまま動く。
             DetectedVersion = TryGetThreadString(line, "cliVersion");
+
+            // **Codex だけが思考の強さも返す**（実測 §27）。要求した値ではなく、
+            // thread が申告した値を持つ。
+            ObservedModel = TryGetThreadString(line, "model") is { } model
+                ? new AgentModel(model, TryGetThreadString(line, "reasoningEffort"))
+                : null;
 
             Observe($"Codex app-server 起動。版={DetectedVersion ?? "不明"}");
             _threadStarted.TrySetResult();

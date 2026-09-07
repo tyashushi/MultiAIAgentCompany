@@ -59,6 +59,16 @@ public interface IAgentSession : IAsyncDisposable
     /// セッションを返すので、イベントだけでは取りこぼす。だからセッション自身が取り置く。
     /// </remarks>
     IReadOnlyList<LiveDiagnostic> RecentDiagnostics(int count);
+
+    /// <summary>
+    /// <b>CLI が「これを使っている」と言ってきた</b>モデル（設計 §27）。
+    /// </summary>
+    /// <remarks>
+    /// <b>こちらが渡した値を入れない。</b> <c>--model</c> で要求した値は
+    /// 「渡した」であって「使われている」ではない —— §13-9 の
+    /// 「判定できないときに言い切らない」と同じ。**返してこない CLI では null。**
+    /// </remarks>
+    AgentModel? ObservedModel { get; }
 }
 
 /// <summary>
@@ -153,6 +163,13 @@ public sealed record LiveAgentMessage(string Text);
 /// 秘密値が混ざり得る前提で、画面にだけ出す（§14-5）。
 /// </param>
 public sealed record LiveDiagnostic(DiagnosticStream Stream, string Text);
+
+/// <summary>
+/// CLI が申告したモデル（設計 §27）。<b>観測値だけを入れる。</b>
+/// </summary>
+/// <param name="Id">CLI が返したモデル ID。<b>加工しない</b>（表示の言い換えは画面側）。</param>
+/// <param name="ReasoningEffort">思考の強さ。<b>返してこない CLI では null</b>（Claude がそう）。</param>
+public sealed record AgentModel(string Id, string? ReasoningEffort);
 
 /// <summary>診断の出どころ。</summary>
 public enum DiagnosticStream

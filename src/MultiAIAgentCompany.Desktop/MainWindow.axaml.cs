@@ -8,6 +8,7 @@ using MultiAIAgentCompany.Core.Coordination;
 using MultiAIAgentCompany.Core.Sessions;
 using MultiAIAgentCompany.Core.Status;
 using MultiAIAgentCompany.Core.Workspace;
+using MultiAIAgentCompany.Core.Workspace.Trust;
 using CoreTaskStatus = MultiAIAgentCompany.Core.Coordination.TaskStatus;
 
 namespace MultiAIAgentCompany.Desktop;
@@ -37,10 +38,57 @@ public partial class MainWindow : Window
     /// 送信が5秒より長くかかると次のタイマーが入り、同じ <c>answer.md</c> を
     /// 2度届けてしまう（§16-5 の「自動で再送しない」を自分で破る）。
     /// </summary>
-    private bool _scanInFlight;
+    private Task? _scanTask;
+
+    /// <summary>
+    /// ワークスペースの切り替えを1つずつにする（設計 §26-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>重ねると壊れる。</b> 切り替えの途中でもう一度切り替えられると、
+    /// 前のロックを持ったまま次のロックで上書きし、**返されないロックが残る**
+    /// （レビューで発覚）。ここが直列なら、その形は起きない。
+    /// </remarks>
+    private readonly SemaphoreSlim _switchGate = new(1, 1);
+
+    /// <summary>
+    /// いま切り替えている最中か（設計 §26-2b）。
+    /// </summary>
+    /// <remarks>
+    /// <b>切り替えの途中で、前のフォルダに新しい仕事を作らせない。</b>
+    /// 後始末の await の合間に UI へ制御が戻るので、そこで「起動する」や「送る」を押されると、
+    /// **これから手放すフォルダで CLI が立つ**（レビューで発覚）。
+    /// </remarks>
+    private bool _switching;
+
+    /// <summary>終了処理に入ったか（設計 §26-4）。</summary>
+    private bool _closing;
 
     /// <summary>前回のワークスペース。<b>覚えるのはパスだけ</b>（設計 §21-3）。</summary>
     private readonly WorkspaceMemory _memory = WorkspaceMemory.CreateDefault();
+
+    /// <summary>
+    /// いま開いているワークスペースの排他ロック（設計 §26）。
+    /// <b>握っている間だけ、そのフォルダを開いていられる。</b>
+    /// </summary>
+    private WorkspaceInstanceLock? _instanceLock;
+
+    /// <summary>
+    /// いま握っているフォルダ（**解決後のパス**）。
+    /// </summary>
+    /// <remarks>
+    /// <b>綴りで比べない</b>（レビューで発覚）。`/tmp/repo` と `/private/tmp/repo` のように
+    /// 同じ実体を別の綴りで選ぶと、**自分が握っているロックを「別のアプリ」と報告する**。
+    /// </remarks>
+    private string? _lockedWorkspace;
+
+    /// <summary>
+    /// 切り替え前に握っていたロック。<b>切り替えが済むまで手放さない</b>（設計 §26-1）。
+    /// </summary>
+    /// <remarks>
+    /// 新しい方を取った時点で返すと、走査や秘書の停止がまだ前のフォルダを触っている間に、
+    /// **別のアプリがそこを開ける**（レビューで発覚）。
+    /// </remarks>
+    private WorkspaceInstanceLock? _supersededLock;
 
     public MainWindow() => AvaloniaXamlLoader.Load(this);
 
@@ -74,8 +122,12 @@ public partial class MainWindow : Window
             case WorkspaceResume.Open open:
                 try
                 {
-                    await OpenWorkspaceAsync(open.Remembered.RawPath);
-                    Note($"前回のフォルダを開いた: {open.Remembered.RawPath}");
+                    // 開けなかった理由（別インスタンスが開いている等）は
+                    // OpenWorkspaceAsync が出す（§26-2）。ここで重ねて言わない。
+                    if (await OpenWorkspaceAsync(open.Remembered.RawPath))
+                    {
+                        Note($"前回のフォルダを開いた: {open.Remembered.RawPath}");
+                    }
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -141,6 +193,12 @@ public partial class MainWindow : Window
             {
                 shell.SecretaryTranscript.RemoveAt(0);
             }
+
+            // 新しい発言まで追う（設計 §25-1）。**描画のあとに動かす** ——
+            // 追加した直後は、まだ中身の高さが確定していない。
+            Dispatcher.UIThread.Post(
+                () => this.FindControl<ScrollViewer>("TranscriptScroll")?.ScrollToEnd(),
+                DispatcherPriority.Background);
         }
     }
 
@@ -163,7 +221,8 @@ public partial class MainWindow : Window
     private async void OnDepartmentAction(object? sender, RoutedEventArgs e)
     {
         if (_composer is null || _runner is null
-            || (sender as Control)?.DataContext is not DepartmentTile tile)
+            || (sender as Control)?.DataContext is not DepartmentTile tile
+            || Busy("部門の操作"))
         {
             return;
         }
@@ -228,22 +287,34 @@ public partial class MainWindow : Window
         }
 
         Select(tile);
-        Note($"—— {tile.Name} の診断 ——");
-        Note($"稼働 {tile.RuntimeText} / 活動 {tile.ActivityText} / 仕事 {tile.WorkText}");
-        Note(_runner?.IsRunning(tile.Id) is true
-            ? $"プロセス: 動いている（{tile.Agent} / {tile.Mode}）"
-            : $"プロセス: 動いていない（{tile.Agent} / {tile.Mode}）");
 
-        // **観測が無いことを「正常」と読ませない**（§7）。
-        Note(tile.RecentObservations.Count is 0
-            ? "観測: まだ何も観測していない"
-            : $"観測（最新）: {tile.RecentObservations[0]}");
+        List<string> lines =
+        [
+            $"稼働 {tile.RuntimeText} / 活動 {tile.ActivityText} / 仕事 {tile.WorkText}",
+            _runner?.IsRunning(tile.Id) is true
+                ? $"プロセス: 動いている（{tile.Agent} / {tile.Mode}）"
+                : $"プロセス: 動いていない（{tile.Agent} / {tile.Mode}）",
 
-        Note(tile.Diagnostics.Summary);
-        foreach (var diagnostic in tile.Diagnostics.Recent(10))
-        {
-            Note($"[{diagnostic.Stream}] {diagnostic.Text}");
-        }
+            // **観測と設定を分けて、出典つきで出す**（設計 §27-3）。
+            // 見出しは狭いので観測値だけ。ここでは両方見せて、食い違いに気付けるようにする。
+            tile.ObservedModel is { } observed
+                ? $"モデル（CLI の申告）: {observed.Id}"
+                    + (observed.ReasoningEffort is { } effort ? $" / 思考の強さ: {effort}" : " / 思考の強さ: 申告なし")
+                : "モデル（CLI の申告）: まだ申告されていない",
+            _composer?.DefinitionOf(tile.Id).Model is { } configured
+                ? $"モデル（こちらの設定）: {configured}"
+                : "モデル（こちらの設定）: 指定なし（CLI の既定に任せる）",
+
+            // **観測が無いことを「正常」と読ませない**（§7）。
+            tile.RecentObservations.Count is 0
+                ? "観測: まだ何も観測していない"
+                : $"観測（最新）: {tile.RecentObservations[0]}",
+            tile.Diagnostics.Summary,
+        ];
+
+        // 新しい順のまま並べる。1件にまとめるので、作業ログの時系列は崩れない（§25-2）。
+        lines.AddRange(tile.Diagnostics.Recent(10).Select(d => $"[{d.Stream}] {d.Text}"));
+        NoteBlock($"—— {tile.Name} の診断 ——", lines);
     }
 
     /// <summary>
@@ -279,14 +350,19 @@ public partial class MainWindow : Window
     /// <summary>起動。<b>仕事の用件とは別枠</b>（設計 §15-6）。</summary>
     private async void OnDepartmentStart(object? sender, RoutedEventArgs e)
     {
-        if ((sender as Control)?.DataContext is not DepartmentTile tile)
+        if ((sender as Control)?.DataContext is not DepartmentTile tile || Busy("部門の起動"))
         {
             return;
         }
 
         Select(tile);
-        await StartAsync(tile);
-        await ScanAsync(CompanyScanKind.Periodic);
+
+        // **起動していないなら走査しない**（設計 §26-1）。切り替えで捨てられた場合、
+        // ここで走査すると前のフォルダを触りに行くか、新しいフォルダの起動時走査を潰す。
+        if (await StartAsync(tile))
+        {
+            await ScanAsync(CompanyScanKind.Periodic);
+        }
     }
 
     /// <summary>
@@ -344,6 +420,11 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnAcceptReport(object? sender, RoutedEventArgs e)
     {
+        if (Busy("報告の受理"))
+        {
+            return;
+        }
+
         if (_composer?.Tasks is not { } tasks || (sender as Control)?.DataContext is not DepartmentTile tile)
         {
             return;
@@ -382,6 +463,11 @@ public partial class MainWindow : Window
     /// </remarks>
     private async void OnRejectReport(object? sender, RoutedEventArgs e)
     {
+        if (Busy("差し戻し"))
+        {
+            return;
+        }
+
         if (_composer is not { Tasks: { } tasks, Dispatcher: { } dispatcher, Workspace: { } workspace }
             || (sender as Control)?.DataContext is not DepartmentTile tile)
         {
@@ -515,17 +601,31 @@ public partial class MainWindow : Window
         return found.State;
     }
 
-    private async Task StartAsync(DepartmentTile tile)
+    private async Task<bool> StartAsync(DepartmentTile tile)
     {
         if (_composer?.Workspace is not { } workspace || _runner is null)
         {
             Note("先にワークスペースを選ぶ（部門は選んだフォルダで動く）");
-            return;
+            return false;
         }
 
-        var failure = await _runner.StartAsync(_composer.DefinitionOf(tile.Id), workspace, CancellationToken.None);
+        var started = await _runner.StartAsync(_composer.DefinitionOf(tile.Id), workspace, CancellationToken.None);
         tile.SessionRunning = _runner.IsRunning(tile.Id);
-        Note(failure ?? $"{tile.Name} を起動した");
+        Note(started switch
+        {
+            DepartmentStart.Started => $"{tile.Name} を起動した",
+            DepartmentStart.Failed failed => failed.Reason,
+
+            // **もう動いているものを「起動した」と言わない**（レビューで発覚、§27-4）。
+            DepartmentStart.AlreadyRunning => $"{tile.Name} は既に動いている（何もしなかった）",
+            DepartmentStart.AlreadyStarting => $"{tile.Name} は起動処理中（二重には起動しない）",
+
+            // 切り替えで捨てた。**起動したことにしない**（§26-1）。
+            DepartmentStart.Superseded => $"{tile.Name} の起動は、ワークスペースが変わったので取り消した",
+            _ => $"{tile.Name}: 知らない起動結果（{started.GetType().Name}）",
+        });
+
+        return started is DepartmentStart.Started;
     }
 
     private void ShowObservations(DepartmentTile tile)
@@ -643,7 +743,8 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnSendToSecretary(object? sender, RoutedEventArgs e)
     {
-        if (_secretary is null || _composer is null || PeekMessage() is not { } text)
+        if (_secretary is null || _composer is null || PeekMessage() is not { } text
+            || Busy("秘書への送信"))
         {
             return;
         }
@@ -718,6 +819,11 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnMakeTask(object? sender, RoutedEventArgs e)
     {
+        if (Busy("仕事を作る操作"))
+        {
+            return;
+        }
+
         if (_composer is null || _runner is null
             || (sender as Control)?.DataContext is not DepartmentTile tile)
         {
@@ -797,19 +903,42 @@ public partial class MainWindow : Window
     /// <summary>`.company/` を1周見る。<b>走査が正本</b>（設計 §16-1）。</summary>
     private async Task ScanAsync(CompanyScanKind kind)
     {
-        if (_composer is null || _scanInFlight)
+        if (_composer is null || _scanTask is not null)
         {
             return;
         }
 
-        _scanInFlight = true;
+        var task = ScanCoreAsync(kind);
+        _scanTask = task;
         try
         {
-            await ScanCoreAsync(kind);
+            await task;
         }
         finally
         {
-            _scanInFlight = false;
+            _scanTask = null;
+        }
+    }
+
+    /// <summary>
+    /// 走っている走査が終わるのを待つ（設計 §26-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>切り替えの前に要る。</b> 5秒タイマーの走査が前のフォルダを読んでいる最中に
+    /// ロックを返すと、**まだ触っているフォルダを別のアプリが開ける**（レビューで発覚）。
+    /// </remarks>
+    private async Task WaitForScanAsync()
+    {
+        if (_scanTask is { } running)
+        {
+            try
+            {
+                await running;
+            }
+            catch (Exception)
+            {
+                // 走査の失敗はここでは扱わない。待つことだけが目的。
+            }
         }
     }
 
@@ -957,6 +1086,11 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnRecoveryQuarantine(object? sender, RoutedEventArgs e)
     {
+        if (Busy("隔離"))
+        {
+            return;
+        }
+
         if (Item(sender) is not { } item || _composer?.Workspace is not { } workspace)
         {
             return;
@@ -988,6 +1122,11 @@ public partial class MainWindow : Window
     /// </remarks>
     private async void OnRecoveryIsolateLease(object? sender, RoutedEventArgs e)
     {
+        if (Busy("書き込み権の隔離"))
+        {
+            return;
+        }
+
         if (Item(sender) is not { } item || _composer is not { Workspace: { } workspace, Leases: { } leases })
         {
             return;
@@ -1018,6 +1157,11 @@ public partial class MainWindow : Window
     /// </remarks>
     private async void OnRecoveryReleaseExpiredLease(object? sender, RoutedEventArgs e)
     {
+        if (Busy("書き込み権の解除"))
+        {
+            return;
+        }
+
         if (Item(sender) is not { Lease: { } judged } item || _composer?.Leases is not { } leases)
         {
             return;
@@ -1048,14 +1192,31 @@ public partial class MainWindow : Window
         await ScanAsync(CompanyScanKind.Startup);
     }
 
-    private async void OnRecoveryRescan(object? sender, RoutedEventArgs e) =>
+    private async void OnRecoveryRescan(object? sender, RoutedEventArgs e)
+    {
+        // **ここも塞ぐ**（レビューで発覚）。ResolveAsync を通らない唯一の復旧操作なので、
+        // 切り替え中に押されると前のフォルダを読みに行き、しかも新しいフォルダの
+        // 起動時走査が「走査中」で飛ばされる。
+        if (Busy("再走査"))
+        {
+            return;
+        }
+
         await ScanAsync(CompanyScanKind.Startup);
+    }
 
     private RecoveryItem? Item(object? sender) => (sender as Control)?.DataContext as RecoveryItem;
 
     private async Task ResolveAsync(
         object? sender, Func<TaskStore, TaskState, Task<string>> resolve, bool keepItem = false)
     {
+        // 切り替え中は前のフォルダを触らない（設計 §26-2b）。
+        // **復旧の操作は全部ここを通る**ので、1箇所で塞ぐ。
+        if (Busy("復旧の操作"))
+        {
+            return;
+        }
+
         if (Item(sender) is not { } item || _composer?.Tasks is not { } tasks)
         {
             return;
@@ -1083,6 +1244,11 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnProposalAccept(object? sender, RoutedEventArgs e)
     {
+        if (Busy("提案の受け入れ"))
+        {
+            return;
+        }
+
         if (_composer is null || (sender as Control)?.DataContext is not ProposalCard card
             || card.Proposal.DepartmentId is not { } departmentId
             || _composer.Tasks is not { } tasks || _composer.Dispatcher is not { } dispatcher
@@ -1159,6 +1325,11 @@ public partial class MainWindow : Window
     /// <summary>提案をやめる。<b>消さずに移す</b>（§16-4 / §17-6）。</summary>
     private async void OnProposalReject(object? sender, RoutedEventArgs e)
     {
+        if (Busy("提案の却下"))
+        {
+            return;
+        }
+
         if (_composer?.Outbox is not { } outbox || (sender as Control)?.DataContext is not ProposalCard card)
         {
             return;
@@ -1183,6 +1354,15 @@ public partial class MainWindow : Window
     /// <summary>
     /// 定期走査。<b>走査が正本</b>（設計 §16-1）—— イベントは合図にしか使わない。
     /// </summary>
+    /// <summary>
+    /// 定期走査を止める（設計 §26-1）。<b>切り替えの間は前のフォルダを触らない。</b>
+    /// </summary>
+    private void StopPeriodicScan()
+    {
+        _scanTimer?.Stop();
+        _scanTimer = null;
+    }
+
     private void StartPeriodicScan()
     {
         if (_scanTimer is not null)
@@ -1195,12 +1375,64 @@ public partial class MainWindow : Window
         _scanTimer.Start();
     }
 
+    /// <summary>
+    /// 切り替え中は、ワークスペースに触る操作を断る（設計 §26-2b）。
+    /// </summary>
+    /// <remarks><b>黙って無視しない。</b> 押したのに何も起きない、を作らない（§15-6）。</remarks>
+    private bool Busy(string what)
+    {
+        // **終了処理の最中も塞ぐ**（レビューで発覚）。閉じる要求をいったん取り消して
+        // 後始末をしている間、ウィンドウは操作できるままなので、**片付けたあとに
+        // 新しい CLI が立つ** —— それは誰にも終了されない。
+        if (_closing)
+        {
+            Note($"終了処理の最中です（{what}はできません）");
+            return true;
+        }
+
+        if (!_switching)
+        {
+            return false;
+        }
+
+        Note($"ワークスペースを切り替えている最中です（{what}は切り替えが終わってから）");
+        return true;
+    }
+
+    /// <summary>
+    /// 終了処理に入ったことを画面へ伝える（設計 §26-4）。
+    /// </summary>
+    /// <remarks>ここから先は、新しいセッションを作らせない。</remarks>
+    internal void NotifyClosing() => _closing = true;
+
     private void Note(string line)
     {
-        if (DataContext is ShellViewModel shell)
+        if (DataContext is not ShellViewModel shell)
         {
-            shell.WorkLog.Insert(0, $"{DateTimeOffset.Now:HH:mm:ss}  {line}");
+            return;
         }
+
+        shell.WorkLog.Insert(0, $"{DateTimeOffset.Now:HH:mm:ss}  {line}");
+
+        // **上限を置く**（設計 §25-2）。会話は 500、部門の観測は 30 で切っているのに、
+        // 作業ログだけ無制限だった —— 数日つけっぱなしにすると伸び続ける。
+        while (shell.WorkLog.Count > 500)
+        {
+            shell.WorkLog.RemoveAt(shell.WorkLog.Count - 1);
+        }
+    }
+
+    /// <summary>
+    /// 何行かをまとめて1件として出す（設計 §25-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="Note"/> を繰り返さない。</b> あれは先頭に挿入するので、
+    /// 繰り返すと**逆順になり**、作業ログ全体の時系列も崩れる（2026-09-06 に自分で入れた）。
+    /// </remarks>
+    private void NoteBlock(string title, IEnumerable<string> lines)
+    {
+        var body = string.Join(Environment.NewLine, lines);
+        Note(string.IsNullOrEmpty(body) ? title : $"{title}{Environment.NewLine}{body}");
     }
 
     /// <summary>
@@ -1229,32 +1461,114 @@ public partial class MainWindow : Window
         // 次のメッセージを送ると、意図と違う作業ツリーへ届く。
         // **起動中のものも見る**（§17-7）。WorkspaceRoot は起動が終わるまで null なので、
         // それだけを見ると「切り替わっていない」と誤判定する。
-        if (_secretary is { TargetWorkspaceRoot: { } previous } && !string.Equals(previous, path, StringComparison.Ordinal))
+        // **開けたときだけ覚える**（設計 §21-2 / §26-1）。
+        // 別のアプリが開いていて開けなかったものを、次の起動で開こうとしない。
+        if (await OpenWorkspaceAsync(path))
         {
-            Note("ワークスペースが変わったので秘書を終了した（次の送信で新しいフォルダで起動する）");
-            await _secretary.DisposeAsync();
+            await _memory.RememberAsync(path, DateTimeOffset.Now, CancellationToken.None);
         }
-
-        await OpenWorkspaceAsync(path);
-
-        // **人間が選んだときだけ覚える**（設計 §21-2）。起動時の自動復帰では上書きしない ——
-        // 開けなかった記録を開いたことにしない。
-        await _memory.RememberAsync(path, DateTimeOffset.Now, CancellationToken.None);
     }
 
     /// <summary>ワークスペースを開く。人間の選択と起動時の復帰で同じ経路を通る（設計 §21-1）。</summary>
-    private async Task OpenWorkspaceAsync(string path)
+    private async Task<bool> OpenWorkspaceAsync(string path)
     {
         if (_composer is null)
         {
-            return;
+            return false;
         }
 
-        await _composer.SelectWorkspaceAsync(path, CancellationToken.None);
+        // **切り替えは1つずつ**（設計 §26-1）。重ねると、返されないロックが残る。
+        await _switchGate.WaitAsync();
+        try
+        {
+            return await OpenWorkspaceCoreAsync(path);
+        }
+        finally
+        {
+            _switchGate.Release();
+        }
+    }
+
+    private async Task<bool> OpenWorkspaceCoreAsync(string path)
+    {
+        _switching = true;
+        try
+        {
+            return await SwitchWorkspaceAsync(path);
+        }
+        finally
+        {
+            _switching = false;
+        }
+    }
+
+    private async Task<bool> SwitchWorkspaceAsync(string path)
+    {
+        // **2つのアプリが同じフォルダを開かない**（設計 §26）。
+        // §14-1 は「`state.json` を書くのはアプリだけ」に寄りかかっている。
+        // 取れなければ**そのフォルダは開かない**。アプリは動いたままで、別のフォルダは選べる。
+        if (!TryHoldWorkspace(path))
+        {
+            return false;
+        }
+
+        // **綴りではなく鍵で比べる**（レビューで発覚）。同じフォルダを別の綴りで開き直したときに
+        // 秘書と部門を止めてしまうし、Windows では自分のロックを他人のものと言う。
+        var leaving = _composer!.Workspace;
+        var changed = leaving is not null
+            && !string.Equals(WorkspaceInstanceLock.KeyOf(leaving.Root), WorkspaceInstanceLock.KeyOf(path),
+                StringComparison.Ordinal);
+
+        // 走査だけは先に止める。**これは戻せる**（開けなければ再開すればよい）。
+        StopPeriodicScan();
+        await WaitForScanAsync();
+
+        try
+        {
+            // **差し替えが済むまで、前のフォルダのものを壊さない**（レビューで発覚、§26-2）。
+            // 先に秘書と部門を止めると、選んだ先が開けなかったときに
+            // **前のフォルダに居るのに、その秘書と部門だけ死んでいる**状態になる。
+            await _composer.SelectWorkspaceAsync(path, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // **フォルダを選んだだけでアプリを落とさない。** ここは `async void` の先。
+            ReleaseHeldWorkspace();
+            StartPeriodicScan();
+            Note($"{path} を開けませんでした（{exception.GetType().Name}: {exception.Message}）。"
+                + "前のワークスペースはそのまま");
+            return false;
+        }
+
+        if (changed)
+        {
+            // ここまで来て初めて「開けた」と言える。**前のフォルダのものを止めるのはここ。**
+            if (_secretary is not null)
+            {
+                Note("ワークスペースが変わったので秘書を終了した（次の送信で新しいフォルダで起動する）");
+                await _secretary.DisposeAsync();
+            }
+
+            if (_runner is not null)
+            {
+                Note("ワークスペースが変わったので部門を終了した");
+                await _runner.StopAllAsync();
+            }
+        }
+
         UpdateSecretaryStatus();
 
-        // 起動時（ワークスペース選択時）の走査だけが復旧の一覧を作る（設計 §16-1）。
-        await ScanAsync(CompanyScanKind.Startup);
+        try
+        {
+            // 起動時（ワークスペース選択時）の走査だけが復旧の一覧を作る（設計 §16-1）。
+            await ScanAsync(CompanyScanKind.Startup);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // 走査が失敗しても、フォルダは開いている。**握ったままにする**（§26-1）。
+            Note($"起動時の走査に失敗しました（{exception.GetType().Name}: {exception.Message}）");
+        }
+
         StartPeriodicScan();
 
         // **フォルダが決まったら秘書を起こす**（2026-09-06、人間が指定。§17-4 を改めた）。
@@ -1264,8 +1578,15 @@ public partial class MainWindow : Window
         // 走査を待っている間に人間が別のフォルダを選ぶと、古い側のこの行が
         // **選ばれていないフォルダで claude を起こす**。しかも後から来た側は
         // `IsRunning` を見て、その間違った秘書を使い回す。
-        if (_composer.Workspace is { } opened
-            && string.Equals(opened.Root, path, StringComparison.Ordinal))
+        // **終了処理に入っていたら起こさない**（レビューで発覚）。走査を待っている間に
+        // 閉じられると、片付けたあとに `claude` が立ち、誰にも終了されない。
+        // 同一性の判定は**どこでも同じ規則**にする（§26-1）。いまは `WorkspaceRef` が
+        // 綴りをそのまま持つので生比較でも通るが、揃えておかないと、
+        // 正規化を足した瞬間にここだけ静かに落ちる。
+        if (!_closing
+            && _composer.Workspace is { } opened
+            && string.Equals(WorkspaceInstanceLock.KeyOf(opened.Root), WorkspaceInstanceLock.KeyOf(path),
+                StringComparison.Ordinal))
         {
             try
             {
@@ -1281,6 +1602,79 @@ public partial class MainWindow : Window
             }
 
             UpdateSecretaryStatus();
+        }
+
+        // ここまで来れば、前のフォルダはもう誰も触っていない。
+        _supersededLock?.Dispose();
+        _supersededLock = null;
+        return true;
+    }
+
+    /// <summary>
+    /// 開けなかったときに、掴んだロックを戻す（設計 §26-1）。
+    /// </summary>
+    private void ReleaseHeldWorkspace()
+    {
+        // 既に新しいフォルダを見ているなら、握ったままにする（§26-1）。
+        if (_composer?.Workspace is { } current
+            && string.Equals(_lockedWorkspace, WorkspaceInstanceLock.KeyOf(current.Root), StringComparison.Ordinal))
+        {
+            _supersededLock?.Dispose();
+            _supersededLock = null;
+            return;
+        }
+
+        _instanceLock?.Dispose();
+        _instanceLock = _supersededLock;
+        _lockedWorkspace = _composer?.Workspace?.Root is { } root ? WorkspaceInstanceLock.KeyOf(root) : null;
+        _supersededLock = null;
+    }
+
+    /// <summary>
+    /// そのフォルダの排他ロックを握る（設計 §26-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>正本は OS のロック。</b> pid や起動時刻は人間への説明で、判定には使わない。
+    /// <b>「ロックを消す」操作は出さない</b>（§26-2）—— Unix では、握られているファイルを
+    /// 消して作り直すと別の実体になり、2つのプロセスが別々のロックを持ててしまう。
+    /// </remarks>
+    private bool TryHoldWorkspace(string path)
+    {
+        // 同じフォルダを開き直すときは、握ったまま進む。**ロックの鍵と同じ規則で比べる。**
+        var resolved = WorkspaceInstanceLock.KeyOf(path);
+        if (_instanceLock is not null && string.Equals(_lockedWorkspace, resolved, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var previous = _instanceLock;
+        switch (WorkspaceInstanceLock.Acquire(path, WorkspaceMemory.RuntimeRoot, DateTimeOffset.Now))
+        {
+            case WorkspaceInstanceLockResult.Acquired acquired:
+                _instanceLock = acquired.Lock;
+                _lockedWorkspace = resolved;
+
+                // 前のフォルダは、**切り替えが済んでから**返す（§26-1）。
+                // ここで返すと、まだ走査や秘書がそこを触っている間に別のアプリが開ける。
+                _supersededLock = previous;
+                return true;
+
+            case WorkspaceInstanceLockResult.Held held:
+                Note(held.Holder is { } holder
+                    ? $"{path} は別のアプリが開いています（pid {holder.Pid} / {holder.Host} / "
+                        + $"{holder.OpenedAt.ToLocalTime():MM/dd HH:mm} から）。**このアプリでは開きません** —— "
+                        + "そちらを閉じてからもう一度選ぶか、別のフォルダを選ぶ"
+                    : $"{path} は別のアプリが開いています（保持者情報は読めません）。"
+                        + "**このアプリでは開きません** —— そちらを閉じるか、別のフォルダを選ぶ");
+                return false;
+
+            case WorkspaceInstanceLockResult.Unavailable unavailable:
+                // **「開いている」と言い切らない**（§13-9 と同じ姿勢）。置けないだけかもしれない。
+                Note($"{path} の排他ロックを置けませんでした（{unavailable.Reason}）。開きません");
+                return false;
+
+            default:
+                return false;
         }
     }
 }

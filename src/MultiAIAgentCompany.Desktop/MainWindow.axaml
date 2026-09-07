@@ -18,6 +18,7 @@
                  Unreadable は部門に紐づけられないので、ここにしか出せない。 -->
             <StackPanel DockPanel.Dock="Top" IsVisible="{Binding HasRecovery}" Margin="0,0,0,8">
                 <TextBlock Text="確かめてほしいこと" FontWeight="Bold" Margin="0,0,0,4" />
+                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="240">
                 <ItemsControl ItemsSource="{Binding Recovery}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="vm:RecoveryItem">
@@ -77,16 +78,23 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                </ScrollViewer>
             </StackPanel>
 
             <TextBlock DockPanel.Dock="Top" Text="作業ログ" FontWeight="Bold" Margin="0,0,0,6" />
-            <ItemsControl ItemsSource="{Binding WorkLog}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+
+            <!-- **スクロールできること**（設計 §25-1）。無いと、はみ出した行に手が届かない ——
+                 上の「確かめてほしいこと」が画面外に出ると、§15-6 の
+                 「要対応なのに押せない」が別の形で再発する。 -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding WorkLog}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
         </DockPanel>
 
         <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="Transparent" />
@@ -146,7 +154,9 @@
 
             <!-- 秘書の提案（設計 §17-6）。**「仕事にする」は自由入力欄ではなく、
                  この具体的な提案に出す**（§17-4）。 -->
-            <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Proposals}" Margin="0,0,0,6">
+            <!-- 提案も同じ（§25-1）。増えたら会話が見えなくなるので高さを区切る。 -->
+            <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" MaxHeight="260">
+            <ItemsControl ItemsSource="{Binding Proposals}" Margin="0,0,0,6">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:ProposalCard">
                         <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
@@ -171,11 +181,15 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </ScrollViewer>
 
             <!-- (a) ランタイム承認。ボタンは提示された決定から作る（設計 §5）——
                  版で変わる語彙をここに書き足さない。
                  (b) 判断の相談はここに出さない。あれは .company/ のファイルで扱う（§3 / §6）。 -->
-            <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Approvals.Pending}" Margin="0,0,0,6">
+            <!-- **承認は画面外に出してはいけない**（設計 §25-1 / §15-6）。数が増えると
+                 ボタンが下へ押し出されて押せなくなる。高さを区切ってスクロールさせる。 -->
+            <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" MaxHeight="260">
+            <ItemsControl ItemsSource="{Binding Approvals.Pending}" Margin="0,0,0,6">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:PendingApproval">
                         <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
@@ -223,15 +237,20 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </ScrollViewer>
 
             <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="4">
-                <ItemsControl ItemsSource="{Binding SecretaryTranscript}" Margin="8">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <!-- 会話は下に伸びるので、新しい発言が来たら最下部へ追う（§25-1）。 -->
+                <ScrollViewer x:Name="TranscriptScroll"
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding SecretaryTranscript}" Margin="8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </Border>
         </DockPanel>
 
@@ -240,6 +259,7 @@
         <DockPanel Grid.Column="4">
             <TextBlock DockPanel.Dock="Top" Text="部門" FontWeight="Bold" Margin="0,0,0,6" />
 
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Departments}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:DepartmentTile">
@@ -264,9 +284,14 @@
                                         <Run Text="{Binding Name}" />
                                         <Run Text=" / " />
                                         <Run Text="{Binding Agent}" />
-                                        <Run Text=" / " />
-                                        <Run Text="{Binding Mode}" />
                                     </TextBlock>
+
+                                    <!-- **駆動モードは出さない**（設計 §27）。§22-4 で Tui を消したので
+                                         常に Structured にしかならず、区別に使えない。
+                                         代わりに **CLI が申告したモデル**を出す。観測できたときだけ ——
+                                         こちらが渡した設定値は診断ビューへ（§27-3）。 -->
+                                    <TextBlock Text="{Binding ModelText}" IsVisible="{Binding HasModel}"
+                                               FontSize="11" Opacity="0.8" />
                                     <!-- 3軸を潰さずに並べる（設計 §7）。 -->
                                     <TextBlock FontSize="11" Opacity="0.8">
                                         <Run Text="稼働 " /><Run Text="{Binding RuntimeText}" />
@@ -338,6 +363,7 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </ScrollViewer>
         </DockPanel>
 
     </Grid>

@@ -30,6 +30,10 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
     public DriveMode Mode => DriveMode.Structured;
     public string? DetectedVersion { get; private set; }
 
+    /// <inheritdoc />
+    /// <remarks>Claude は思考の強さを返してこないので、そこは常に null（実測 §27）。</remarks>
+    public AgentModel? ObservedModel { get; private set; }
+
     public event EventHandler<Evidence>? Observed;
     public event EventHandler<int>? Exited;
 
@@ -80,6 +84,7 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
                 {
                     case ClaudeEvent.Init init:
                         DetectedVersion = init.Version;
+                        ObservedModel = init.Model is { } model ? new AgentModel(model, null) : null;
                         var mcp = init.McpServers.Count == 0
                             ? "MCP サーバーなし"
                             : $"MCP サーバー: {string.Join(", ", init.McpServers.Select(server => $"{server.Name} ({server.Status ?? "状態不明"})"))}";

@@ -22,6 +22,39 @@ namespace MultiAIAgentCompany.Tests;
 [Collection(LiveCollection.Name)]
 public sealed class ClaudeLiveRoundTripTests
 {
+    [LiveFact]
+    public async Task 実プロセスがモデルを申告する()
+    {
+        // **設計 §27-1 の根拠を実物で押さえる。** fixture だけだと、CLI が
+        // 「いま何を使っているか」を本当に返すのかは確かめたことにならない。
+        var root = Path.Combine(Path.GetTempPath(), "mac-live-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            await using var session = (IStructuredSession)await new ClaudeCodeAdapter().StartAsync(
+                new WorkspaceRef(root), "実装", DriveMode.Structured, CancellationToken.None);
+
+            await session.SendUserMessageAsync("何もしないでください。「ok」とだけ答えてください。", CancellationToken.None);
+
+            // init は最初のやりとりで来る。少し待って拾う。
+            var deadline = DateTimeOffset.UtcNow.AddMinutes(2);
+            while (session.ObservedModel is null && DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(500);
+            }
+
+            var model = Assert.IsType<AgentModel>(session.ObservedModel);
+            Assert.False(string.IsNullOrWhiteSpace(model.Id));
+
+            // Claude は思考の強さを返してこない（§27-1）。**返ってきたら設計が古い。**
+            Assert.Null(model.ReasoningEffort);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [LiveTheory]
     [InlineData("allow", true)]
     [InlineData("deny", false)]
@@ -132,4 +165,18 @@ internal sealed class LiveTheoryAttribute : TheoryAttribute
         }
     }
 
+}
+
+/// <summary>
+/// <c>MAC_LIVE_CLAUDE=1</c> のときだけ走る Fact。<see cref="LiveTheoryAttribute"/> と同じ理由。
+/// </summary>
+internal sealed class LiveFactAttribute : FactAttribute
+{
+    public LiveFactAttribute()
+    {
+        if (Environment.GetEnvironmentVariable("MAC_LIVE_CLAUDE") != "1")
+        {
+            Skip = "MAC_LIVE_CLAUDE=1 のときだけ走る（実プロセス）";
+        }
+    }
 }

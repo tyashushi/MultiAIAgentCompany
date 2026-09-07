@@ -122,6 +122,30 @@ public sealed class DepartmentTile : INotifyPropertyChanged
 
     public DriveMode Mode { get; }
 
+    /// <summary>
+    /// CLI が申告したモデル（設計 §27）。<b>観測できたときだけ入る。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b>こちらが渡した設定値で埋めない。</b> 見出しは狭いので、observed と intended が
+    /// 同じ見た目で並ぶと読み分けられない —— 設定値は診断ビューに出典つきで出す（§27-3）。
+    /// </remarks>
+    public AgentModel? ObservedModel
+    {
+        get;
+        set
+        {
+            field = value;
+            Raise();
+            Raise(nameof(ModelText));
+            Raise(nameof(HasModel));
+        }
+    }
+
+    /// <summary>見出しに出す言い換え。未観測なら空。</summary>
+    public string ModelText => ObservedModel is { } model ? AgentModelText.Of(model) : string.Empty;
+
+    public bool HasModel => ObservedModel is not null;
+
     public DepartmentStatus Status => _tracker.Current;
 
     /// <summary>

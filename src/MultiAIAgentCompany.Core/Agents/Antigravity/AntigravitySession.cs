@@ -31,6 +31,13 @@ public sealed class AntigravitySession : IStructuredSession
     /// <summary>init に CLI 版が無いため、版はストリームからは検出しない。</summary>
     public string? DetectedVersion => null;
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>Antigravity は init に model を含めない</b>（実測 §27）。
+    /// こちらが <c>--model</c> で渡した値で埋めない —— それは要求であって観測ではない。
+    /// </remarks>
+    public AgentModel? ObservedModel => null;
+
     public event EventHandler<Evidence>? Observed;
     public event EventHandler<int>? Exited;
 

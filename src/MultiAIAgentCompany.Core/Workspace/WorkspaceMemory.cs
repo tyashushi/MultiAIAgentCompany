@@ -25,10 +25,22 @@ public sealed class WorkspaceMemory
     public WorkspaceMemory(string settingsPath) =>
         _path = settingsPath ?? throw new ArgumentNullException(nameof(settingsPath));
 
-    /// <summary>macOS の置き場所（<c>~/Library/Application Support</c>）。</summary>
-    public static WorkspaceMemory CreateDefault() => new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        "Library", "Application Support", "MultiAIAgentCompany", "workspace.json"));
+    /// <summary>
+    /// アプリが自分のために使う場所（<c>~/Library/Application Support</c>）。
+    /// <b>ワークスペースの中には置かない</b>（§21-3 / §26-3）。
+    /// </summary>
+    public static string RuntimeRoot { get; } = OperatingSystem.IsMacOS()
+        ? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Library", "Application Support", "MultiAIAgentCompany")
+
+        // macOS 以外では、その OS の置き場所に従う。**`~/Library/...` を作らない**
+        // （レビューで発覚。Windows に macOS 風のフォルダができていた）。
+        : Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MultiAIAgentCompany");
+
+    /// <summary>macOS の置き場所。</summary>
+    public static WorkspaceMemory CreateDefault() => new(Path.Combine(RuntimeRoot, "workspace.json"));
 
     /// <summary>人間が選んだので覚える。<b>生のパスと解決後のパスを両方持つ</b>（§21-2）。</summary>
     public async Task RememberAsync(string rawPath, DateTimeOffset now, CancellationToken ct)
