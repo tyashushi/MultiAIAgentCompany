@@ -43,6 +43,11 @@ public sealed class ApprovalQueue
         ArgumentNullException.ThrowIfNull(approval);
         approval.Resolved += OnResolved;
         Dispatcher.UIThread.Post(() => Pending.Add(approval));
+
+        // **背面でも気付けるようにする**（設計 §28-4）。承認は人間の出番なので、
+        // 気付かれないと部門が止まったまま待ち続ける。
+        // **中身は書かない**（§10）—— 何を要求されたかはアプリの中で見る。
+        DesktopNotifier.Notify("承認まち", $"{approval.DepartmentName} が承認を求めています");
     }
 
     private void OnResolved(object? sender, PendingApproval approval)

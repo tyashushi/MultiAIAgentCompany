@@ -30,6 +30,28 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// フォルダを選んだか（設計 §28-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b>選ぶまでは、空の3ペインを見せない。</b> 初見の人間に「何のアプリで、まず何をするか」
+    /// を出す —— いまは小さな文字が散っているだけだった（§25-2 の 26番）。
+    /// <para>
+    /// <b>表示用の文字列から推定しない</b>（§7、レビューで発覚）。最初はラベルの先頭が
+    /// 「（」かどうかで見ていたので、**`（株）案件` のようなフォルダを開くと案内が出っぱなし**になり、
+    /// 会話が隠れて操作できなくなる。<b>開いたかどうかは、開いた側が入れる。</b>
+    /// </para>
+    /// </remarks>
+    public bool HasWorkspace
+    {
+        get;
+        set
+        {
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasWorkspace)));
+        }
+    }
+
+    /// <summary>
     /// 選んだフォルダに対する各 CLI の trust 判定（設計 §13-9）。
     /// <b>「未 trust」と「判定できない」を分けて出す。</b>
     /// </summary>
@@ -72,6 +94,16 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     /// <summary>左ペイン: 作業ログ一覧。</summary>
     public required ObservableCollection<string> WorkLog { get; init; }
+
+    /// <summary>
+    /// アプリ全体の診断（設計 §28-9）。<b>部門に紐づかない失敗はここへ。</b>
+    /// </summary>
+    /// <remarks>
+    /// 最初は「選択中の部門があればそこへ」だったが、**詳細が一番要る初期化と復旧の失敗では
+    /// 部門が選ばれていない** ので、そのまま捨てていた（レビューで発覚）。
+    /// <b>ライブ専用</b>で、保存しない（§10）。
+    /// </remarks>
+    public DiagnosticsLog Diagnostics { get; } = new();
 
     /// <summary>中央ペイン: 秘書との会話。</summary>
     public required ObservableCollection<string> SecretaryTranscript { get; init; }
@@ -384,27 +416,41 @@ public sealed class DepartmentTile : INotifyPropertyChanged
 }
 
 /// <summary>trust 1行ぶんの表示。<b>言い回しをここで決める</b>（判定は Core）。</summary>
-public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State)
+/// <param name="ExecutablePath">
+/// PATH 上で見つかった実行ファイル。<b>見つからなければ null</b>（設計 §28-1）。
+/// </param>
+public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string? ExecutablePath = null)
 {
     public string AgentText => Agent.ToString();
 
-    public string StateText => State switch
-    {
-        WorkspaceTrustState.Trusted => "信頼済み",
-        WorkspaceTrustState.NotTrusted => "未 trust",
-        _ => "判定できない",
-    };
+    /// <summary>
+    /// <b>そもそも CLI があるか</b>を、trust より先に言う（設計 §28-1）。
+    /// </summary>
+    /// <remarks>
+    /// 無いものに「信頼を与えてください」と言っても始まらない。
+    /// ただし<b>「見つかった」を「動く」と言わない</b> —— 実際に動くかは起動するまで分からない（§7）。
+    /// </remarks>
+    public string StateText => ExecutablePath is null
+        ? "見つからない"
+        : State switch
+        {
+            WorkspaceTrustState.Trusted => "信頼済み",
+            WorkspaceTrustState.NotTrusted => "未 trust",
+            _ => "判定できない",
+        };
 
     /// <summary>
     /// 人間が取る行動。<b>アプリは trust を書かない</b>（設計 §13-9 規則2）——
     /// 与えるのは人間の操作なので、どこで与えるかを伝えるに留める。
     /// </summary>
-    public string ActionText => State switch
-    {
-        WorkspaceTrustState.Trusted => "そのまま使える",
-        WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える",
-        _ => "設定ファイルを読めなかった。未 trust とは限らない",
-    };
+    public string ActionText => ExecutablePath is null
+        ? $"`{AgentExecutable.NameOf(Agent)}` が PATH に無い。入れるか、PATH を通してからアプリを開き直す"
+        : State switch
+        {
+            WorkspaceTrustState.Trusted => "そのまま使える",
+            WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える",
+            _ => "設定ファイルを読めなかった。未 trust とは限らない",
+        };
 }
 
 /// <summary>

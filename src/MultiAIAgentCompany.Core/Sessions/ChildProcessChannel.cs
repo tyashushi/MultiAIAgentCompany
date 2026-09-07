@@ -36,7 +36,9 @@ public sealed class ChildProcessChannel : IAgentProcessChannel
         ct.ThrowIfCancellationRequested();
         var startInfo = new ProcessStartInfo
         {
-            FileName = fileName,
+            // **見つけた実体で起動する**（設計 §28-1）。名前のままだと、GUI 起動の
+            // 最小限の PATH では OS が見つけられない。見つからなければ名前のまま渡す。
+            FileName = Agents.AgentExecutable.ResolveCommand(fileName),
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
             RedirectStandardInput = true,

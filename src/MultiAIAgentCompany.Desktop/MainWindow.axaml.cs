@@ -1,4 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -63,8 +66,17 @@ public partial class MainWindow : Window
     /// <summary>終了処理に入ったか（設計 §26-4）。</summary>
     private bool _closing;
 
+    /// <summary>閉じてよいと人間が答えた（設計 §28-3）。<b>二度は聞かない。</b></summary>
+    private bool _confirmedClose;
+
+    /// <summary>確認を出している最中（設計 §28-3）。<b>二枚目を出さない。</b></summary>
+    private bool _askingClose;
+
     /// <summary>前回のワークスペース。<b>覚えるのはパスだけ</b>（設計 §21-3）。</summary>
     private readonly WorkspaceMemory _memory = WorkspaceMemory.CreateDefault();
+
+    /// <summary>ウィンドウの見た目（設計 §28-5）。<b>状態は覚えない。</b></summary>
+    private readonly WindowLayoutMemory _layout = WindowLayoutMemory.CreateDefault();
 
     /// <summary>
     /// いま開いているワークスペースの排他ロック（設計 §26）。
@@ -104,6 +116,19 @@ public partial class MainWindow : Window
         UpdateSecretaryStatus();
 
         Opened += async (_, _) => await ResumeWorkspaceAsync();
+
+        // **動いている最中に閉じたら、一度だけ確かめる**（設計 §28-3）。
+        // 閉じると §9 により全部の CLI が終わる —— 進行中の仕事が切れる。
+        Closing += OnWindowClosing;
+
+        // **見た目を覚える**（設計 §28-5）。§21 はパスしか覚えていなかったので、
+        // 毎回この大きさとペイン幅に戻っていた。
+        RestoreLayout();
+        Closing += (_, _) => SaveLayout();
+
+        // **最初に触る場所へフォーカスを置く**（設計 §28-7）。
+        // 起動直後に打ち始められないと、まずマウスを持つことになる。
+        Opened += (_, _) => this.FindControl<TextBox>("MessageBox")?.Focus();
     }
 
     /// <summary>
@@ -133,8 +158,7 @@ public partial class MainWindow : Window
                 {
                     // **ここで投げると毎回の起動が落ちる。** 自動で開いた副作用で、
                     // 人間が別のフォルダを選ぶ画面にすら辿り着けなくなる。
-                    Note($"前回のフォルダを開けなかった（{exception.GetType().Name}: {exception.Message}）。"
-                        + $"選び直す: {open.Remembered.RawPath}");
+                    NoteException($"前回のフォルダを開けなかった（選び直す: {open.Remembered.RawPath}）", exception);
                 }
 
                 break;
@@ -1400,6 +1424,301 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 例外を、人間に見せる1行と、追える詳細に分ける（設計 §28-9）。
+    /// </summary>
+    /// <remarks>
+    /// <b>1行だけだと追えない。</b> これまで <c>exception.Message</c> しか出しておらず、
+    /// どこで起きたかが分からなかった（§25-3 の 30番）。
+    /// <para>
+    /// <b>詳細は保存しない。</b> スタックトレースにはパスが載るので、
+    /// 診断（§22、ライブ専用）と同じ扱いにする —— <see cref="Status.Evidence"/> へ入れない（§10）。
+    /// </para>
+    /// </remarks>
+    private void NoteException(string what, Exception exception)
+    {
+        Note($"{what}（{exception.GetType().Name}: {exception.Message}）");
+
+        // **`_composer` を経由しない**（レビューで発覚）。初期化の失敗では
+        // まだ composer が無く、**一番詳細が要る場面でそのまま捨てていた**。
+        if (DataContext is ShellViewModel shell)
+        {
+            shell.Diagnostics.Add(new LiveDiagnostic(DiagnosticStream.Protocol, $"{what}: {exception}"));
+        }
+    }
+
+    /// <summary>
+    /// メニューからフォルダを選ぶ（設計 §28-7）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ボタンと同じ経路を通す。</b> `NativeMenuItem.Click` は
+    /// <see cref="EventArgs"/> を渡すので、ここで受けてボタンの経路へ渡すだけにする ——
+    /// 入口ごとに処理を書くと、片方だけ直し忘れる。
+    /// </remarks>
+    private void OnPickWorkspaceFromMenu(object? sender, EventArgs e) =>
+        OnPickWorkspace(sender, new RoutedEventArgs());
+
+    /// <summary>
+    /// いま開いているフォルダを OS のファイラで開く（設計 §28-7）。
+    /// </summary>
+    private void OnRevealWorkspace(object? sender, EventArgs e)
+    {
+        if (_composer?.Workspace is not { } workspace)
+        {
+            Note("先にワークスペースを選ぶ");
+            return;
+        }
+
+        try
+        {
+            using var _ = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(workspace.Root) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            // 開けなかったことを、開いたことにしない。場所は出す。
+            Note($"フォルダを開けなかった（{exception.GetType().Name}）。場所は {workspace.Root}");
+        }
+    }
+
+    private async void OnRescanFromMenu(object? sender, EventArgs e)
+    {
+        if (Busy("再走査"))
+        {
+            return;
+        }
+
+        await ScanAsync(CompanyScanKind.Startup);
+    }
+
+    /// <summary>
+    /// 作業ログを消す（設計 §28-7）。<b>`.company/` は触らない</b> —— 画面の表示だけ。
+    /// </summary>
+    private void OnClearWorkLog(object? sender, EventArgs e)
+    {
+        if (DataContext is ShellViewModel shell)
+        {
+            shell.WorkLog.Clear();
+            Note("作業ログを消した（.company/ の中身は消えていない）");
+        }
+    }
+
+    /// <summary>
+    /// アプリ全体の診断を出す（設計 §28-9）。<b>1行では追えないときの出口。</b>
+    /// </summary>
+    private void OnShowLastErrors(object? sender, EventArgs e)
+    {
+        if (DataContext is not ShellViewModel shell)
+        {
+            return;
+        }
+
+        var recent = shell.Diagnostics.Recent(5);
+        NoteBlock(
+            $"—— 直近のエラーの詳細（{shell.Diagnostics.Summary}）——",
+            recent.Count is 0 ? ["まだ記録がない"] : recent.Select(d => d.Text));
+    }
+
+    private void OnFocusMessage(object? sender, EventArgs e) =>
+        this.FindControl<TextBox>("MessageBox")?.Focus();
+
+    /// <summary>
+    /// 入力欄で Enter を押したら送る（設計 §13-7 / §28-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>実測の上に立っている。</b> IME の変換確定 Enter は <c>KeyDown</c> として
+    /// 届かない（TextBox 経路、実測17件中16件）ので、**確定と送信は衝突しない**。
+    /// §13-7 でそう結論しておきながら、実装していなかった（§25-4）。
+    /// <para>
+    /// <b>修飾キーつきは通す。</b> Shift+Enter などを送信にすると、
+    /// 将来 複数行入力を足したときに衝突する。
+    /// </para>
+    /// </remarks>
+    private static bool IsPlainEnter(KeyEventArgs e) =>
+        e.Key is Key.Enter or Key.Return && e.KeyModifiers is KeyModifiers.None;
+
+    private void OnMessageKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!IsPlainEnter(e))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        OnSendToSecretary(sender, new RoutedEventArgs());
+    }
+
+    private void OnTaskDraftKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!IsPlainEnter(e))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        OnMakeTask(sender, new RoutedEventArgs());
+    }
+
+    private void OnRejectionKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!IsPlainEnter(e))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        OnRejectReport(sender, new RoutedEventArgs());
+    }
+
+    /// <summary>
+    /// 覚えていた見た目に戻す（設計 §28-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>おかしな値は使わない。</b> 画面に収まらない大きさを復元すると
+    /// 「起動したのに何も見えない」になる —— 判定は <see cref="WindowLayoutMemory"/> 側。
+    /// </remarks>
+    private void RestoreLayout()
+    {
+        if (_layout.Load() is not { } saved)
+        {
+            return;
+        }
+
+        Width = saved.Width;
+        Height = saved.Height;
+        if (saved.Maximized)
+        {
+            WindowState = WindowState.Maximized;
+        }
+
+        if (this.FindControl<Grid>("PaneGrid") is { } grid && grid.ColumnDefinitions.Count is 5)
+        {
+            grid.ColumnDefinitions[0].Width = new GridLength(saved.LeftPane);
+            grid.ColumnDefinitions[4].Width = new GridLength(saved.RightPane);
+        }
+    }
+
+    private void SaveLayout()
+    {
+        var grid = this.FindControl<Grid>("PaneGrid");
+        var left = grid?.ColumnDefinitions.Count is 5 ? grid.ColumnDefinitions[0].ActualWidth : 260;
+        var right = grid?.ColumnDefinitions.Count is 5 ? grid.ColumnDefinitions[4].ActualWidth : 320;
+
+        // 最大化中は、戻したときの大きさを覚える（最大化の値を覚えても意味がない）。
+        var maximized = WindowState is WindowState.Maximized;
+        _layout.Save(new WindowLayout(
+            maximized ? RestoredWidth() : Width,
+            maximized ? RestoredHeight() : Height,
+            maximized,
+            left <= 0 ? 260 : left,
+            right <= 0 ? 320 : right));
+    }
+
+    private double RestoredWidth() => _layout.Load()?.Width ?? 1280;
+
+    private double RestoredHeight() => _layout.Load()?.Height ?? 800;
+
+    /// <summary>
+    /// 動いているものがあるなら、閉じる前に一度だけ確かめる（設計 §28-3）。
+    /// </summary>
+    /// <remarks>
+    /// <b>毎回は聞かない。</b> 何も動いていないのに確認を出すのは、ただの邪魔。
+    /// <b>そして二度は聞かない</b> —— 一度「閉じる」と答えたら、そのまま閉じる。
+    /// </remarks>
+    private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
+    {
+        // **ダイアログを出している最中にもう一度閉じられても、二枚目を出さない**
+        // （レビューで発覚）。二重のモーダルは、閉じられなくなるか落ちる。
+        // **人間が「閉じる」と答えたら、もう止めない**（レビューで発覚）。
+        // ここで `_askingClose` を見て取り消すと、`Close()` が自分自身に弾かれ、
+        // **ウィンドウが永久に閉じられなくなる**。
+        if (_confirmedClose || _closing)
+        {
+            return;
+        }
+
+        // 確認を出している最中に、もう一度閉じられた。二枚目は出さない。
+        if (_askingClose)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var running = _runner?.RunningDepartments() ?? [];
+        var secretaryRunning = _secretary?.IsRunning is true;
+        if (running.Count is 0 && !secretaryRunning)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        _askingClose = true;
+
+        var what = running.Count is 0
+            ? "秘書"
+            : string.Join("、", running.Select(id => _composer?.DefinitionOf(id).DisplayName ?? id))
+                + (secretaryRunning ? "、秘書" : string.Empty);
+
+        var box = new Window
+        {
+            Title = "閉じますか",
+            Width = 460,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+        };
+
+        var close = new Button { Content = "閉じる（動いているものは終了する）", IsDefault = true };
+        var stay = new Button { Content = "やめる", IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
+        close.Click += (_, _) => box.Close(true);
+        stay.Click += (_, _) => box.Close(false);
+
+        box.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = $"いま動いている: {what}",
+                    TextWrapping = TextWrapping.Wrap,
+                    FontWeight = Avalonia.Media.FontWeight.Bold,
+                },
+                new TextBlock
+                {
+                    // **何が起きるかを言う**（§15-6）。「本当に？」だけ聞かない。
+                    Text = "閉じると、このアプリが起動した CLI はすべて終了します。"
+                        + "進行中の作業は途中で切れます（.company/ に書かれたものは残ります）。",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 8, 0, 12),
+                    Opacity = 0.85,
+                },
+                new StackPanel
+                {
+                    Orientation = Avalonia.Layout.Orientation.Horizontal,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                    Children = { close, stay },
+                },
+            },
+        };
+
+        try
+        {
+            if (await box.ShowDialog<bool>(this))
+            {
+                _confirmedClose = true;
+
+                // **閉じる前に印を降ろす。** 上のガードに自分で引っかからないように。
+                _askingClose = false;
+                Close();
+            }
+        }
+        finally
+        {
+            _askingClose = false;
+        }
+    }
+
+    /// <summary>
     /// 終了処理に入ったことを画面へ伝える（設計 §26-4）。
     /// </summary>
     /// <remarks>ここから先は、新しいセッションを作らせない。</remarks>
@@ -1535,8 +1854,7 @@ public partial class MainWindow : Window
             // **フォルダを選んだだけでアプリを落とさない。** ここは `async void` の先。
             ReleaseHeldWorkspace();
             StartPeriodicScan();
-            Note($"{path} を開けませんでした（{exception.GetType().Name}: {exception.Message}）。"
-                + "前のワークスペースはそのまま");
+            NoteException($"{path} を開けませんでした（前のワークスペースはそのまま）", exception);
             return false;
         }
 
@@ -1566,7 +1884,7 @@ public partial class MainWindow : Window
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // 走査が失敗しても、フォルダは開いている。**握ったままにする**（§26-1）。
-            Note($"起動時の走査に失敗しました（{exception.GetType().Name}: {exception.Message}）");
+            NoteException("起動時の走査に失敗しました", exception);
         }
 
         StartPeriodicScan();
@@ -1597,8 +1915,7 @@ public partial class MainWindow : Window
                 // **フォルダを選んだだけでアプリが落ちない。** 書けないフォルダ
                 // （読み取り専用、`.company/secretary` を作れない）を選ぶと、
                 // ここは async void の先なので投げるとそのまま落ちる。
-                Note($"秘書を起動できなかった（{exception.GetType().Name}: {exception.Message}）。"
-                    + "ワークスペースは開いている");
+                NoteException("秘書を起動できなかった（ワークスペースは開いている）", exception);
             }
 
             UpdateSecretaryStatus();

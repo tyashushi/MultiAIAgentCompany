@@ -2,6 +2,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="MultiAIAgentCompany.Desktop.App"
              RequestedThemeVariant="Default">
+    <!-- **文字の大きさを1箇所に集める**（設計 §28-8）。各所に 11 や 24 を直書きしていたので、
+         読みにくいときに全体を上げる手段が無かった。**値そのものは変えていない** ——
+         いま見えているものを変えずに、変えられる形にするのが目的。 -->
+    <Application.Resources>
+        <x:Double x:Key="FontSizeSmall">11</x:Double>
+        <x:Double x:Key="FontSizeNormal">13</x:Double>
+        <x:Double x:Key="FontSizeLarge">14</x:Double>
+        <x:Double x:Key="FontSizeHuge">24</x:Double>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
     </Application.Styles>

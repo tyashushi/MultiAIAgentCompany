@@ -98,10 +98,15 @@ public sealed class ShellComposer
         Outbox = new SecretaryOutbox(paths);
 
         Shell.WorkspaceLabel = root;
+
+        // **開いたことは、開いた側が入れる**（設計 §28-2、レビューで発覚）。
+        Shell.HasWorkspace = true;
         Shell.Trust.Clear();
         foreach (var row in rows)
         {
-            Shell.Trust.Add(new TrustRow(row.Agent, row.State));
+            // **CLI があるかどうかも、ここで一緒に見る**（設計 §28-1）。
+            // 無いものに trust を与えろと言っても始まらない。
+            Shell.Trust.Add(new TrustRow(row.Agent, row.State, AgentExecutable.Find(row.Agent)));
         }
     }
 

@@ -145,7 +145,19 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             // 起動できなかったことを、起動したことにしない。
             // trust が無い・CLI が入っていない・モードが未対応、いずれもここに来る。
             tracker.OnExited(-1);
-            return new DepartmentStart.Failed($"{department.DisplayName} を起動できなかった: {exception.Message}");
+
+            // **「無いから起動を拒む」ことはしない**（設計 §28-1、レビューで発覚）——
+            // GUI 起動では PATH が最小限になり、実在する CLI を「無い」と誤判定する。
+            // 失敗したときに、見つからなかった事実を**案内として添える**に留める。
+            var name = AgentExecutable.NameOf(department.Agent);
+            var found = AgentExecutable.Find(department.Agent);
+            var missing = found is null
+                ? $"（`{name}` を探しましたが見つかりませんでした。入っていないか、PATH に無いのかもしれません）"
+
+                // 見つかっているのに失敗したなら、**場所は分かっている**。そう言う。
+                : $"（`{found}` は在ります。起動そのものが失敗しました）";
+            return new DepartmentStart.Failed(
+                $"{department.DisplayName} を起動できなかった: {exception.Message}{missing}");
         }
     }
 
@@ -235,6 +247,17 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         SessionOf(departmentId) is IStructuredSession structured
             ? structured.SendUserMessageAsync(text, ct)
             : Task.CompletedTask;
+
+    /// <summary>
+    /// いま動いている部門の名前（設計 §28-3）。<b>閉じてよいか人間が判断する材料。</b>
+    /// </summary>
+    public IReadOnlyList<string> RunningDepartments()
+    {
+        lock (_startGate)
+        {
+            return [.. _sessions.Keys];
+        }
+    }
 
     public bool IsRunning(string departmentId)
     {

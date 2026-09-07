@@ -10,7 +10,35 @@
         Title="MultiAIAgentCompany">
 
     <!-- 3ペイン（設計 §1）。左＝作業ログ、中央＝秘書との会話、右＝部門ステータス。 -->
-    <Grid ColumnDefinitions="260,4,*,4,320" Margin="8">
+    <!-- macOS の標準メニュー（設計 §28-7）。ショートカットの所在をここで示す ——
+         キーだけ足しても、人間はそれが在ることを知らない。 -->
+    <NativeMenu.Menu>
+        <NativeMenu>
+            <NativeMenuItem Header="ファイル">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="フォルダを選ぶ…" Gesture="Cmd+O" Click="OnPickWorkspaceFromMenu" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="いま開いているフォルダを Finder で開く" Gesture="Cmd+Shift+O"
+                                        Click="OnRevealWorkspace" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+            <NativeMenuItem Header="表示">
+                <NativeMenuItem.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="もう一度走査する" Gesture="Cmd+R" Click="OnRescanFromMenu" />
+                        <NativeMenuItem Header="作業ログを消す" Click="OnClearWorkLog" />
+                        <NativeMenuItem Header="直近のエラーの詳細を出す" Click="OnShowLastErrors" />
+                        <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="入力欄へ移動" Gesture="Cmd+L" Click="OnFocusMessage" />
+                    </NativeMenu>
+                </NativeMenuItem.Menu>
+            </NativeMenuItem>
+        </NativeMenu>
+    </NativeMenu.Menu>
+
+    <Grid x:Name="PaneGrid" ColumnDefinitions="260,4,*,4,320" Margin="8">
 
         <DockPanel Grid.Column="0">
             <!-- 起動時の復旧走査（設計 §14-1 / §16-3）。**一過性のログ行にしない** ——
@@ -25,19 +53,19 @@
                             <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                     BorderThickness="1" CornerRadius="4" Padding="6" Margin="0,0,0,4">
                                 <StackPanel>
-                                    <TextBlock FontSize="11" FontWeight="Bold">
+                                    <TextBlock FontSize="{DynamicResource FontSizeSmall}" FontWeight="Bold">
                                         <Run Text="{Binding KindText}" /><Run Text=" — " /><Run Text="{Binding Slug}" />
                                     </TextBlock>
-                                    <TextBlock Text="{Binding Detail}" FontSize="11" TextWrapping="Wrap" Opacity="0.8" />
+                                    <TextBlock Text="{Binding Detail}" FontSize="{DynamicResource FontSizeSmall}" TextWrapping="Wrap" Opacity="0.8" />
 
                                     <!-- 人間が決めた結果を記録できるようにする（設計 §16-4）。
                                          「まだ決めない」は選択肢を出さない —— 何もしなければ残る。 -->
                                     <WrapPanel IsVisible="{Binding IsMaybeSent}" Margin="0,4,0,0">
-                                        <Button Content="受け取って作業中だった" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="受け取って作業中だった" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryConfirmDelivered" />
-                                        <Button Content="もう一度送る（二重に実行されるかも）" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="もう一度送る（二重に実行されるかも）" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryResend" />
-                                        <Button Content="アプリ上で取り消す" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="アプリ上で取り消す" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryCancel" />
                                     </WrapPanel>
 
@@ -45,11 +73,11 @@
                                          読めない lease は「誰も持っていない」ではなく
                                          「持ち主を検証できない」。 -->
                                     <WrapPanel IsVisible="{Binding IsUnreadableLease}" Margin="0,4,0,0">
-                                        <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="フォルダを開く" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryOpenFolder" />
-                                        <Button Content="隔離して空の書き込み権を作る" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="隔離して空の書き込み権を作る" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryIsolateLease" />
-                                        <Button Content="もう一度読む" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="もう一度読む" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryRescan" />
                                     </WrapPanel>
 
@@ -57,20 +85,20 @@
                                          外す根拠は時間ではなく、人間が「もう動いていない」と
                                          判断したこと（§14-2）。 -->
                                     <WrapPanel IsVisible="{Binding IsExpiredLease}" Margin="0,4,0,0">
-                                        <Button Content="失効した書き込み権を外す" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="失効した書き込み権を外す" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryReleaseExpiredLease" />
-                                        <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="フォルダを開く" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryOpenFolder" />
-                                        <Button Content="もう一度読む" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="もう一度読む" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryRescan" />
                                     </WrapPanel>
 
                                     <WrapPanel IsVisible="{Binding IsUnreadable}" Margin="0,4,0,0">
-                                        <Button Content="フォルダを開く" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="フォルダを開く" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryOpenFolder" />
-                                        <Button Content="隔離する" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="隔離する" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryQuarantine" />
-                                        <Button Content="もう一度読む" FontSize="11" Margin="0,0,4,4"
+                                        <Button Content="もう一度読む" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryRescan" />
                                     </WrapPanel>
                                 </StackPanel>
@@ -116,9 +144,9 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="vm:TrustRow">
                             <Grid ColumnDefinitions="110,90,*" Margin="0,1">
-                                <TextBlock Grid.Column="0" Text="{Binding AgentText}" FontSize="11" />
-                                <TextBlock Grid.Column="1" Text="{Binding StateText}" FontSize="11" FontWeight="Bold" />
-                                <TextBlock Grid.Column="2" Text="{Binding ActionText}" FontSize="11"
+                                <TextBlock Grid.Column="0" Text="{Binding AgentText}" FontSize="{DynamicResource FontSizeSmall}" />
+                                <TextBlock Grid.Column="1" Text="{Binding StateText}" FontSize="{DynamicResource FontSizeSmall}" FontWeight="Bold" />
+                                <TextBlock Grid.Column="2" Text="{Binding ActionText}" FontSize="{DynamicResource FontSizeSmall}"
                                            Opacity="0.75" TextWrapping="Wrap" />
                             </Grid>
                         </DataTemplate>
@@ -142,11 +170,14 @@
                  同じ入力欄が秘書・部門・仕事作成という複数の文脈を背負うと §0 / §1 と衝突する。
                  部門への操作は右ペインへ移した。 -->
             <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                <TextBlock Text="{Binding SecretaryStatus}" FontSize="11" Opacity="0.75"
+                <TextBlock Text="{Binding SecretaryStatus}" FontSize="{DynamicResource FontSizeSmall}" Opacity="0.75"
                            TextWrapping="Wrap" Margin="0,0,0,4" />
                 <Grid ColumnDefinitions="*,Auto">
+                    <!-- **素の Enter で送る**（設計 §13-7 の実測）。IME の確定 Enter は
+                         KeyDown として届かないので、確定と送信は衝突しない。 -->
                     <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
-                             PlaceholderText="秘書に相談する（日本語で書ける）" />
+                             KeyDown="OnMessageKeyDown"
+                             PlaceholderText="秘書に相談する（Enter で送る）" />
                     <!-- 未起動なら、その副作用として起動する（§17-4）。 -->
                     <Button Grid.Column="1" Content="秘書に送る" Margin="6,0,0,0" Click="OnSendToSecretary" />
                 </Grid>
@@ -165,16 +196,16 @@
                                 <TextBlock FontWeight="Bold">
                                     <Run Text="秘書からの提案 → " /><Run Text="{Binding TargetText}" />
                                 </TextBlock>
-                                <TextBlock Text="{Binding Body}" TextWrapping="Wrap" FontSize="11"
+                                <TextBlock Text="{Binding Body}" TextWrapping="Wrap" FontSize="{DynamicResource FontSizeSmall}"
                                            Margin="0,2,0,0" MaxHeight="120" />
                                 <WrapPanel Margin="0,6,0,0">
                                     <!-- 宛先が分からない提案は仕事にできない。**捨てもしない**（§17-6）。 -->
                                     <Button Content="仕事にする" IsEnabled="{Binding CanMakeTask}"
-                                            FontSize="11" Margin="0,0,4,0" Click="OnProposalAccept" />
-                                    <Button Content="やめる" FontSize="11" Click="OnProposalReject" />
+                                            FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,0" Click="OnProposalAccept" />
+                                    <Button Content="やめる" FontSize="{DynamicResource FontSizeSmall}" Click="OnProposalReject" />
                                 </WrapPanel>
                                 <TextBlock Text="{Binding ProblemText}"
-                                           IsVisible="{Binding HasProblem}" FontSize="11" Margin="0,4,0,0"
+                                           IsVisible="{Binding HasProblem}" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
@@ -200,7 +231,7 @@
                                 </TextBlock>
                                 <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="0,2,0,0" />
                                 <TextBlock Text="{Binding Details}" TextWrapping="Wrap"
-                                           FontSize="11" Opacity="0.8" />
+                                           FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8" />
 
                                 <!-- 「今回だけ / 常に許可」の材料（§13-1）。安全な要約だけで、
                                      ツールの入力そのものは含まない（§10）。v1 は読むだけ。 -->
@@ -208,7 +239,7 @@
                                               IsVisible="{Binding HasSuggestions}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding}" FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding}" FontSize="{DynamicResource FontSizeSmall}" Opacity="0.7" TextWrapping="Wrap" />
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -230,7 +261,7 @@
 
                                 <!-- 返事が届かなかったことを、届いたことにしない。 -->
                                 <TextBlock Text="{Binding Error}" IsVisible="{Binding HasError}"
-                                           TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0"
+                                           TextWrapping="Wrap" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                            FontWeight="Bold" />
                             </StackPanel>
                         </Border>
@@ -238,6 +269,27 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
             </ScrollViewer>
+
+            <!-- **最初に何をすればよいかを出す**（設計 §28-2）。フォルダを選ぶまでは
+                 中央に説明を置く —— 空の3ペインだけだと、初見では何をするか分からない。 -->
+            <Border IsVisible="{Binding !HasWorkspace}" Margin="0,0,0,8" Padding="16"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                    BorderThickness="1" CornerRadius="4">
+                <StackPanel>
+                    <TextBlock Text="AI たちを部門として働かせるアプリです" FontWeight="Bold" FontSize="{DynamicResource FontSizeLarge}" />
+                    <TextBlock TextWrapping="Wrap" Margin="0,8,0,0" Opacity="0.85"
+                               Text="Claude Code / Codex CLI / Antigravity CLI を「部門」として扱います。あなたは秘書と会話し、秘書が仕事を各部門に渡します。" />
+                    <TextBlock Text="はじめかた" FontWeight="Bold" Margin="0,12,0,4" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.85"
+                               Text="1. 右上の「フォルダを選ぶ」で、AI たちに作業させるフォルダを選ぶ" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.85"
+                               Text="2. 左下に各 CLI の状態が出ます（見つからない / 未 trust なら、そこに対処が書いてあります）" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.85"
+                               Text="3. 下の入力欄から秘書に話しかける。部門は右のパネルから起動します" />
+                    <TextBlock TextWrapping="Wrap" Margin="0,12,0,0" FontSize="{DynamicResource FontSizeSmall}" Opacity="0.7"
+                               Text="※ 選んだフォルダの .company/ を通じて、アプリと部門がやりとりします。アプリを閉じると、起動した CLI もすべて終了します。" />
+                </StackPanel>
+            </Border>
 
             <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="4">
                 <!-- 会話は下に伸びるので、新しい発言が来たら最下部へ追う（§25-1）。 -->
@@ -272,11 +324,11 @@
                             <Grid ColumnDefinitions="Auto,*">
                                 <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
                                 <Grid Grid.Column="0" Width="40" Height="40" Margin="0,0,8,0">
-                                    <TextBlock Text="{Binding Glyph}" FontSize="24"
+                                    <TextBlock Text="{Binding Glyph}" FontSize="{DynamicResource FontSizeHuge}"
                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding BadgeGlyph}" FontSize="13"
+                                    <TextBlock Text="{Binding BadgeGlyph}" FontSize="{DynamicResource FontSizeNormal}"
                                                HorizontalAlignment="Right" VerticalAlignment="Top" />
-                                    <TextBlock Text="{Binding RuntimeGlyph}" FontSize="13"
+                                    <TextBlock Text="{Binding RuntimeGlyph}" FontSize="{DynamicResource FontSizeNormal}"
                                                HorizontalAlignment="Left" VerticalAlignment="Bottom" />
                                 </Grid>
                                 <StackPanel Grid.Column="1">
@@ -291,20 +343,20 @@
                                          代わりに **CLI が申告したモデル**を出す。観測できたときだけ ——
                                          こちらが渡した設定値は診断ビューへ（§27-3）。 -->
                                     <TextBlock Text="{Binding ModelText}" IsVisible="{Binding HasModel}"
-                                               FontSize="11" Opacity="0.8" />
+                                               FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8" />
                                     <!-- 3軸を潰さずに並べる（設計 §7）。 -->
-                                    <TextBlock FontSize="11" Opacity="0.8">
+                                    <TextBlock FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8">
                                         <Run Text="稼働 " /><Run Text="{Binding RuntimeText}" />
                                         <Run Text="  活動 " /><Run Text="{Binding ActivityText}" />
                                         <Run Text="  仕事 " /><Run Text="{Binding WorkText}" />
                                     </TextBlock>
                                     <!-- 状態だけを見せない。根拠を必ず添える（設計 §7）。 -->
-                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                    <TextBlock FontSize="{DynamicResource FontSizeSmall}" Opacity="0.6" TextWrapping="Wrap"
                                                Text="{Binding EvidenceText}" />
 
                                     <!-- 人間の出番があることを、絵文字だけに頼らず言葉でも出す
                                          （設計 §15-5: 色や記号だけで区別しない）。 -->
-                                    <TextBlock Text="◀ 選択中（直接送信の宛先）" FontSize="11"
+                                    <TextBlock Text="◀ 選択中（直接送信の宛先）" FontSize="{DynamicResource FontSizeSmall}"
                                                Margin="0,2,0,0" IsVisible="{Binding IsSelected}" />
 
                                     <!-- 文言が何をするか言っているボタン（設計 §15-6）。
@@ -318,14 +370,14 @@
                                          同じ列に並べると、用件のある部門を永久に起動できない。
                                          落ちているときは出さない —— §15-4 の「原因を見てから決める」。 -->
                                     <Button Content="起動する" IsVisible="{Binding CanStart}"
-                                            Click="OnDepartmentStart" FontSize="11" Margin="0,4,0,0"
+                                            Click="OnDepartmentStart" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
 
                                     <!-- 診断は**読むだけ**（設計 §22）。v1 はターミナルを持たない。
                                          用件のボタンとは別枠 —— 人間が自分の判断で覗くもの。 -->
                                     <Button Content="診断を見る" IsVisible="{Binding IsSelected}"
-                                            Click="OnShowDiagnostics" FontSize="11" Margin="0,4,0,0"
+                                            Click="OnShowDiagnostics" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
 
@@ -333,15 +385,16 @@
                                          **「報告を読む」ボタンには畳まない** —— 読む前に
                                          受理か差し戻しかは決まらない。 -->
                                     <Button Content="受理する" IsVisible="{Binding CanJudgeReport}"
-                                            Click="OnAcceptReport" FontSize="11" Margin="0,4,0,0"
+                                            Click="OnAcceptReport" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
                                     <TextBox Text="{Binding RejectionDraft, Mode=TwoWay}"
                                              IsVisible="{Binding CanJudgeReport}"
-                                             PlaceholderText="差し戻す理由（次の指示に入る）" FontSize="11"
+                                             KeyDown="OnRejectionKeyDown"
+                                             PlaceholderText="差し戻す理由（Enter で差し戻す）" FontSize="{DynamicResource FontSizeSmall}"
                                              AcceptsReturn="False" Margin="0,4,0,0" />
                                     <Button Content="差し戻して送り直す" IsVisible="{Binding CanJudgeReport}"
-                                            Click="OnRejectReport" FontSize="11" Margin="0,4,0,0"
+                                            Click="OnRejectReport" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
 
@@ -350,10 +403,11 @@
                                     <!-- 部門への指示は**中央の入力欄と別**（設計 §17-4）。
                                          秘書が outbox に publish する経路が入るまでの暫定。 -->
                                     <TextBox Text="{Binding TaskDraft, Mode=TwoWay}" IsVisible="{Binding IsSelected}"
-                                             PlaceholderText="この部門への指示" FontSize="11"
+                                             KeyDown="OnTaskDraftKeyDown"
+                                             PlaceholderText="この部門への指示（Enter で仕事にする）" FontSize="{DynamicResource FontSizeSmall}"
                                              AcceptsReturn="False" Margin="0,4,0,0" />
                                     <Button Content="この部門に仕事を作る" IsVisible="{Binding IsSelected}"
-                                            Click="OnMakeTask" FontSize="11" Margin="0,4,0,0"
+                                            Click="OnMakeTask" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />
                                 </StackPanel>
