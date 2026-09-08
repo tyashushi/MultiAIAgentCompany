@@ -162,12 +162,19 @@ public sealed class CompanyScanner
         var reportPublished = File.Exists(_paths.Report(state.Slug));
 
         // report.md と question.md が共存したら報告を優先する。報告は仕事の終わりである。
+        // **この規則は状態によって変わらない**（2026-09-09 に直した）。
+        // 以前は下の `Dispatched or InProgress` の中にだけ書いてあったので、
+        // **一度 AwaitingAnswer になった仕事には適用されなかった** ——
+        // 質問を出したあと自分で進めて報告した部門が、永久に「質問に答える」のまま残り、
+        // 人間の書いた answer.md が**もう終わっている部門へ届いていた**。
+        if (reportPublished
+            && state.Status is TaskStatus.Dispatched or TaskStatus.InProgress or TaskStatus.AwaitingAnswer)
+        {
+            return (TaskStatus.Reported, "report.md が publish された");
+        }
+
         if (state.Status is TaskStatus.Dispatched or TaskStatus.InProgress)
         {
-            if (reportPublished)
-            {
-                return (TaskStatus.Reported, "report.md が publish された");
-            }
 
             // **`answer.md` の存在を番人にしない**（設計 §20-1）。
             // publish は同じ最終名への rename なので、2度目の質問は1度目を上書きする ——

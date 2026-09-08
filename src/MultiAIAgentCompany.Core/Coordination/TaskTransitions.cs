@@ -27,7 +27,13 @@ public static class TaskTransitions
         [TaskStatus.Dispatched] =
             [TaskStatus.InProgress, TaskStatus.AwaitingAnswer, TaskStatus.Reported, TaskStatus.Failed, TaskStatus.Cancelled],
         [TaskStatus.InProgress] = [TaskStatus.AwaitingAnswer, TaskStatus.Reported, TaskStatus.Failed, TaskStatus.Cancelled],
-        [TaskStatus.AwaitingAnswer] = [TaskStatus.InProgress, TaskStatus.Cancelled],
+        // **AwaitingAnswer からも報告へ行ける。** 質問を出した部門が、答えを待たずに
+        // 自分で進めて report.md を publish することはふつうにある（実機で踏む前に、
+        // 走査を読み直して見つけた。2026-09-09）。ここが閉じていると、
+        // **報告が出ているのに永久に「質問に答える」と出続け**、
+        // 人間が書いた answer.md は**もう終わっている部門へ届く**。
+        // 「報告は仕事の終わり」は §16-1 の規則で、状態によって変わらない。
+        [TaskStatus.AwaitingAnswer] = [TaskStatus.InProgress, TaskStatus.Reported, TaskStatus.Cancelled],
         [TaskStatus.Reported] = [TaskStatus.Accepted, TaskStatus.Rejected],
         [TaskStatus.Rejected] = [TaskStatus.Dispatched, TaskStatus.Cancelled],
         [TaskStatus.Accepted] = [],

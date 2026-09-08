@@ -216,6 +216,15 @@ public sealed class TaskDispatcher
             return new DispatchResult.Rejected("回答を待っている仕事だけに届けられる");
         }
 
+        // **もう報告が出ているなら届けない**（2026-09-09 に直した）。
+        // 走査が `AwaitingAnswer → Reported` を書くまでには隙間があり、
+        // その間にここを通ると、**終わっている部門へ回答を送る**ことになる。
+        // 証拠の順は §7 のまま —— `report.md`（Document）が質問より新しい事実である。
+        if (File.Exists(_paths.Report(expected.Slug)))
+        {
+            return new DispatchResult.Rejected("report.md が publish されている（もう回答を待っていない）");
+        }
+
         if (session is null)
         {
             return new DispatchResult.Rejected("部門が動いていないので届けられない（先に起動する）");

@@ -169,6 +169,20 @@ public sealed class TaskDispatcherTests : IDisposable
     }
 
     [Fact]
+    public async Task もう報告が出ている仕事へは回答を届けない()
+    {
+        // 走査が AwaitingAnswer → Reported を書くまでには隙間がある。
+        // その間にここを通ると、**終わっている部門へ回答を送る**ことになる。
+        var awaiting = await CreateAwaitingAnswerAsync("最初の質問");
+        await File.WriteAllTextAsync(_workspace.Paths.Report("feature"), "自分で決めて進めました");
+
+        var rejected = Assert.IsType<DispatchResult.Rejected>(await _dispatcher.DeliverAnswerAsync(
+            awaiting, StructuredDepartment, new FakeSession("implementation"), CancellationToken.None));
+
+        Assert.Contains("report.md", rejected.Reason);
+    }
+
+    [Fact]
     public async Task 回答を届けたら何に答えたかを記録する()
     {
         var awaiting = await CreateAwaitingAnswerAsync("最初の質問");

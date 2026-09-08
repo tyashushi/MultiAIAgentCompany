@@ -41,6 +41,35 @@ public sealed class CompanyScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task AwaitingAnswerでもreportが出たらReportedにする()
+    {
+        // **報告は仕事の終わりで、その規則は状態によって変わらない**（§16-1）。
+        // 以前は `Dispatched or InProgress` の中にだけ書いてあったので、
+        // 質問を出したあと自分で進めて報告した部門が、**永久に「質問に答える」のまま**残った。
+        await CreateAtAsync("selfresolved", CoreTaskStatus.AwaitingAnswer);
+        await File.WriteAllTextAsync(_workspace.Paths.Question("selfresolved"), "判断してください");
+        await File.WriteAllTextAsync(_workspace.Paths.Report("selfresolved"), "自分で決めて進めました");
+
+        var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
+
+        Assert.Equal(CoreTaskStatus.Reported, await StatusAsync("selfresolved"));
+        Assert.Equal("report.md が publish された", Assert.Single(result.Applied).Because);
+    }
+
+    [Fact]
+    public async Task AwaitingAnswerでreportが無ければ動かさない()
+    {
+        // 上の修正で AwaitingAnswer を素通しにしていないこと。
+        await CreateAtAsync("waiting", CoreTaskStatus.AwaitingAnswer);
+        await File.WriteAllTextAsync(_workspace.Paths.Question("waiting"), "判断してください");
+
+        var result = await _scanner.SyncAsync(CompanyScanKind.Startup, CancellationToken.None);
+
+        Assert.Empty(result.Applied);
+        Assert.Equal(CoreTaskStatus.AwaitingAnswer, await StatusAsync("waiting"));
+    }
+
+    [Fact]
     public async Task 走査はanswerでは状態を進めない()
     {
         // 進めるのは部門へ届いたあと（§16-5）。ここで InProgress を書くと、
