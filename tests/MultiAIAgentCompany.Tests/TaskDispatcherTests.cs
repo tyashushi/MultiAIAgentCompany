@@ -343,6 +343,47 @@ public sealed class TaskDispatcherTests : IDisposable
         new("implementation", "設計レビュー", "設計を読む", AgentKind.CodexCli, DriveMode.Structured,
             Model: null, ReadsOnly: true);
 
+    [Fact]
+    public async Task 外部ターミナルの部門には送らず窓を開く要求を返す()
+    {
+        // **Core はプロセスを起こさない**（§9 でアプリが全部門の親）。
+        // 状態は書いたうえで、「何を開くべきか」だけを返す（設計 §32）。
+        var draft = await CreateDraftAsync();
+
+        var result = Assert.IsType<DispatchResult.LaunchTerminal>(
+            await DispatchAsync(draft, TerminalDepartment, session: null));
+
+        Assert.Equal(CoreTaskStatus.Dispatched, result.State.Status);
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    [Fact]
+    public async Task 窓を開く要求に指示書の本文を入れない()
+    {
+        // **§32-2f の実測。** argv は ps に出るので、指示に秘密が入り得る以上そこへ流さない。
+        var draft = await CreateDraftAsync();
+        await File.WriteAllTextAsync(
+            _workspace.Paths.Instruction("feature"), "ここに秘密が書いてあるかもしれない");
+
+        var result = Assert.IsType<DispatchResult.LaunchTerminal>(
+            await DispatchAsync(draft, TerminalDepartment, session: null));
+
+        Assert.All(
+            result.Request.Arguments,
+            argument => Assert.DoesNotContain("秘密", argument));
+        Assert.Contains(result.Request.Arguments, a => a.Contains("instruction.md"));
+    }
+
+    [Fact]
+    public async Task 外部ターミナルの部門はセッションが無くても弾かれない()
+    {
+        // Structured は session が要る（送る先が無い）が、こちらは窓を開くので要らない。
+        var draft = await CreateDraftAsync();
+
+        Assert.IsNotType<DispatchResult.Rejected>(
+            await DispatchAsync(draft, TerminalDepartment, session: null));
+    }
+
     private async Task<TaskState> CreateDraftAsync()
     {
         var state = Assert.IsType<TaskWriteResult.Written>(await _tasks.CreateAsync("feature", "implementation", CancellationToken.None)).State;
@@ -355,6 +396,9 @@ public sealed class TaskDispatcherTests : IDisposable
 
     private Task<DispatchResult> DispatchAsync(TaskState expected, DepartmentDefinition department, IStructuredSession? session) =>
         _dispatcher.DispatchAsync(expected, department, session, TimeSpan.FromMinutes(10), CancellationToken.None);
+
+    private static readonly DepartmentDefinition TerminalDepartment =
+        new("implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.ExternalTerminal);
 
     private static readonly DepartmentDefinition StructuredDepartment =
         new("implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.Structured);

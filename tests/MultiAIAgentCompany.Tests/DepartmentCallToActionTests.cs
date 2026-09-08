@@ -85,7 +85,8 @@ public sealed class DepartmentCallToActionTests
 
     private static DepartmentCallToAction Of(
         RuntimeState runtime, ActivityState activity, CoreTaskStatus? work,
-        bool dispatchedAcrossRestart = false, bool running = false, bool reportNotObservedByDeadline = false)
+        bool dispatchedAcrossRestart = false, bool running = false, bool reportNotObservedByDeadline = false,
+        bool externalTerminal = false)
     {
         var evidence = new Evidence(EvidenceSource.StructuredEvent, DateTimeOffset.UnixEpoch, null, null,
             new AgentRef("実装", AgentKind.CodexCli), null, null, "test");
@@ -94,7 +95,8 @@ public sealed class DepartmentCallToActionTests
             new Observed<ActivityState>(activity, evidence),
             work is null ? null : new Observed<CoreTaskStatus>(work.Value, evidence));
 
-        return DepartmentCallToAction.From(status, dispatchedAcrossRestart, running, reportNotObservedByDeadline);
+        return DepartmentCallToAction.From(
+            status, dispatchedAcrossRestart, running, reportNotObservedByDeadline, externalTerminal);
     }
     [Fact]
     public void 相談は活動からでも仕事からでも同じ用件になる()
@@ -271,4 +273,31 @@ public sealed class DepartmentCallToActionTests
     }
 
 
+
+    [Fact]
+    public void 外部ターミナルの部門には起動を出さない()
+    {
+        // **窓は仕事を渡したときに開く**（設計 §32）。起動しても渡す手段が無いので、
+        // 押しても何も起きないボタンを置かない（§15-6）。
+        var call = Of(RuntimeState.Running, ActivityState.Unknown, work: null, externalTerminal: true);
+
+        Assert.Equal(DepartmentLifecycle.None, call.Lifecycle);
+    }
+
+    [Fact]
+    public void 外部ターミナルの部門は開いている間だけ前面に出せる()
+    {
+        var call = Of(RuntimeState.Running, ActivityState.Unknown, work: null,
+            running: true, externalTerminal: true);
+
+        Assert.Equal(DepartmentLifecycle.Focus, call.Lifecycle);
+    }
+
+    [Fact]
+    public void 構造化の部門はこれまでどおり起動を出す()
+    {
+        var call = Of(RuntimeState.Running, ActivityState.Unknown, work: null);
+
+        Assert.Equal(DepartmentLifecycle.Start, call.Lifecycle);
+    }
 }
