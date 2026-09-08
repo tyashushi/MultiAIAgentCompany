@@ -412,7 +412,13 @@ public partial class MainWindow : Window
         // **前のフォルダの失敗で、いまのフォルダの仕事を落とさない**（レビューで発覚、§26-1）。
         // 切り替えは「選ぶ」が先で「前の部門を止める」が後（§26-2b）なので、
         // ここには前のフォルダの turn 失敗が遅れて届く。
-        if (!string.Equals(workspace.Root, workspaceRoot, StringComparison.Ordinal))
+        // **綴りではなく鍵で比べる**（レビューで発覚）。`/tmp` と `/private/tmp`、symlink、
+        // Windows の大小 —— 切り替えの判定は `KeyOf` を使っている（§26-1）ので、
+        // ここだけ生の文字列で比べると、**同じフォルダを開き直しただけで失敗が捨てられる。**
+        if (!string.Equals(
+                WorkspaceInstanceLock.KeyOf(workspace.Root),
+                WorkspaceInstanceLock.KeyOf(workspaceRoot),
+                StringComparison.Ordinal))
         {
             Note($"前のフォルダの失敗が届いた（{because}）。**いまのフォルダの仕事は動かさない**");
             return;
@@ -1904,7 +1910,9 @@ public partial class MainWindow : Window
             // **差し替えが済むまで、前のフォルダのものを壊さない**（レビューで発覚、§26-2）。
             // 先に秘書と部門を止めると、選んだ先が開けなかったときに
             // **前のフォルダに居るのに、その秘書と部門だけ死んでいる**状態になる。
-            await _composer.SelectWorkspaceAsync(path, CancellationToken.None);
+            // **部門の顔ぶれが変わったなら、同じフォルダでも止める**（レビューで発覚）。
+            // 作り直したタイルは新しい検出器を持つので、動いているセッションは繋がらない。
+            changed |= await _composer.SelectWorkspaceAsync(path, CancellationToken.None);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

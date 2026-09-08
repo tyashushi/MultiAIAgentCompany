@@ -247,9 +247,18 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// 混ざらないし、観測を捨てる理由も無い（§7）。止めるのは画面と調整基盤へ出る側だけ。
     /// </para>
     /// </remarks>
+    /// <remarks>
+    /// <b>綴りではなく鍵で比べる</b>（レビューで発覚、2026-09-08）。`/tmp` と `/private/tmp`、
+    /// symlink、Windows の大小 —— 切り替えの判定は <c>KeyOf</c> を使っている（§26-1）ので、
+    /// ここだけ生の文字列で比べると、<b>同じフォルダを開き直しただけで、
+    /// 生き残ったセッションの観測・承認・失敗が全部捨てられる。</b>
+    /// </remarks>
     private bool StillOurs(WorkspaceRef workspace) =>
         composer.Workspace is { } current
-        && string.Equals(current.Root, workspace.Root, StringComparison.Ordinal);
+        && string.Equals(
+            WorkspaceInstanceLock.KeyOf(current.Root),
+            WorkspaceInstanceLock.KeyOf(workspace.Root),
+            StringComparison.Ordinal);
 
     /// <summary>
     /// CLI が申告したモデルをタイルへ渡す（設計 §27）。

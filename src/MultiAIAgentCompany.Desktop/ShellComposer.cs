@@ -110,7 +110,7 @@ public sealed class ShellComposer
     /// protocol の正本（§17-6）は <see cref="WriteSecretaryProtocolAsync"/> で、
     /// 秘書を起動する直前に置く。
     /// </summary>
-    public async Task SelectWorkspaceAsync(string root, CancellationToken ct)
+    public async Task<bool> SelectWorkspaceAsync(string root, CancellationToken ct)
     {
         var workspace = new WorkspaceRef(root);
         var rows = await WorkspaceTrustReport.BuildAsync(workspace,
@@ -125,7 +125,16 @@ public sealed class ShellComposer
 
         Workspace = workspace;
         var paths = workspace.Company;
-        Rebuild(departments);
+
+        // **同じ顔ぶれなら作り直さない**（レビューで発覚、2026-09-08）。
+        // 同じフォルダを開き直したときも通るので、無条件に作り直すと
+        // **動いているセッションが古い検出器に繋がったまま、画面のタイルだけが新品になる** ——
+        // 稼働も承認も届かないのに「起動できる」ように見える。
+        var rebuilt = !_definitions.Values.SequenceEqual(departments);
+        if (rebuilt)
+        {
+            Rebuild(departments);
+        }
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
@@ -143,6 +152,10 @@ public sealed class ShellComposer
             // 無いものに trust を与えろと言っても始まらない。
             Shell.Trust.Add(new TrustRow(row.Agent, row.State, AgentExecutable.Find(row.Agent)));
         }
+
+        // **部門の顔ぶれが変わったことを、呼び出し元に伝える。**
+        // 変わったなら動いているセッションを止める必要がある（古い検出器に繋がっているので）。
+        return rebuilt;
     }
 
     /// <summary>
