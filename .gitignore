@@ -7,3 +7,4 @@ obj/
 # アプリを自分のリポジトリで試すと .company/ ができる。これは対象ワークスペースの調整基盤で、
 # このリポジトリの成果物ではない。
 .company/
+spikes/probes/external-terminal/work/report.md
