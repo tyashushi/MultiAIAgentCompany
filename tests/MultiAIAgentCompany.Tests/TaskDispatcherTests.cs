@@ -429,4 +429,68 @@ public sealed class TaskDispatcherTests : IDisposable
         Assert.True(leases.Leases.CanAcquire(LeaseKind.Write, _clock.GetUtcNow()));
     }
 
+    [Fact]
+    public async Task 部門のturnが失敗したら抱えている仕事をFailedにする()
+    {
+        // **`Failed` はこれまで到達できなかった**（設計 §30-2）。走査はファイルしか見ないので、
+        // 権限拒否のように文書へ現れない失敗は、この経路でしか状態に書けない。
+        var expected = await CreateDraftAsync();
+        await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation"));
+
+        var failed = await _dispatcher.FailInFlightAsync(
+            "implementation", "承認されずに握りつぶされた操作がある: read_file", CancellationToken.None);
+
+        var one = Assert.Single(failed);
+        Assert.Equal("feature", one.Slug);
+        Assert.Equal(CoreTaskStatus.Failed, one.Status);
+        Assert.Equal(CoreTaskStatus.Failed, (await ReadStateAsync()).Status);
+        Assert.Contains("read_file", (await ReadStateAsync()).Note);
+    }
+
+    [Fact]
+    public async Task 報告が出ているなら_turnが失敗してもFailedにしない()
+    {
+        // **証拠の順を変えない**（設計 §7 / §30-3）。`Document > StructuredEvent` なので、
+        // report.md があるなら走査が Reported にする。
+        var expected = await CreateDraftAsync();
+        await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation"));
+        await File.WriteAllTextAsync(_workspace.Paths.Report("feature"), "できました");
+
+        Assert.Empty(await _dispatcher.FailInFlightAsync("implementation", "層3が失敗した", CancellationToken.None));
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    [Fact]
+    public async Task 未回答の質問があるなら_turnが失敗してもFailedにしない()
+    {
+        // **それは人間の番**であって、仕事の失敗ではない（設計 §30-3）。
+        var expected = await CreateDraftAsync();
+        await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation"));
+        await File.WriteAllTextAsync(_workspace.Paths.Question("feature"), "どちらにしますか");
+
+        Assert.Empty(await _dispatcher.FailInFlightAsync("implementation", "層3が失敗した", CancellationToken.None));
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    [Fact]
+    public async Task 別部門の仕事はFailedにしない()
+    {
+        var expected = await CreateDraftAsync();
+        await DispatchAsync(expected, StructuredDepartment, new FakeSession("implementation"));
+
+        Assert.Empty(await _dispatcher.FailInFlightAsync("research", "層3が失敗した", CancellationToken.None));
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    [Fact]
+    public async Task 終わった仕事はturnの失敗で蒸し返さない()
+    {
+        // Accepted や Cancelled まで行った仕事を、あとから来た turn の失敗で動かさない。
+        var created = Assert.IsType<TaskWriteResult.Written>(
+            await _tasks.CreateAsync("feature", "implementation", CancellationToken.None));
+        await _tasks.TransitionAsync(created.State, CoreTaskStatus.Cancelled, TransitionOrigin.Human, null, CancellationToken.None);
+
+        Assert.Empty(await _dispatcher.FailInFlightAsync("implementation", "層3が失敗した", CancellationToken.None));
+        Assert.Equal(CoreTaskStatus.Cancelled, (await ReadStateAsync()).Status);
+    }
 }

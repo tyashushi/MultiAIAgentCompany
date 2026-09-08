@@ -262,6 +262,31 @@ public sealed class AntigravityTests
         Assert.Equal(1, started);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task 危険モードのときだけ全自動承認の引数を足す(bool approveAllTools)
+    {
+        // headless の agy はツール権限を人間に聞けず全部自動拒否する（設計 §30-1、実測）。
+        // **既定では足さない** —— 読むだけの部門に全ツール自動承認を渡すのは逆向き（§30-4）。
+        IReadOnlyList<string> passed = [];
+        var adapter = new AntigravityAdapter((_, args, _, _) =>
+        {
+            passed = args;
+            return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));
+        });
+
+        await using var session = await adapter.StartAsync(
+            new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
+            "調査", DriveMode.Structured, CancellationToken.None, approveAllTools);
+
+        Assert.Equal(approveAllTools, passed.Contains("--dangerously-skip-permissions"));
+
+        // 既存の引数を壊していないこと。
+        Assert.Contains("--input-format", passed);
+        Assert.Contains("stream-json", passed);
+    }
+
     [Fact]
     public async Task 知らない駆動モードは明示的に断る()
     {

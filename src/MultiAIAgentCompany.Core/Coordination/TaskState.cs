@@ -81,7 +81,24 @@ public sealed record TaskState(
     TransitionOrigin LastTransitionOrigin,
     DateTimeOffset UpdatedAt,
     string? Note = null,
-    AnswerDelivery? AnswerDelivery = null);
+    AnswerDelivery? AnswerDelivery = null)
+{
+    /// <summary>
+    /// いまの <c>question.md</c> に対して、回答を届けてあるか（設計 §20-1 / §20-3）。
+    /// </summary>
+    /// <remarks>
+    /// <b>試行も一致していること</b> —— 差し戻したあと部門が同じ内容の質問を出したら、
+    /// それは新しい質問である。
+    /// <para>
+    /// 走査（§16-1）と、失敗の書き込み（§30-3）の<b>両方が同じ判定を使う。</b>
+    /// 別々に書くと、片方だけが「まだ人間の番」を見落とす。
+    /// </para>
+    /// </remarks>
+    public bool IsAnsweredBy(string questionSha256) =>
+        AnswerDelivery is { } delivery
+        && delivery.AttemptId == AttemptId
+        && string.Equals(delivery.QuestionSha256, questionSha256, StringComparison.Ordinal);
+}
 
 /// <summary>
 /// 回答を届けた記録（設計 §20）。

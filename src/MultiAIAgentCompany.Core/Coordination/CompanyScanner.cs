@@ -174,7 +174,7 @@ public sealed class CompanyScanner
             // 「両方ある」だけを見ていると、新しい質問が永久に人間へ出ない。
             // 見るのは「いまの question.md に対して回答を届けたか」。
             if (await CompanyDigest.OfFileAsync(_paths.Question(state.Slug), ct) is { } questionDigest
-                && !IsAnsweredBy(state, questionDigest))
+                && !state.IsAnsweredBy(questionDigest))
             {
                 return (TaskStatus.AwaitingAnswer, "question.md が publish された");
             }
@@ -209,17 +209,6 @@ public sealed class CompanyScanner
         }
     }
 
-    /// <summary>
-    /// いまの <c>question.md</c> に対して回答を届けてあるか（設計 §20-1）。
-    /// </summary>
-    /// <remarks>
-    /// <b>試行も一致していること</b>（§20-3）—— 差し戻したあと部門が同じ内容の質問を
-    /// 出したら、それは新しい質問である。
-    /// </remarks>
-    private static bool IsAnsweredBy(TaskState state, string questionDigest) =>
-        state.AnswerDelivery is { } delivery
-        && delivery.AttemptId == state.AttemptId
-        && string.Equals(delivery.QuestionSha256, questionDigest, StringComparison.Ordinal);
 }
 
 /// <param name="Applied">実際に書かれた遷移。</param>

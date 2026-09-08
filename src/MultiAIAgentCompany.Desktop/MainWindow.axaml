@@ -344,6 +344,11 @@
                                          こちらが渡した設定値は診断ビューへ（§27-3）。 -->
                                     <TextBlock Text="{Binding ModelText}" IsVisible="{Binding HasModel}"
                                                FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8" />
+                                    <!-- **黙って強い権限で動いている部門を作らない**（設計 §30-4）。
+                                         色や記号だけに頼らず言葉で出す（§15-5）。 -->
+                                    <TextBlock Text="⚠ ツール権限を全部自動承認して動いている"
+                                               FontSize="{DynamicResource FontSizeSmall}" TextWrapping="Wrap"
+                                               IsVisible="{Binding RunsWithAllToolsApproved}" />
                                     <!-- 3軸を潰さずに並べる（設計 §7）。 -->
                                     <TextBlock FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8">
                                         <Run Text="稼働 " /><Run Text="{Binding RuntimeText}" />

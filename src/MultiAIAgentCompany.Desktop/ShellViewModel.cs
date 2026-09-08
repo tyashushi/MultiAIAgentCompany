@@ -109,7 +109,11 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public required ObservableCollection<string> SecretaryTranscript { get; init; }
 
     /// <summary>右ペイン: 部門ステータス。</summary>
-    public required IReadOnlyList<DepartmentTile> Departments { get; init; }
+    /// <summary>
+    /// 部門タイル。<b>ワークスペースごとに入れ替わる</b>（設計 §15-8 / §30-4）——
+    /// <c>departments.json</c> は人間が編集できるので、フォルダを開くたびに作り直す。
+    /// </summary>
+    public required ObservableCollection<DepartmentTile> Departments { get; init; }
 
     /// <summary>
     /// (a) ランタイム承認の待ち行列（設計 §3 / §5）。
@@ -153,6 +157,17 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     public AgentKind Agent { get; }
 
     public DriveMode Mode { get; }
+
+    /// <summary>
+    /// この部門が<b>ツール権限を全部自動承認して動く</b>か（設計 §30-4）。
+    /// </summary>
+    /// <remarks>
+    /// <b>黙って強い権限で動いている部門を作らない</b>（§7）。宣言そのものではなく、
+    /// <see cref="DepartmentDefinition.RunsWithAllToolsApproved"/>（実際に適用されるか）を映す ——
+    /// 承認の往復を持つ CLI では宣言があっても適用されないので、
+    /// そこで警告を出すと「安全なのに危険と表示する」になる。
+    /// </remarks>
+    public bool RunsWithAllToolsApproved { get; init; }
 
     /// <summary>
     /// CLI が申告したモデル（設計 §27）。<b>観測できたときだけ入る。</b>

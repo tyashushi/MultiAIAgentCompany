@@ -24,24 +24,52 @@ public sealed class ShellComposer
     public ShellComposer(IReadOnlyList<DepartmentDefinition> departments, TimeProvider clock)
     {
         _clock = clock;
-        var tiles = new List<DepartmentTile>();
-        foreach (var department in departments)
-        {
-            var tracker = new DepartmentStatusTracker(
-                new AgentRef(department.Id, department.Agent), clock, EvidenceMaxAge);
-            _trackers[department.Id] = tracker;
-            _definitions[department.Id] = department;
-            tiles.Add(new DepartmentTile(department.Id, department.DisplayName, department.Agent, department.Mode, tracker));
-        }
-
         Approvals = new ApprovalQueue();
         Shell = new ShellViewModel
         {
             Approvals = Approvals,
             WorkLog = ["まだ何も動かしていない"],
             SecretaryTranscript = ["秘書はまだ起動していない"],
-            Departments = tiles,
+            Departments = [],
         };
+
+        Rebuild(departments);
+    }
+
+    /// <summary>
+    /// 部門の一式を作り直す（設計 §15-8 / §30-4）。
+    /// </summary>
+    /// <remarks>
+    /// <b>部門はワークスペースごとに違う。</b> <c>.company/departments.json</c> は
+    /// 人間が編集できる（§15-8）ので、フォルダを開くたびに読み直す。
+    /// <para>
+    /// <b>前のフォルダの部門は、まだ動いている。</b> 切り替えは「選ぶ」が先で
+    /// 「前の部門を止める」が後（§26-2b）—— 開けなかったときに前のフォルダの秘書と部門だけ
+    /// 死んでいる状態を作らないため。だから作り直したタイルへ、前のフォルダのイベントが
+    /// 届き得る。塞いでいるのは <c>DepartmentRunner.StillOurs</c> の側。
+    /// <b>ここで <see cref="Workspace"/> を先に差し替えてあることが、その判定の前提になる。</b>
+    /// </para>
+    /// </remarks>
+    private void Rebuild(IReadOnlyList<DepartmentDefinition> departments)
+    {
+        _trackers.Clear();
+        _definitions.Clear();
+        Shell.Departments.Clear();
+
+        foreach (var department in departments)
+        {
+            var tracker = new DepartmentStatusTracker(
+                new AgentRef(department.Id, department.Agent), _clock, EvidenceMaxAge);
+            _trackers[department.Id] = tracker;
+            _definitions[department.Id] = department;
+            Shell.Departments.Add(new DepartmentTile(
+                department.Id, department.DisplayName, department.Agent, department.Mode, tracker)
+            {
+                // **適用されるかどうかを映す**（設計 §30-4）。宣言をそのまま映すと、
+                // 往復を持つ CLI で「安全なのに危険と表示する」になる。
+                RunsWithAllToolsApproved = department.RunsWithAllToolsApproved,
+            });
+        }
     }
 
     public ShellViewModel Shell { get; }
@@ -89,8 +117,15 @@ public sealed class ShellComposer
             [new ClaudeCodeTrustProbe(), new CodexCliTrustProbe(), new AntigravityTrustProbe()],
             ct);
 
+        // **部門はワークスペースごとに違う**（設計 §15-8）。ここまで読んでいなかったので、
+        // `departments.json` を編集しても効かなかった（レビューで発覚、2026-09-08）。
+        // **読めなかったら開かない** —— 既定に落とすと、人間が書いた設定を
+        // 黙って無視したまま動く（§7）。
+        var departments = await ReadDepartmentsAsync(workspace, ct);
+
         Workspace = workspace;
         var paths = workspace.Company;
+        Rebuild(departments);
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
@@ -107,6 +142,40 @@ public sealed class ShellComposer
             // **CLI があるかどうかも、ここで一緒に見る**（設計 §28-1）。
             // 無いものに trust を与えろと言っても始まらない。
             Shell.Trust.Add(new TrustRow(row.Agent, row.State, AgentExecutable.Find(row.Agent)));
+        }
+    }
+
+    /// <summary>
+    /// そのワークスペースの部門定義を読む。無ければ既定を書き下ろす（設計 §15-8）。
+    /// </summary>
+    /// <remarks>
+    /// <b>読めなかったら例外にする。</b> 既定へ落とすと、人間が書いた設定を無視したまま
+    /// 動き続ける —— 特に危険モード（§30-4）が「設定したのに効かない」形になる。
+    /// 呼び出し元は開くのをやめて、理由を人間に出すこと（§21-1 の「開かずに聞く」）。
+    /// </remarks>
+    private async Task<IReadOnlyList<DepartmentDefinition>> ReadDepartmentsAsync(
+        WorkspaceRef workspace, CancellationToken ct)
+    {
+        var store = new DepartmentStore(workspace.Company);
+        switch (await store.ReadAsync(ct))
+        {
+            case DefinitionReadResult.Found found:
+                return found.Definition.Departments;
+
+            case DefinitionReadResult.Unreadable broken:
+                throw new InvalidOperationException($"departments.json を読めません: {broken.Reason}");
+
+            default:
+                // **初回は書き下ろす。** 人間が編集する場所なので、
+                // 「どこを編集すればよいか」がファイルとして在ることに意味がある（§15-8）。
+                var defaults = DepartmentStore.CreateDefaultDepartments();
+                if (await store.SaveAsync(new CompanyDefinition(0, []), defaults, ct)
+                    is DefinitionWriteResult.Rejected rejected)
+                {
+                    throw new InvalidOperationException($"departments.json を作れません: {rejected.Reason}");
+                }
+
+                return defaults;
         }
     }
 

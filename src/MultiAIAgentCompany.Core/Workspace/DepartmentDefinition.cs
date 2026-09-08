@@ -24,9 +24,33 @@ namespace MultiAIAgentCompany.Core.Workspace;
 /// だから<b>安全側の既定は false</b>（＝ lease を取る）。
 /// </para>
 /// </remarks>
+/// <param name="AutoApproveAllTools">
+/// この部門の CLI に<b>ツール権限を全部自動承認させる</b>か（設計 §30-4）。<b>既定は false。</b>
+/// </param>
 public sealed record DepartmentDefinition(
     string Id, string DisplayName, string Responsibility, AgentKind Agent, DriveMode Mode,
-    string? Model = null, bool ReadsOnly = false);
+    string? Model = null, bool ReadsOnly = false, bool AutoApproveAllTools = false)
+{
+    /// <summary>
+    /// 危険モードを<b>この部門で意味のあるものとして扱ってよいか</b>（設計 §30-4）。
+    /// </summary>
+    /// <remarks>
+    /// <b>承認の往復を持つ CLI には出さない。</b> Claude Code には <c>can_use_tool</c> が
+    /// あるので、そちらで人間に聞く（§3）。この抜け道が要るのは
+    /// <b>人間に聞く手段が無い CLI だけ</b> —— 聞けるのに聞かない、を作らない。
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool DangerousModeApplies => !AgentCapabilities.For(Agent).SupportsRuntimeApprovalRoundTrip;
+
+    /// <summary>実際に全自動承認で起動するか。<b>宣言と適用を分ける</b>（設計 §30-4）。</summary>
+    /// <remarks>
+    /// <b>ファイルへ書かない</b>（実機で発覚、2026-09-08）。計算値なので読み戻されない ——
+    /// 人間が <c>departments.json</c> でこちらを true にすると、
+    /// <b>設定したのに黙って無視される</b>。人間が触る鍵は <see cref="AutoApproveAllTools"/> だけ。
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool RunsWithAllToolsApproved => AutoApproveAllTools && DangerousModeApplies;
+}
 
 /// <remarks>
 /// <b>record の等値比較は <see cref="Departments"/> を要素で見ない</b>

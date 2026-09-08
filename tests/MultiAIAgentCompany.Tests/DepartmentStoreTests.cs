@@ -160,4 +160,66 @@ public sealed class DepartmentStoreTests : IDisposable
             text => Assert.Contains("report.md", text, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void 危険モードは承認の往復を持たないCLIにだけ適用される()
+    {
+        // **聞ける相手には聞く**（設計 §3 / §30-4）。Claude Code と Codex CLI は
+        // can_use_tool の往復を持つので、危険モードはそちらでは意味を持たない。
+        var claude = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.Structured,
+            AutoApproveAllTools: true);
+        var codex = new DepartmentDefinition(
+            "implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.Structured,
+            AutoApproveAllTools: true);
+        var antigravity = new DepartmentDefinition(
+            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured,
+            AutoApproveAllTools: true);
+
+        // **宣言は残る**（人間が書いたものを消さない）が、**適用されない**。
+        Assert.True(claude.AutoApproveAllTools);
+        Assert.False(claude.RunsWithAllToolsApproved);
+        Assert.False(codex.RunsWithAllToolsApproved);
+        Assert.True(antigravity.RunsWithAllToolsApproved);
+    }
+
+    [Fact]
+    public void 危険モードの既定はオフ()
+    {
+        var antigravity = new DepartmentDefinition(
+            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured);
+
+        Assert.False(antigravity.AutoApproveAllTools);
+        Assert.False(antigravity.RunsWithAllToolsApproved);
+
+        // 既定部門にも仕込まない（設計 §30-4）。
+        Assert.All(DepartmentStore.CreateDefaultDepartments(), d => Assert.False(d.AutoApproveAllTools));
+    }
+
+    [Fact]
+    public async Task 危険モードはdepartments_jsonに残って読み戻せる()
+    {
+        // 人間が手で書く場所（設計 §15-8）。**読み書きで落ちると「設定したのに効かない」になる。**
+        var dangerous = new DepartmentDefinition(
+            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured,
+            AutoApproveAllTools: true);
+
+        var written = Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new(0, []), [dangerous], CancellationToken.None));
+        Assert.True(Assert.Single(written.Definition.Departments).AutoApproveAllTools);
+
+        var back = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        var department = Assert.Single(back.Definition.Departments);
+        Assert.True(department.AutoApproveAllTools);
+        Assert.True(department.RunsWithAllToolsApproved);
+
+        var json = await File.ReadAllTextAsync(_paths.Departments);
+
+        // 画面のログでこの名前を人間に案内しているので、綴りが変わったら気付けること。
+        Assert.Contains("autoApproveAllTools", json);
+
+        // **計算値を書き出さない**（実機で発覚、2026-09-08）。読み戻されないので、
+        // 人間がそちらを true にすると「設定したのに黙って無視される」になる。
+        Assert.DoesNotContain("runsWithAllToolsApproved", json);
+        Assert.DoesNotContain("dangerousModeApplies", json);
+    }
 }

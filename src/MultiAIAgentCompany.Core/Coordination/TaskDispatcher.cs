@@ -368,6 +368,64 @@ public sealed class TaskDispatcher
     private static string DecodeUtf8(byte[] bytes) =>
         System.Text.Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
 
+    /// <summary>
+    /// 部門の turn が失敗して終わったので、その部門が抱えている仕事を
+    /// <see cref="TaskStatus.Failed"/> にする（設計 §30-3）。
+    /// </summary>
+    /// <remarks>
+    /// <b>失敗の証拠は文書ではなく StructuredEvent にしか無い。</b>
+    /// 「権限が拒否された」は <c>report.md</c> には現れないので、走査（§16-1）では
+    /// 永久に拾えない —— <b><see cref="TaskStatus.Failed"/> は、これまで到達できなかった</b>。
+    /// <para>
+    /// <b>証拠の順は変えない</b>（§7）。<c>Document &gt; StructuredEvent</c> なので:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><c>report.md</c> があるなら失敗にしない。走査が <c>Reported</c> にする</item>
+    /// <item>未回答の <c>question.md</c> があるなら失敗にしない。<b>それは人間の番</b>であって、
+    /// 仕事の失敗ではない</item>
+    /// </list>
+    /// <para>
+    /// 「失敗したはず」と推定してはいない —— <b>拒否されたという事象そのものを観測している</b>ので
+    /// §2 に触れない。黙って返ってこない部門は依然この経路に乗らない（§30-5）。
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<FailedTask>> FailInFlightAsync(
+        string departmentId, string reason, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        var failed = new List<FailedTask>();
+        foreach (var slug in await _tasks.ListSlugsAsync(ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (await _tasks.ReadAsync(slug, ct) is not TaskReadResult.Found found) continue;
+
+            var state = found.State;
+            if (!string.Equals(state.DepartmentId, departmentId, StringComparison.Ordinal)) continue;
+            if (state.Status is not (TaskStatus.Dispatched or TaskStatus.InProgress)) continue;
+
+            // 文書が勝つ。報告が出ているなら、turn の失敗は仕事の失敗ではない。
+            if (File.Exists(_paths.Report(slug))) continue;
+
+            // 人間の番なら、失敗ではない。
+            if (await CompanyDigest.OfFileAsync(_paths.Question(slug), ct) is { } digest
+                && !state.IsAnsweredBy(digest))
+            {
+                continue;
+            }
+
+            var write = await _tasks.TransitionAsync(
+                state, TaskStatus.Failed, TransitionOrigin.Automation, reason, ct);
+            if (write is TaskWriteResult.Written written)
+            {
+                failed.Add(new FailedTask(slug, written.State.Status, reason));
+            }
+        }
+
+        return failed;
+    }
+
     private async Task<string?> ReadInstructionAsync(string slug, CancellationToken ct)
     {
         try
@@ -418,6 +476,14 @@ public sealed class TaskDispatcher
         };
     }
 }
+
+/// <summary>
+/// <see cref="TaskStatus.Failed"/> を書いた仕事（設計 §30-3）。
+/// </summary>
+/// <param name="Slug">その仕事。</param>
+/// <param name="Status">書いたあとの状態。<b>書けたことを観測して返す</b>（§7）。</param>
+/// <param name="Reason">人間に見せる理由。「層2が失敗した」ではなく、何が拒否されたかを書く。</param>
+public sealed record FailedTask(string Slug, TaskStatus Status, string Reason);
 
 public abstract record DispatchResult
 {

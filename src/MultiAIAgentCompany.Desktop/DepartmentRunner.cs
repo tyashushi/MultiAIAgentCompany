@@ -116,7 +116,10 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         try
         {
             var adapter = AdapterFor(department);
-            var session = await adapter.StartAsync(workspace, department.Id, department.Mode, ct);
+            // **宣言ではなく適用を渡す**（設計 §30-4）。`AutoApproveAllTools` が true でも、
+            // 承認の往復を持つ CLI には渡さない —— 聞ける相手には聞く（§3）。
+            var session = await adapter.StartAsync(
+                workspace, department.Id, department.Mode, ct, department.RunsWithAllToolsApproved);
 
             // **起動している間に切り替えられていたら、これは前のフォルダの部門**（§26-1）。
             // ここで登録すると、画面は新しいフォルダなのに CLI は前を触ったまま残る。
@@ -136,7 +139,7 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
                 _sessions[department.Id] = session;
             }
 
-            Wire(department, session, tracker);
+            Wire(department, workspace, session, tracker);
             PublishModel(department.Id, session);
             return new DepartmentStart.Started();
         }
@@ -161,11 +164,14 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         }
     }
 
-    private void Wire(DepartmentDefinition department, IAgentSession session, DepartmentStatusTracker tracker)
+    private void Wire(
+        DepartmentDefinition department, WorkspaceRef workspace,
+        IAgentSession session, DepartmentStatusTracker tracker)
     {
         session.Observed += (_, evidence) =>
         {
             tracker.OnObserved(evidence);
+            if (!StillOurs(workspace)) return;
             Observed?.Invoke(this, (department.Id, evidence));
 
             // モデルは init / handshake で分かる。**いつ来るかは CLI 次第**なので、
@@ -175,7 +181,11 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         session.Exited += (_, exitCode) => tracker.OnExited(exitCode);
 
         // 診断は**ライブ専用**（設計 §22）。観測（永続してよい要約）と別の経路で運ぶ。
-        session.Diagnosed += (_, diagnostic) => Diagnosed?.Invoke(this, (department.Id, diagnostic));
+        session.Diagnosed += (_, diagnostic) =>
+        {
+            if (!StillOurs(workspace)) return;
+            Diagnosed?.Invoke(this, (department.Id, diagnostic));
+        };
 
         // **購読より前に出た分を流し込む**（§22-2）。trust・login・ハンドシェイクの失敗は
         // ここに出るのに、アダプタはハンドシェイクを終えてからセッションを返す。
@@ -183,6 +193,7 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         // **重複は害が無いが、取りこぼしは害がある。**
         foreach (var diagnostic in session.RecentDiagnostics(50).Reverse())
         {
+            if (!StillOurs(workspace)) break;
             Diagnosed?.Invoke(this, (department.Id, diagnostic));
         }
 
@@ -191,10 +202,29 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             return;
         }
 
-        structured.TurnFinished += (_, verdict) => tracker.OnTurnFinished(verdict);
+        structured.TurnFinished += (_, verdict) =>
+        {
+            tracker.OnTurnFinished(verdict);
+
+            // **失敗を状態に書ける唯一の場所**（設計 §30-3）。走査はファイルしか見ないので、
+            // 権限拒否のように文書に現れない失敗は、ここで拾わないと
+            // 仕事が `Dispatched` のまま永久に止まる。
+            if (!verdict.Succeeded && StillOurs(workspace))
+            {
+                // **どのフォルダの部門だったかを一緒に渡す**（レビューで発覚、§26-1）。
+                // 切り替えは「選ぶ」が先で「前の部門を止める」が後（§26-2b）なので、
+                // 前のフォルダの turn 失敗が切り替え後に届く。部門 id だけで照合すると、
+                // **A の失敗で B の同名部門の仕事を Failed にする。**
+                TurnFailed?.Invoke(this, (department.Id, workspace.Root, verdict.Reason));
+            }
+        };
         structured.ApprovalRequested += (_, request) =>
         {
             tracker.OnApprovalRequested(request);
+
+            // **前のフォルダの承認要求を、いまのフォルダの待ち行列に入れない**
+            // （レビューで発覚、§26-1）。検出器には残す —— 要求が来た事実は観測なので。
+            if (!StillOurs(workspace)) return;
 
             // 承認の返事はこのセッションへ返す。決定は CLI が提示したものだけ（§5）。
             composer.Approvals.Add(new PendingApproval(
@@ -202,6 +232,24 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
                 (decision, reason, token) => structured.RespondAsync(request, decision, reason, token)));
         };
     }
+
+    /// <summary>
+    /// このセッションが、いま画面に出ているワークスペースのものか（設計 §26-1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>切り替えは「選ぶ」が先で「前の部門を止める」が後</b>（§26-2b）—— 開けなかったときに
+    /// 前のフォルダの秘書と部門だけ死んでいる状態を作らないため。その順序の代償として、
+    /// <b>止めるまでの間、前のフォルダのセッションが生きたままイベントを出す。</b>
+    /// 部門 id はフォルダをまたいで同じなので、素通しすると
+    /// <b>A の観測・承認・失敗が B のタイルと待ち行列に入る。</b>
+    /// <para>
+    /// <b>検出器（tracker）には流す。</b> あれはセッションに紐づいているので、
+    /// 混ざらないし、観測を捨てる理由も無い（§7）。止めるのは画面と調整基盤へ出る側だけ。
+    /// </para>
+    /// </remarks>
+    private bool StillOurs(WorkspaceRef workspace) =>
+        composer.Workspace is { } current
+        && string.Equals(current.Root, workspace.Root, StringComparison.Ordinal);
 
     /// <summary>
     /// CLI が申告したモデルをタイルへ渡す（設計 §27）。
@@ -286,6 +334,16 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// <see cref="Observed"/> と混ぜない —— あちらは redact 済みの要約で永続しうる。
     /// </summary>
     public event EventHandler<(string DepartmentId, LiveDiagnostic Diagnostic)>? Diagnosed;
+
+    /// <summary>
+    /// 部門の turn が<b>失敗して</b>終わった（設計 §30-3）。理由つき。
+    /// </summary>
+    /// <remarks>
+    /// <b>これを仕事の失敗と決めつけない。</b> 抱えている仕事があるか、
+    /// 報告や質問が出ていないかは、受け取った側が調整基盤に照らして決める
+    /// （<see cref="TaskDispatcher.FailInFlightAsync"/>）。
+    /// </remarks>
+    public event EventHandler<(string DepartmentId, string WorkspaceRoot, string Because)>? TurnFailed;
 
     private static IAgentAdapter AdapterFor(DepartmentDefinition department) => department.Agent switch
     {

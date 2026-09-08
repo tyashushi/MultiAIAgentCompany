@@ -111,6 +111,12 @@ public partial class MainWindow : Window
         _secretary = secretary;
         DataContext = composer.Shell;
 
+        // **失敗を仕事の状態に書ける唯一の経路**（設計 §30-3）。
+        // 走査はファイルしか見ないので、権限拒否のように文書へ現れない失敗は
+        // ここで拾わないと `Dispatched` のまま永久に残る。
+        _runner.TurnFailed += (_, item) => Dispatcher.UIThread.Post(
+            async () => await FailInFlightAsync(item.DepartmentId, item.WorkspaceRoot, item.Because));
+
         _secretary.StateChanged += (_, _) => Dispatcher.UIThread.Post(UpdateSecretaryStatus);
         _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => Say($"秘書: {line}"));
         UpdateSecretaryStatus();
@@ -392,6 +398,47 @@ public partial class MainWindow : Window
     /// <summary>
     /// 指示書はあるが渡していない仕事を渡す（設計 §15-6）。
     /// 「仕事にする」は<b>提案を仕事に昇格させる操作</b>であって、
+    /// <summary>
+    /// 部門の turn が失敗して終わったので、抱えている仕事を <c>Failed</c> にする（設計 §30-3）。
+    /// </summary>
+    /// <remarks>
+    /// <b>1件も無くても黙らない。</b> 「仕事は無かった」も観測なので作業ログに出す ——
+    /// 出さないと、失敗が消えたのか、そもそも仕事が無かったのかが区別できない（§7）。
+    /// </remarks>
+    private async Task FailInFlightAsync(string departmentId, string workspaceRoot, string because)
+    {
+        if (_composer?.Dispatcher is not { } dispatcher || _composer.Workspace is not { } workspace) return;
+
+        // **前のフォルダの失敗で、いまのフォルダの仕事を落とさない**（レビューで発覚、§26-1）。
+        // 切り替えは「選ぶ」が先で「前の部門を止める」が後（§26-2b）なので、
+        // ここには前のフォルダの turn 失敗が遅れて届く。
+        if (!string.Equals(workspace.Root, workspaceRoot, StringComparison.Ordinal))
+        {
+            Note($"前のフォルダの失敗が届いた（{because}）。**いまのフォルダの仕事は動かさない**");
+            return;
+        }
+
+        var name = _composer.DefinitionOf(departmentId).DisplayName;
+        try
+        {
+            var failed = await dispatcher.FailInFlightAsync(departmentId, because, CancellationToken.None);
+            if (failed.Count is 0)
+            {
+                Note($"{name}: turn が失敗した（{because}）。**抱えている仕事は無い**");
+                return;
+            }
+
+            foreach (var task in failed)
+            {
+                Note($"{task.Slug}: 失敗した —— {task.Reason}");
+            }
+        }
+        catch (Exception exception)
+        {
+            NoteException($"{name} の失敗を書けなかった", exception);
+        }
+    }
+
     /// 「部門へ送信成功する」操作ではない —— 部門が動いていないときはここに来る。
     /// </summary>
     private async Task DispatchDraftedAsync(DepartmentTile tile)
@@ -633,7 +680,17 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var started = await _runner.StartAsync(_composer.DefinitionOf(tile.Id), workspace, CancellationToken.None);
+        var definition = _composer.DefinitionOf(tile.Id);
+
+        // **起動のたびに言う**（設計 §30-4）。タイルの印は見落とせるし、
+        // 危険モードはワークスペースを開き直すたびに効き続ける。
+        if (definition.RunsWithAllToolsApproved)
+        {
+            Note($"{tile.Name}: **ツール権限を全部自動承認して起動する**"
+                + "（departments.json の autoApproveAllTools）");
+        }
+
+        var started = await _runner.StartAsync(definition, workspace, CancellationToken.None);
         tile.SessionRunning = _runner.IsRunning(tile.Id);
         Note(started switch
         {
@@ -1857,6 +1914,10 @@ public partial class MainWindow : Window
             NoteException($"{path} を開けませんでした（前のワークスペースはそのまま）", exception);
             return false;
         }
+
+        // **選択中のタイルは、もう画面に無い**（レビューの派生）。部門はワークスペースごとに
+        // 作り直される（§15-8）ので、掴んだままにすると **消えたタイルへ直接送信する**。
+        _selected = null;
 
         if (changed)
         {
