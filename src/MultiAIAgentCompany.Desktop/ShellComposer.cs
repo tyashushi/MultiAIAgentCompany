@@ -103,6 +103,12 @@ public sealed class ShellComposer
     /// </summary>
     private readonly HashSet<string> _acrossRestart = new(StringComparer.Ordinal);
 
+    /// <summary>もう作業ログに書いた沈黙（設計 §31）。<b>毎回の走査で書き直さない。</b></summary>
+    private readonly HashSet<string> _noticedSilence = new(StringComparer.Ordinal);
+
+    /// <summary>まだ人間に見せていない沈黙の1行。<see cref="DrainSilenceNotices"/> で取り出す。</summary>
+    private readonly List<string> _pendingSilenceNotices = [];
+
     /// <summary>
     /// フォルダが選ばれたときに、各 CLI の trust を読み直す（設計 §13-9）。
     /// <b>ディスクへ書かない</b>（§21-1）—— 起動時に前回のフォルダを開くので、
@@ -135,6 +141,12 @@ public sealed class ShellComposer
         {
             Rebuild(departments);
         }
+        // **ワークスペースが変わったら、沈黙の記憶も捨てる**（設計 §31-6）。
+        // **Rebuild に置かない** —— あれは顔ぶれが変わったときしか呼ばれないので、
+        // 同じ部門構成の別フォルダへ切り替えると、前のフォルダの slug を
+        // 「もう知らせた」と覚えたままになる（1回目の実装で指摘された）。
+        _noticedSilence.Clear();
+        _pendingSilenceNotices.Clear();
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
@@ -301,6 +313,7 @@ public sealed class ShellComposer
             foreach (var tile in Shell.Departments.Where(t => t.Id == departmentId))
             {
                 tile.CurrentTaskSlug = null;
+                tile.ReportNotObservedSince = null;
             }
         }
 
@@ -317,11 +330,39 @@ public sealed class ShellComposer
                 new AgentRef(departmentId, DefinitionOf(departmentId).Agent), null, null,
                 $"{state.Slug}: {state.Status}（試行 {state.AttemptId}）"));
 
+            var deadline = DefinitionOf(departmentId).ReportDeadline;
+            var silence = ReportWatch.Of(state, deadline, _clock.GetUtcNow());
+            if (silence is not null)
+            {
+                if (_noticedSilence.Add(state.Slug))
+                {
+                    _pendingSilenceNotices.Add(
+                        $"{silence.Slug}: 期限（{deadline.GetValueOrDefault().TotalMinutes}分）までに報告を観測していない（{Math.Round(silence.Elapsed.TotalMinutes)}分）。**部門は生きているかもしれない** —— 失敗とは書かない");
+                }
+            }
+            else
+            {
+                // 差し戻して送り直したあと、また気付けるようにする（§31-6）。
+                _noticedSilence.Remove(state.Slug);
+            }
+
             foreach (var tile in Shell.Departments.Where(t => t.Id == departmentId))
             {
                 tile.CurrentTaskSlug = state.Slug;
+                tile.ReportNotObservedSince = silence?.Since;
             }
         }
+    }
+
+    /// <summary>
+    /// まだ人間に見せていない沈黙の通知を取り出す（設計 §31）。
+    /// <b>取り出したら消える</b> —— 走査のたびに同じ行を積み直さない。
+    /// </summary>
+    public IReadOnlyList<string> DrainSilenceNotices()
+    {
+        var notices = _pendingSilenceNotices.ToArray();
+        _pendingSilenceNotices.Clear();
+        return notices;
     }
 
     /// <summary>
@@ -357,15 +398,26 @@ public sealed class ShellComposer
     /// 1部門が複数の仕事を持つとき、どれをタイルに出すか。
     /// <b>ボタンの優先順位（§15-6）と揃える</b> —— ずれると、用件のある仕事が選ばれない。
     /// </summary>
+    /// <remarks>
+    /// <b>§15-6 の段と同じ順にする。</b> 用件が出る仕事が、用件の出ない仕事に隠れてはいけない
+    /// （<c>Rejected</c> で一度踏んでいる。下のコメント参照）。
+    /// </remarks>
     private int UrgencyOf(TaskState state) => state.Status switch
     {
-        CoreTaskStatus.AwaitingAnswer => 6,
-        CoreTaskStatus.Reported => 5,
+        CoreTaskStatus.AwaitingAnswer => 7,
+        CoreTaskStatus.Reported => 6,
 
         // **再起動を跨いだ Dispatched だけが用件になる**（§14-1）。
         // 通常の Dispatched はボタンを出さないので、Drafted より下に置く ——
         // 上に置くと、渡していない仕事がまた選ばれなくなる。
-        CoreTaskStatus.Dispatched when _acrossRestart.Contains(state.Slug) => 4,
+        CoreTaskStatus.Dispatched when _acrossRestart.Contains(state.Slug) => 5,
+
+        // **黙って返ってこない仕事も用件になる**（設計 §31）。
+        // ここを 1 のままにすると、**同じ部門に下書きが1つあるだけで永久に隠れる** ——
+        // ⏳ のバッジも作業ログの1行も出ない。§31 が拾おうとしている仕事そのものが
+        // 拾えなくなるので、`Drafted` より上に置く（§15-6 の 5b と同じ位置）。
+        CoreTaskStatus.Dispatched or CoreTaskStatus.InProgress when IsSilent(state) => 4,
+
         CoreTaskStatus.Drafted => 3,
 
         // 差し戻したまま止まっている仕事（§19-1）。**0 のままにしない** ——
@@ -376,6 +428,22 @@ public sealed class ShellComposer
         CoreTaskStatus.InProgress => 1,
         _ => 0,
     };
+
+    /// <summary>期限までに報告を観測していないか（設計 §31-2）。</summary>
+    /// <remarks>
+    /// <b>計算は <see cref="ReportWatch"/> ひとつに閉じる。</b> ここと
+    /// <see cref="PushWorkStatesAsync"/> で別々に書くと、
+    /// 「選ばれたのにバッジが出ない」「バッジは出たのに選ばれない」がすれ違って起きる。
+    /// <para>
+    /// <b>知らない部門は false。</b> ここは<b>走査に出てきた全部の仕事</b>に当たるので、
+    /// <c>departments.json</c> から消された部門を指す <c>state.json</c> が1つあるだけで
+    /// 走査ごと落ちる —— 下の選別ループは <c>_trackers</c> で弾いてから
+    /// <see cref="DefinitionOf"/> を引いているが、こちらはその前に来る。
+    /// </para>
+    /// </remarks>
+    private bool IsSilent(TaskState state) =>
+        _definitions.TryGetValue(state.DepartmentId, out var department)
+        && ReportWatch.Of(state, department.ReportDeadline, _clock.GetUtcNow()) is not null;
 
     /// <summary>
     /// 失効した書き込み権を未解決項目に出す（設計 §24-2）。

@@ -294,6 +294,13 @@ public partial class MainWindow : Window
             case DepartmentAction.CheckDelivery:
                 Note($"{tile.Name}: 送られたか確かめる。指示は届いているかもしれない（自動で再送しない）");
                 break;
+
+            // §31-2: 沈黙は部門についての証拠ではない。**「失敗した」と言わない。**
+            // 見せるのは観測だけで、待つ／取り消す／起動し直すの判断は人間がする（§15-4 と同じ姿勢）。
+            case DepartmentAction.CheckMissingReport:
+                Note($"{tile.Name}: 期限までに報告を観測していない。**失敗とは限らない** —— 観測を見て、待つか決める");
+                ShowObservations(tile);
+                break;
         }
     }
 
@@ -1041,6 +1048,11 @@ public partial class MainWindow : Window
         foreach (var blocked in result?.Blocked ?? [])
         {
             Note($"{blocked.Slug}: {blocked.From} → {blocked.To} を書けなかった（{blocked.Reason}）");
+        }
+
+        foreach (var line in _composer.DrainSilenceNotices())
+        {
+            Note(line);
         }
 
         await DeliverAnswersAsync();

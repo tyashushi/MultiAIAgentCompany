@@ -27,10 +27,25 @@ namespace MultiAIAgentCompany.Core.Workspace;
 /// <param name="AutoApproveAllTools">
 /// この部門の CLI に<b>ツール権限を全部自動承認させる</b>か（設計 §30-4）。<b>既定は false。</b>
 /// </param>
+/// <param name="ReportDeadlineMinutes">報告を待つ分数。null は既定、0 以下は期限を見ない。</param>
 public sealed record DepartmentDefinition(
     string Id, string DisplayName, string Responsibility, AgentKind Agent, DriveMode Mode,
-    string? Model = null, bool ReadsOnly = false, bool AutoApproveAllTools = false)
+    string? Model = null, bool ReadsOnly = false, bool AutoApproveAllTools = false,
+    int? ReportDeadlineMinutes = null)
 {
+    /// <summary>期限がファイルに書かれていないときに使う既定。</summary>
+    public static readonly TimeSpan DefaultReportDeadline = TimeSpan.FromMinutes(30);
+
+    /// <summary>この部門に対して報告を待つ期限。null なら期限を見ない。</summary>
+    /// <remarks>計算値はファイルへ書かない（§30-6）。人間が触る鍵は ReportDeadlineMinutes だけ。</remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public TimeSpan? ReportDeadline => ReportDeadlineMinutes switch
+    {
+        null => DefaultReportDeadline,
+        <= 0 => null,
+        var minutes => TimeSpan.FromMinutes(minutes.Value),
+    };
+
     /// <summary>
     /// 危険モードを<b>この部門で意味のあるものとして扱ってよいか</b>（設計 §30-4）。
     /// </summary>
@@ -133,11 +148,11 @@ public sealed class DepartmentStore
     /// <summary>v1 の既定5部門。各 CLI の既定モードは能力定義から取る。</summary>
     public static IReadOnlyList<DepartmentDefinition> CreateDefaultDepartments() =>
     [
-        new("design", "設計", "要件と設計判断を整理する。", AgentKind.ClaudeCode, AgentCapabilities.For(AgentKind.ClaudeCode).DefaultDriveMode),
-        new("implementation", "実装", "承認された設計を実装する。", AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode),
-        new("research", "調査", "技術的な選択肢と根拠を調査する。", AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode),
-        new("review", "レビュー", "変更をレビューし、懸念を報告する。", AgentKind.ClaudeCode, AgentCapabilities.For(AgentKind.ClaudeCode).DefaultDriveMode),
-        new("testing", "テスト", "テストを実行し、結果を報告する。", AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode),
+        new("design", "設計", "要件と設計判断を整理する。", AgentKind.ClaudeCode, AgentCapabilities.For(AgentKind.ClaudeCode).DefaultDriveMode, ReportDeadlineMinutes: 30),
+        new("implementation", "実装", "承認された設計を実装する。", AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode, ReportDeadlineMinutes: 30),
+        new("research", "調査", "技術的な選択肢と根拠を調査する。", AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode, ReportDeadlineMinutes: 30),
+        new("review", "レビュー", "変更をレビューし、懸念を報告する。", AgentKind.ClaudeCode, AgentCapabilities.For(AgentKind.ClaudeCode).DefaultDriveMode, ReportDeadlineMinutes: 30),
+        new("testing", "テスト", "テストを実行し、結果を報告する。", AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode, ReportDeadlineMinutes: 30),
 
         // **設計レビューは2人**（設計 §29-2）。同じ文書を読ませるが、**問いを分ける** ——
         // 同じ問いを2人に投げると、費用は2倍で発見はほとんど増えない。
@@ -145,11 +160,11 @@ public sealed class DepartmentStore
         new("design-review-consistency", "設計レビュー（整合）",
             "設計文書が、他の節と矛盾していないかを見る。",
             AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode,
-            Model: null, ReadsOnly: true),
+            Model: null, ReadsOnly: true, ReportDeadlineMinutes: 30),
         new("design-review-outside", "設計レビュー（外から）",
             "その設計で作られたものを使う人が、何に困るかを見る。",
             AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
-            Model: null, ReadsOnly: true),
+            Model: null, ReadsOnly: true, ReportDeadlineMinutes: 30),
     ];
 
     private static string? Validate(IReadOnlyList<DepartmentDefinition>? departments)

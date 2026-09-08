@@ -200,7 +200,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// 「どの状態で人間が何をすべきか」は業務ロジックであって、表示の都合ではない（§4）。
     /// </summary>
     public DepartmentCallToAction Call =>
-        DepartmentCallToAction.From(Status, DispatchedAcrossRestart, SessionRunning);
+        DepartmentCallToAction.From(Status, DispatchedAcrossRestart, SessionRunning, ReportNotObservedSince is not null);
 
     /// <summary>
     /// セッションが動いているか。<b>沈黙から導かない</b>（§7）——
@@ -226,6 +226,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         DepartmentAction.AnswerQuestion => "質問に答える",
         DepartmentAction.ReadReport => "報告を読む",
         DepartmentAction.CheckDelivery => "送信を確認する",
+        DepartmentAction.CheckMissingReport => "報告を確かめる",
         DepartmentAction.DispatchTask => "この仕事を渡す",
         DepartmentAction.RedispatchTask => "差し戻した仕事を送り直す",
         DepartmentAction.ShowObservations => "観測を見る",
@@ -253,6 +254,20 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// <b>推定しない</b> —— 起動時の走査結果からしか入らない。
     /// </summary>
     public bool DispatchedAcrossRestart
+    {
+        get;
+        set
+        {
+            field = value;
+            RaiseAll();
+        }
+    }
+
+    /// <summary>
+    /// 期限までに報告を観測していない仕事の、最後に状態が動いた時刻（設計 §31）。
+    /// <b>推定しない</b> —— 走査が計算して入れる。
+    /// </summary>
+    public DateTimeOffset? ReportNotObservedSince
     {
         get;
         set
@@ -353,6 +368,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         DepartmentBadge.NeedsAnswer => "❓",
         DepartmentBadge.NeedsAcceptance => "📝",
         DepartmentBadge.NeedsDeliveryCheck => "📮",
+        DepartmentBadge.ReportNotObservedByDeadline => "⏳",
         _ => string.Empty,
     };
 

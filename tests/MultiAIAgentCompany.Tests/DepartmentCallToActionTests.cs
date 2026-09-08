@@ -85,7 +85,7 @@ public sealed class DepartmentCallToActionTests
 
     private static DepartmentCallToAction Of(
         RuntimeState runtime, ActivityState activity, CoreTaskStatus? work,
-        bool dispatchedAcrossRestart = false, bool running = false)
+        bool dispatchedAcrossRestart = false, bool running = false, bool reportNotObservedByDeadline = false)
     {
         var evidence = new Evidence(EvidenceSource.StructuredEvent, DateTimeOffset.UnixEpoch, null, null,
             new AgentRef("実装", AgentKind.CodexCli), null, null, "test");
@@ -94,7 +94,7 @@ public sealed class DepartmentCallToActionTests
             new Observed<ActivityState>(activity, evidence),
             work is null ? null : new Observed<CoreTaskStatus>(work.Value, evidence));
 
-        return DepartmentCallToAction.From(status, dispatchedAcrossRestart, running);
+        return DepartmentCallToAction.From(status, dispatchedAcrossRestart, running, reportNotObservedByDeadline);
     }
     [Fact]
     public void 相談は活動からでも仕事からでも同じ用件になる()
@@ -171,6 +171,49 @@ public sealed class DepartmentCallToActionTests
         var action = Of(runtime, activity, work, acrossRestart, running);
 
         Assert.Equal(action.Action is not DepartmentAction.None, action.NeedsHuman);
+    }
+
+    [Theory]
+    [InlineData(CoreTaskStatus.Dispatched)]
+    [InlineData(CoreTaskStatus.InProgress)]
+    public void 期限までに報告を観測していなければ確認を促す(CoreTaskStatus work)
+    {
+        var action = Of(RuntimeState.Running, ActivityState.Working, work,
+            running: true, reportNotObservedByDeadline: true);
+
+        Assert.Equal(DepartmentBadge.ReportNotObservedByDeadline, action.Badge);
+        Assert.Equal(DepartmentAction.CheckMissingReport, action.Action);
+        Assert.True(action.NeedsHuman);
+    }
+
+    [Fact]
+    public void 沈黙より再起動を跨いだ送信確認が勝つ()
+    {
+        var action = Of(RuntimeState.Running, ActivityState.Working, CoreTaskStatus.Dispatched,
+            dispatchedAcrossRestart: true, running: true, reportNotObservedByDeadline: true);
+
+        Assert.Equal(DepartmentBadge.NeedsDeliveryCheck, action.Badge);
+        Assert.Equal(DepartmentAction.CheckDelivery, action.Action);
+    }
+
+    [Fact]
+    public void 報告済みの仕事に沈黙は効かない()
+    {
+        var action = Of(RuntimeState.Running, ActivityState.Working, CoreTaskStatus.Reported,
+            running: true, reportNotObservedByDeadline: true);
+
+        Assert.Equal(DepartmentBadge.NeedsAcceptance, action.Badge);
+        Assert.Equal(DepartmentAction.ReadReport, action.Action);
+    }
+
+    [Fact]
+    public void 沈黙より稼働が落ちた原因を見る用件が勝つ()
+    {
+        var action = Of(RuntimeState.Failed, ActivityState.Unknown, CoreTaskStatus.Dispatched,
+            reportNotObservedByDeadline: true);
+
+        Assert.Equal(DepartmentBadge.ReportNotObservedByDeadline, action.Badge);
+        Assert.Equal(DepartmentAction.Investigate, action.Action);
     }
 
     public static TheoryData<RuntimeState, ActivityState, CoreTaskStatus?, bool, bool> AllCombinations()

@@ -44,6 +44,9 @@ public enum DepartmentBadge
     /// 自動再送しない（設計 §14-1）。
     /// </summary>
     NeedsDeliveryCheck,
+
+    /// <summary>期限までに報告を観測していない（設計 §31）。部門の失敗とは断定しない。</summary>
+    ReportNotObservedByDeadline,
 }
 
 /// <summary>
@@ -79,6 +82,9 @@ public enum DepartmentAction
 
     /// <summary>送られたか確かめる。<b>自動再送しない</b>（§14-1）。</summary>
     CheckDelivery,
+
+    /// <summary>報告を確かめる。観測を見て、待つか決めるのは人間（設計 §31）。</summary>
+    CheckMissingReport,
 
     /// <summary>
     /// 指示書はあるが、まだ部門へ投げていない仕事を渡す（設計 §15-6）。
@@ -176,13 +182,17 @@ public sealed record DepartmentCallToAction(
     /// セッションが動いているか。<b>沈黙から導かない</b>（§7）——
     /// 呼び出し元が知っている事実を渡す。
     /// </param>
+    /// <param name="reportNotObservedByDeadline">
+    /// 期限までに報告を観測していないか。この型は自分で推定しない。呼び出し元が計算して渡す。
+    /// </param>
     public static DepartmentCallToAction From(
-        DepartmentStatus status, bool dispatchedAcrossRestart = false, bool sessionRunning = false)
+        DepartmentStatus status, bool dispatchedAcrossRestart = false, bool sessionRunning = false,
+        bool reportNotObservedByDeadline = false)
     {
         ArgumentNullException.ThrowIfNull(status);
 
         var pose = PoseOf(status.Activity.Value);
-        var badge = BadgeOf(status.Work?.Value, dispatchedAcrossRestart);
+        var badge = BadgeOf(status.Work?.Value, dispatchedAcrossRestart, reportNotObservedByDeadline);
         var mark = MarkOf(status.Runtime.Value);
 
         return new DepartmentCallToAction(pose, badge, mark)
@@ -232,6 +242,13 @@ public sealed record DepartmentCallToAction(
             return DepartmentAction.CheckDelivery;
         }
 
+        // 5b. 期限までに報告を観測していない仕事。**「失敗した」とは言わない**（§7）——
+        //     沈黙は部門についての証拠ではない。人間に様子を見に行かせるだけ。
+        if (badge is DepartmentBadge.ReportNotObservedByDeadline)
+        {
+            return DepartmentAction.CheckMissingReport;
+        }
+
         // 6. 指示書はあるが、まだ渡していない。
         //    5（送信確認）より下 —— あちらは §14-1 の復旧契約なので、これで隠さない。
         //    7（観測を見る）より上 —— こちらの方が具体的な用件。
@@ -268,11 +285,14 @@ public sealed record DepartmentCallToAction(
         _ => DepartmentPose.Unknown,
     };
 
-    private static DepartmentBadge BadgeOf(CoreTaskStatus? work, bool dispatchedAcrossRestart) => work switch
+    private static DepartmentBadge BadgeOf(
+        CoreTaskStatus? work, bool dispatchedAcrossRestart, bool reportNotObservedByDeadline) => work switch
     {
         CoreTaskStatus.AwaitingAnswer => DepartmentBadge.NeedsAnswer,
         CoreTaskStatus.Reported => DepartmentBadge.NeedsAcceptance,
         CoreTaskStatus.Dispatched when dispatchedAcrossRestart => DepartmentBadge.NeedsDeliveryCheck,
+        CoreTaskStatus.Dispatched or CoreTaskStatus.InProgress when reportNotObservedByDeadline
+            => DepartmentBadge.ReportNotObservedByDeadline,
         _ => DepartmentBadge.None,
     };
 

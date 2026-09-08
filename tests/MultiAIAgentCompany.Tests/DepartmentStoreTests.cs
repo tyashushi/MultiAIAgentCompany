@@ -104,6 +104,63 @@ public sealed class DepartmentStoreTests : IDisposable
         Assert.All(departments, d => Assert.Equal(AgentCapabilities.For(d.Agent).DefaultDriveMode, d.Mode));
     }
 
+    [Fact]
+    public async Task 報告期限の分数は往復し計算値はJSONへ書かない()
+    {
+        var definition = Departments()[0] with { ReportDeadlineMinutes = 45 };
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new(0, []), [definition], CancellationToken.None));
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        var department = Assert.Single(read.Definition.Departments);
+        Assert.Equal(45, department.ReportDeadlineMinutes);
+        Assert.Equal(TimeSpan.FromMinutes(45), department.ReportDeadline);
+
+        using var json = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(_paths.Departments));
+        var saved = json.RootElement.GetProperty("departments")[0];
+        Assert.Equal(45, saved.GetProperty("reportDeadlineMinutes").GetInt32());
+        Assert.False(saved.TryGetProperty("reportDeadline", out _));
+    }
+
+    [Fact]
+    public async Task 期限のキーが無い部門は既定の30分を使う()
+    {
+        Directory.CreateDirectory(_paths.Root);
+        await File.WriteAllTextAsync(_paths.Departments,
+            """
+            {"revision":1,"departments":[{"id":"design","displayName":"設計","responsibility":"設計する","agent":"ClaudeCode","mode":"Structured"}]}
+            """);
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        var department = Assert.Single(read.Definition.Departments);
+        Assert.Null(department.ReportDeadlineMinutes);
+        Assert.Equal(TimeSpan.FromMinutes(30), DepartmentDefinition.DefaultReportDeadline);
+        Assert.Equal(DepartmentDefinition.DefaultReportDeadline, department.ReportDeadline);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task ゼロ以下の期限も保存して読み直せて期限を見ない(int minutes)
+    {
+        var definition = Departments()[0] with { ReportDeadlineMinutes = minutes };
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new(0, []), [definition], CancellationToken.None));
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        var department = Assert.Single(read.Definition.Departments);
+        Assert.Equal(minutes, department.ReportDeadlineMinutes);
+        Assert.Null(department.ReportDeadline);
+    }
+
+    [Fact]
+    public void 既定の7部門は報告期限を30分と明示する()
+    {
+        var departments = DepartmentStore.CreateDefaultDepartments();
+        Assert.Equal(7, departments.Count);
+        Assert.All(departments, department => Assert.Equal(30, department.ReportDeadlineMinutes));
+    }
+
     private static IReadOnlyList<DepartmentDefinition> Departments(string id = "design") =>
         [new(id, "設計", "設計する", AgentKind.ClaudeCode, DriveMode.Structured)];
 
