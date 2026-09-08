@@ -218,13 +218,15 @@ public sealed class ShellComposer
         }
 
         var result = await Scanner.SyncAsync(kind, ct);
-        await PushWorkStatesAsync(ct);
-        RefreshProposals();
 
+        // **アプリが知っていることを、それを使う側より先に埋める**（レビューで発覚、2026-09-08）。
+        // ここが `PushWorkStatesAsync` の後ろにあったので、起動時の1周だけ
+        // `_acrossRestart` が空のまま読まれていた。実害は2つ:
+        //   - 「まだ届いたか分からない」仕事に「報告を観測していない」と作業ログが出る（§31-3）。
+        //     **タイルのバッジは NeedsDeliveryCheck が勝つので、画面と食い違う**
+        //   - `UrgencyOf` の「再起動を跨いだ Dispatched」が起動時の1周だけ効かない
         if (kind is CompanyScanKind.Startup)
         {
-            Shell.Recovery.Clear();
-
             // §16-3: 部門が分かるものはタイルにも出す。左ペインだけだと右を見ている人が拾えない。
             _acrossRestart.Clear();
             foreach (var task in result.Dispatched)
@@ -237,6 +239,15 @@ public sealed class ShellComposer
             {
                 tile.DispatchedAcrossRestart = acrossRestart.Contains(tile.Id);
             }
+        }
+
+        await PushWorkStatesAsync(ct);
+        RefreshProposals();
+
+        // ここから下は**人間に見せる側**。上で埋めた事実を使う。
+        if (kind is CompanyScanKind.Startup)
+        {
+            Shell.Recovery.Clear();
 
             foreach (var task in result.Dispatched)
             {
@@ -332,18 +343,24 @@ public sealed class ShellComposer
 
             var deadline = DefinitionOf(departmentId).ReportDeadline;
             var silence = ReportWatch.Of(state, deadline, _clock.GetUtcNow());
-            if (silence is not null)
-            {
-                if (_noticedSilence.Add(state.Slug))
-                {
-                    _pendingSilenceNotices.Add(
-                        $"{silence.Slug}: 期限（{deadline.GetValueOrDefault().TotalMinutes}分）までに報告を観測していない（{Math.Round(silence.Elapsed.TotalMinutes)}分）。**部門は生きているかもしれない** —— 失敗とは書かない");
-                }
-            }
-            else
+
+            // **まず「送られたか」を確かめる**（設計 §31-3、レビューで発覚）。
+            // 再起動を跨いだ `Dispatched` はバッジが `NeedsDeliveryCheck` になるので、
+            // 作業ログだけ沈黙の話を出すと**画面と食い違う**。
+            // **判定はバッジと同じ述語**にする —— 片方だけ直すと、また食い違う。
+            var maybeSent = state.Status is CoreTaskStatus.Dispatched && _acrossRestart.Contains(state.Slug);
+
+            if (silence is null)
             {
                 // 差し戻して送り直したあと、また気付けるようにする（§31-6）。
                 _noticedSilence.Remove(state.Slug);
+            }
+            else if (!maybeSent && _noticedSilence.Add(state.Slug))
+            {
+                // **覚えもしない**（上の `!maybeSent`）—— 人間が配達を確かめて
+                // `InProgress` へ進めたあと、そこから黙ったままなら、そのとき初めて知らせる。
+                _pendingSilenceNotices.Add(
+                    $"{silence.Slug}: 期限（{deadline.GetValueOrDefault().TotalMinutes}分）までに報告を観測していない（{Math.Round(silence.Elapsed.TotalMinutes)}分）。**部門は生きているかもしれない** —— 失敗とは書かない");
             }
 
             foreach (var tile in Shell.Departments.Where(t => t.Id == departmentId))
