@@ -119,6 +119,11 @@ public partial class MainWindow : Window
 
         _secretary.StateChanged += (_, _) => Dispatcher.UIThread.Post(UpdateSecretaryStatus);
         _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => SayAndRecord("secretary", line));
+
+        // **窓が閉じられたらタイルも直す**（設計 §32）。放っておくと
+        // 「前面に出す」が残り、押しても何も起きない。
+        _runner.SessionsChanged += (_, departmentId) =>
+            Dispatcher.UIThread.Post(() => RefreshRunning(departmentId));
         UpdateSecretaryStatus();
 
         Opened += async (_, _) => await ResumeWorkspaceAsync();
@@ -355,6 +360,23 @@ public partial class MainWindow : Window
         if (shell.SecretaryTranscript.Count == 0)
         {
             shell.SecretaryTranscript.Add("まだ何も話していません");
+        }
+    }
+
+    /// <summary>
+    /// タイルの「動いているか」を、いまの事実に合わせる（設計 §7）。
+    /// </summary>
+    /// <remarks><b>沈黙から導かない</b> —— <see cref="DepartmentRunner"/> が知っていることを写す。</remarks>
+    private void RefreshRunning(string departmentId)
+    {
+        if (_composer is null || _runner is null)
+        {
+            return;
+        }
+
+        foreach (var tile in _composer.Shell.Departments.Where(t => t.Id == departmentId))
+        {
+            tile.SessionRunning = _runner.IsRunning(departmentId);
         }
     }
 
@@ -1220,10 +1242,24 @@ public partial class MainWindow : Window
         var started = await _runner.StartTerminalAsync(
             _composer.DefinitionOf(departmentId), workspace, launch.Request, CancellationToken.None);
 
+        // **開いたなら、タイルにもそう出す。** ここを忘れると
+        // 「ターミナルを前面に出す」が出ないまま窓だけが在る（レビューで発覚）。
+        RefreshRunning(departmentId);
+
         return started switch
         {
-            DepartmentStart.Started or DepartmentStart.AlreadyRunning =>
-                new DispatchResult.Dispatched(launch.State),
+            DepartmentStart.Started => new DispatchResult.Dispatched(launch.State),
+
+            // **「渡した」と言わない**（レビューで発覚、§7）。3つの CLI は turn が
+            // 終わってもセッションを終了しない（§32-2e）ので、**2つ目の仕事はここに来る** ——
+            // そのとき窓は**前の仕事の話をしていて**、新しい指示書を読む合図を受けていない。
+            // 状態は `Dispatched`（§14-1 で送る前に書いてある）のままにして、
+            // **人間に確かめさせる。** 自動で送り直さない。
+            DepartmentStart.AlreadyRunning => new DispatchResult.SentUncertain(
+                launch.State,
+                "その部門のターミナルは既に開いていて、前の仕事の話をしている。"
+                + "**新しい指示は読まれていない** —— その窓で直接伝えるか、閉じてから渡し直す"),
+
             DepartmentStart.Failed failed =>
                 new DispatchResult.SentUncertain(launch.State, $"{failed.Reason}。窓が開いていないか確かめる"),
 

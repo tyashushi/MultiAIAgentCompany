@@ -28,6 +28,9 @@ public sealed class TerminalDepartmentSession : IAgentSession
     private readonly TimeProvider _clock;
     private readonly CancellationTokenSource _watching = new();
     private readonly List<LiveDiagnostic> _diagnostics = [];
+
+    /// <summary>購読より前に出た観測（設計 §22-2 と同じ扱い）。</summary>
+    private readonly List<Evidence> _pending = [];
     private readonly object _gate = new();
     private int _disposed;
 
@@ -70,10 +73,20 @@ public sealed class TerminalDepartmentSession : IAgentSession
         var identity = new ProcessIdentity(pid, 0, pid, clock.GetUtcNow());
 
         var session = new TerminalDepartmentSession(departmentId, agent, handle, launcher, identity, clock);
-        session.Raise(new Evidence(
+
+        // **ここで raise しない**（§22-2 と同じ）。購読するのは、このメソッドが
+        // セッションを返したあとなので、いま出すと**誰も聞いていない。**
+        // 取り置いて、購読側が `ReplayObservations` で引き取る。
+        session._pending.Add(new Evidence(
             EvidenceSource.Dispatch, clock.GetUtcNow(), null, null,
             new AgentRef(departmentId, agent), null, null,
             $"外部ターミナルで起動した（窓 {handle.WindowId}）"));
+
+        if (pid <= 0)
+        {
+            session.Note("PID を記録できなかったので、窓が閉じられたことに気付けない");
+        }
+
         session.StartWatching();
         return new TerminalStartResult.Started(session);
     }
@@ -168,7 +181,6 @@ public sealed class TerminalDepartmentSession : IAgentSession
     {
         if (Identity.Pid <= 0)
         {
-            Note("PID を記録できなかったので、窓が閉じられたことに気付けない");
             return;
         }
 
@@ -233,9 +245,30 @@ public sealed class TerminalDepartmentSession : IAgentSession
         return 0;
     }
 
-    private void Raise(Evidence evidence) => Observed?.Invoke(this, evidence);
+    /// <summary>
+    /// 購読より前に出た観測を流し込む（設計 §22-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b>購読してから呼ぶこと。</b> 起動の観測は <see cref="StartAsync"/> の中で出るので、
+    /// そのまま raise すると誰も聞いていない —— 聞き逃すと、検出器は
+    /// <c>Starting</c> のまま止まり、**開いている窓が「起動中」に見え続ける。**
+    /// </remarks>
+    public void ReplayObservations()
+    {
+        Evidence[] pending;
+        lock (_gate)
+        {
+            pending = [.. _pending];
+            _pending.Clear();
+        }
 
-    private void Note(string text)
+        foreach (var evidence in pending)
+        {
+            Observed?.Invoke(this, evidence);
+        }
+    }
+
+    internal void Note(string text)
     {
         var line = new LiveDiagnostic(DiagnosticStream.Protocol, text);
         lock (_gate)

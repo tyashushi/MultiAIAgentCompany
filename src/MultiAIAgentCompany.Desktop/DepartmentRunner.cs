@@ -185,6 +185,10 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
 
         var tracker = composer.TrackerOf(department.Id);
 
+        // **「走っている」印を、起動を始める前に立てる**（§26-1、構造化の側と同じ理由）。
+        // ここを飛ばすと、Terminal.app を起こしている最中に切り替え／終了が走ったとき、
+        // **待つべき起動が待たれない**まま前のフォルダのロックが返る。
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int generation;
         lock (_startGate)
         {
@@ -196,6 +200,7 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             }
 
             generation = _generation;
+            _starting.Add(pending.Task);
         }
 
         try
@@ -227,8 +232,29 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
 
             Wire(department, workspace, session, tracker);
 
+            // **購読してから流し込む**（§22-2 と同じ理由）。起動の観測は
+            // `StartAsync` の中で出るので、そのまま raise すると**誰も聞いていない**。
+            // 聞き逃すと、検出器は `Starting` のまま止まる。
+            session.ReplayObservations();
+
             // **終了コードを観測できないので、専用の経路で伝える**（§32-2e）。
-            session.Disappeared += (_, _) => tracker.OnDisappeared();
+            session.Disappeared += (_, _) =>
+            {
+                tracker.OnDisappeared();
+
+                // **死んだセッションを持ち続けない。** 残すと、次の dispatch が
+                // 「もう開いている」と判断して**窓を開き直せなくなる**（レビューで発覚）。
+                lock (_startGate)
+                {
+                    if (_sessions.TryGetValue(department.Id, out var current) && ReferenceEquals(current, session))
+                    {
+                        _sessions.Remove(department.Id);
+                    }
+                }
+
+                SessionsChanged?.Invoke(this, department.Id);
+            };
+
             return new DepartmentStart.Started();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -241,10 +267,18 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         {
             lock (_startGate)
             {
+                _starting.Remove(pending.Task);
                 _startingIds.Remove(department.Id);
             }
+
+            pending.TrySetResult();
         }
     }
+
+    /// <summary>
+    /// セッションの有無が変わった（設計 §32）。<b>画面の「動いているか」を直すために出す。</b>
+    /// </summary>
+    public event EventHandler<string>? SessionsChanged;
 
     /// <summary>
     /// その部門のターミナルを前面に出す（設計 §32-2c）。
