@@ -13,7 +13,7 @@ public sealed class TerminalLaunchTests
     [Fact]
     public void 起動スクリプトはPIDを書いてからCLIをexecする()
     {
-        var script = MacTerminalLauncher.BuildScript(Request("-i", "README を読んで"), "/tmp/x.pid");
+        var script = MacTerminalScript.Build(Request("-i", "README を読んで"), "/tmp/x.pid");
 
         Assert.Contains("echo $$ > '/tmp/x.pid'", script);
         Assert.Contains("cd '/tmp/work'", script);
@@ -29,7 +29,7 @@ public sealed class TerminalLaunchTests
         // **§32-2e の実測。** CLI は turn が終わってもセッションを終了しないので、
         // 終了コードは人間が窓を閉じたときにしか現れない。
         // 書くと「完了の信号」に見えてしまう —— 完了の信号は report.md だけ（§16-1）。
-        var script = MacTerminalLauncher.BuildScript(Request("-i", "x"), "/tmp/x.pid");
+        var script = MacTerminalScript.Build(Request("-i", "x"), "/tmp/x.pid");
 
         Assert.DoesNotContain("exit_code", script);
         Assert.DoesNotContain("trap", script);
@@ -40,7 +40,7 @@ public sealed class TerminalLaunchTests
     [InlineData("a'b'c")]
     public void 引数にシングルクォートが混ざっても閉じない(string argument)
     {
-        var script = MacTerminalLauncher.BuildScript(Request(argument), "/tmp/x.pid");
+        var script = MacTerminalScript.Build(Request(argument), "/tmp/x.pid");
 
         // 閉じて足して開き直す形になっていること（'\'' の並び）。
         Assert.Contains("'\\''", script);
@@ -50,7 +50,7 @@ public sealed class TerminalLaunchTests
     [Fact]
     public void 窓のidを読み取る()
     {
-        var handle = MacTerminalLauncher.ParseHandle("tab 1 of window id 43990\n", "/tmp/x.pid");
+        var handle = MacTerminalScript.ParseHandle("tab 1 of window id 43990\n", "/tmp/x.pid");
 
         Assert.NotNull(handle);
         Assert.Equal("43990", handle.WindowId);
@@ -61,7 +61,7 @@ public sealed class TerminalLaunchTests
     public void 窓のidが読めなければnullにする()
     {
         // **推測しない**（§7）。読めないなら「開いた」と言わない。
-        Assert.Null(MacTerminalLauncher.ParseHandle("何か別の出力", "/tmp/x.pid"));
+        Assert.Null(MacTerminalScript.ParseHandle("何か別の出力", "/tmp/x.pid"));
     }
 
     [Fact]

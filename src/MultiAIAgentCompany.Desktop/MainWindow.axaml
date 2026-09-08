@@ -109,16 +109,49 @@
                 </ScrollViewer>
             </StackPanel>
 
-            <TextBlock DockPanel.Dock="Top" Text="作業ログ" FontWeight="Bold" Margin="0,0,0,6" />
+            <!-- **作業ログは畳んで下へ**（設計 §32-6）。左ペインの主役は相談スレッド ——
+                 初期ブリーフの「左＝チャットログ一覧」を、途中で
+                 「システムの作業実行ログ」と取り違えていた。 -->
+            <Expander DockPanel.Dock="Bottom" Header="作業ログ" IsExpanded="False" Margin="0,6,0,0"
+                      FontSize="{DynamicResource FontSizeSmall}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              MaxHeight="220">
+                    <ItemsControl ItemsSource="{Binding WorkLog}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Expander>
 
-            <!-- **スクロールできること**（設計 §25-1）。無いと、はみ出した行に手が届かない ——
-                 上の「確かめてほしいこと」が画面外に出ると、§15-6 の
-                 「要対応なのに押せない」が別の形で再発する。 -->
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                <TextBlock Text="相談" FontWeight="Bold" VerticalAlignment="Center" />
+                <Button Content="＋ 新しい相談" Click="OnNewThread" HorizontalAlignment="Right"
+                        FontSize="{DynamicResource FontSizeSmall}" />
+            </DockPanel>
+
+            <!-- **スクロールできること**（設計 §25-1）。無いと、はみ出した行に手が届かない。 -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding WorkLog}">
+                <ItemsControl ItemsSource="{Binding Threads}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+                            <Button Click="OnThreadSelected" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left" Margin="0,1">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <!-- 選んでいるものに印を付ける。**色に頼らない**
+                                             （§28 でローカライズはやらないと決めたのと同じ姿勢で、
+                                             見分けは形で付ける）。 -->
+                                        <TextBlock Text="▸ " IsVisible="{Binding IsSelected}" />
+                                        <TextBlock Text="{Binding Title}" TextWrapping="NoWrap"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                    <TextBlock Text="{Binding UpdatedText}" Opacity="0.6"
+                                               FontSize="{DynamicResource FontSizeSmall}" />
+                                </StackPanel>
+                            </Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -344,11 +377,9 @@
                                          こちらが渡した設定値は診断ビューへ（§27-3）。 -->
                                     <TextBlock Text="{Binding ModelText}" IsVisible="{Binding HasModel}"
                                                FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8" />
-                                    <!-- **黙って強い権限で動いている部門を作らない**（設計 §30-4）。
-                                         色や記号だけに頼らず言葉で出す（§15-5）。 -->
-                                    <TextBlock Text="⚠ ツール権限を全部自動承認して動いている"
-                                               FontSize="{DynamicResource FontSizeSmall}" TextWrapping="Wrap"
-                                               IsVisible="{Binding RunsWithAllToolsApproved}" />
+                                    <!-- **危険モードの表示は消した**（設計 §32-3、2026-09-09）——
+                                         §30-4 の抜け道そのものを廃止したので、出すものが無い。
+                                         承認は人間がその部門のターミナルで押す。 -->
                                     <!-- 3軸を潰さずに並べる（設計 §7）。 -->
                                     <TextBlock FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8">
                                         <Run Text="稼働 " /><Run Text="{Binding RuntimeText}" />

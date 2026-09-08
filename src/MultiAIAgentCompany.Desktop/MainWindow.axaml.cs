@@ -118,7 +118,7 @@ public partial class MainWindow : Window
             async () => await FailInFlightAsync(item.DepartmentId, item.WorkspaceRoot, item.Because));
 
         _secretary.StateChanged += (_, _) => Dispatcher.UIThread.Post(UpdateSecretaryStatus);
-        _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => Say($"秘書: {line}"));
+        _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => SayAndRecord("secretary", line));
         UpdateSecretaryStatus();
 
         Opened += async (_, _) => await ResumeWorkspaceAsync();
@@ -210,6 +210,152 @@ public partial class MainWindow : Window
                 "Claude Code の trust を判定できない。未 trust とは限らない",
             _ => "秘書はまだ起動していない。最初の送信で起動する",
         };
+    }
+
+    /// <summary>
+    /// 会話を1行足し、<b>いまのスレッドにも書き残す</b>（設計 §32-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「会話は正本ではない」（§17-3）は変わらない。</b> 残すのは
+    /// <b>人間が読み返すため</b>であって、protocol も仕事も正本はファイルのままである ——
+    /// 秘書は <c>.company/secretary/README.md</c> を読み、仕事は
+    /// <c>.company/tasks/</c> に居る。**ここが消えても、仕事は消えない。**
+    /// </remarks>
+    private void SayAndRecord(string role, string text)
+    {
+        Say(role is "human" ? $"あなた: {text}" : $"秘書: {text}");
+        _ = RecordAsync(role, text);
+    }
+
+    private async Task RecordAsync(string role, string text)
+    {
+        if (_composer?.Threads is not { } threads)
+        {
+            return;
+        }
+
+        try
+        {
+            // **選んでいなければ、その場で作る。** 相談を始めるのに
+            // 「まず新規作成を押す」を挟まない（Claude / ChatGPT と同じ）。
+            if (_composer.Shell.CurrentThreadId is not { } id)
+            {
+                var created = await threads.CreateAsync(TitleFrom(text), CancellationToken.None);
+                if (created is not ThreadCreateResult.Created ok)
+                {
+                    Note($"相談スレッドを作れなかった（{((ThreadCreateResult.Failed)created).Reason}）");
+                    return;
+                }
+
+                id = ok.Meta.Id;
+                _composer.Shell.CurrentThreadId = id;
+            }
+
+            var written = await threads.AppendAsync(
+                id, new ThreadEntry(role, text, DateTimeOffset.UtcNow), CancellationToken.None);
+
+            // **書けなかったことを黙って飲まない**（§25-2）。
+            if (written is ThreadWriteResult.Failed failed)
+            {
+                Note($"相談を書き残せなかった（{failed.Reason}）");
+            }
+            else if (written is ThreadWriteResult.Missing missing)
+            {
+                Note($"相談スレッドが見つからない（{missing.Reason}）");
+                _composer.Shell.CurrentThreadId = null;
+            }
+
+            await _composer.RefreshThreadsAsync(CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            Note($"相談を書き残せなかった（{exception.GetType().Name}）");
+        }
+    }
+
+    /// <summary>最初の発言からスレッドの名前を作る。<b>長い本文をそのまま名前にしない。</b></summary>
+    private static string TitleFrom(string text)
+    {
+        var line = text.ReplaceLineEndings(" ").Trim();
+        return line.Length switch
+        {
+            0 => "新しい相談",
+            <= 30 => line,
+            _ => line[..30] + "…",
+        };
+    }
+
+    /// <summary>「＋ 新しい相談」（設計 §32-6）。</summary>
+    private async void OnNewThread(object? sender, RoutedEventArgs e)
+    {
+        if (_composer?.Threads is null)
+        {
+            Note("フォルダを選ぶまで相談を始められません");
+            return;
+        }
+
+        // **ここでは作らない。** 空のスレッドが並ぶと、一覧が「何を話したか」の
+        // 目次ではなくなる。**次の発言で作られる**（RecordAsync）。
+        _composer.Shell.CurrentThreadId = null;
+        ShowTranscript([]);
+        Say("新しい相談を始めます。下の入力欄から話しかけてください");
+    }
+
+    /// <summary>左ペインで相談を選んだ（設計 §32-6）。</summary>
+    private async void OnThreadSelected(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not ThreadItem item
+            || _composer?.Threads is not { } threads)
+        {
+            return;
+        }
+
+        var read = await threads.ReadAsync(item.Id, CancellationToken.None);
+        switch (read)
+        {
+            case ThreadReadResult.Found found:
+                _composer.Shell.CurrentThreadId = found.Meta.Id;
+                ShowTranscript(found.Entries);
+
+                // **飛ばした行を黙らせない**（§25-2）。
+                if (found.SkippedLines > 0)
+                {
+                    Note($"{found.Meta.Title}: 読めなかった行が {found.SkippedLines} 行あった");
+                }
+
+                break;
+
+            case ThreadReadResult.Missing:
+                Note($"{item.Title}: もう無い");
+                await _composer.RefreshThreadsAsync(CancellationToken.None);
+                break;
+
+            case ThreadReadResult.Unreadable unreadable:
+                // **既定に落とさない**（§30-6）。読めないものを空として開くと、
+                // そのまま書き足して元の記録を潰す。
+                Note($"{item.Title}: 読めない（{unreadable.Reason}）");
+                break;
+        }
+    }
+
+    private void ShowTranscript(IReadOnlyList<ThreadEntry> entries)
+    {
+        if (DataContext is not ShellViewModel shell)
+        {
+            return;
+        }
+
+        shell.SecretaryTranscript.Clear();
+        foreach (var entry in entries)
+        {
+            shell.SecretaryTranscript.Add(
+                entry.Role is "human" ? $"あなた: {entry.Text}" : $"秘書: {entry.Text}");
+        }
+
+        if (shell.SecretaryTranscript.Count == 0)
+        {
+            shell.SecretaryTranscript.Add("まだ何も話していません");
+        }
     }
 
     private void Say(string line)
@@ -865,7 +1011,7 @@ public partial class MainWindow : Window
         }
 
         ClearMessage();
-        Say($"あなた: {text}");
+        SayAndRecord("human", text);
         await _secretary.SendAsync(text, CancellationToken.None);
     }
 
@@ -1110,6 +1256,20 @@ public partial class MainWindow : Window
         foreach (var line in composer.DrainSilenceNotices())
         {
             Note(line);
+        }
+
+        // **相談スレッドはフォルダごと**（設計 §32-6）。フォルダを開く経路が複数あるので、
+        // ここ1箇所で読み直す —— 起動時走査は、どの経路からも必ず通る。
+        if (kind is CompanyScanKind.Startup)
+        {
+            composer.Shell.CurrentThreadId = null;
+            ShowTranscript([]);
+            var unreadable = await composer.RefreshThreadsAsync(CancellationToken.None);
+            if (unreadable > 0)
+            {
+                // **黙って捨てない**（§25-2）。一覧に出ている範囲が全部だと思わせない。
+                Note($"読めない相談スレッドが {unreadable} 件あった（一覧には出していない）");
+            }
         }
 
         await DeliverAnswersAsync();

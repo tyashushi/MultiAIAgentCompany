@@ -90,6 +90,9 @@ public sealed class ShellComposer
 
     public CompanyScanner? Scanner { get; private set; }
 
+    /// <summary>相談スレッドの保存口（設計 §32-6）。</summary>
+    public ThreadStore? Threads { get; private set; }
+
     public SecretaryOutbox? Outbox { get; private set; }
 
     /// <summary>
@@ -144,6 +147,7 @@ public sealed class ShellComposer
         _pendingSilenceNotices.Clear();
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
+        Threads = new ThreadStore(paths, _clock);
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
         Scanner = new CompanyScanner(paths, Tasks, Leases, _clock);
         Outbox = new SecretaryOutbox(paths);
@@ -528,6 +532,37 @@ public sealed class ShellComposer
         Workspace is { } workspace
             ? DepartmentReadme.WriteAsync(workspace.Company, ct)
             : Task.CompletedTask;
+
+    /// <summary>
+    /// 相談スレッドの一覧を読み直す（設計 §32-6）。
+    /// </summary>
+    /// <returns>読めなかったスレッドの数。<b>黙って捨てない</b>（§25-2）。</returns>
+    public async Task<int> RefreshThreadsAsync(CancellationToken ct)
+    {
+        if (Threads is null)
+        {
+            Shell.Threads.Clear();
+            return 0;
+        }
+
+        var listed = await Threads.ListAsync(ct);
+        Shell.Threads.Clear();
+        foreach (var meta in listed.Threads)
+        {
+            Shell.Threads.Add(new ThreadItem(meta.Id, meta.Title, meta.UpdatedAt)
+            {
+                IsSelected = string.Equals(meta.Id, Shell.CurrentThreadId, StringComparison.Ordinal),
+            });
+        }
+
+        // 選んでいたスレッドが消えていたら、選択も外す。
+        if (Shell.CurrentThreadId is { } current && Shell.Threads.All(t => t.Id != current))
+        {
+            Shell.CurrentThreadId = null;
+        }
+
+        return listed.Unreadable;
+    }
 
     public static ShellComposer CreateDefault(TimeProvider clock) =>
         new(Core.Workspace.DepartmentStore.CreateDefaultDepartments(), clock);

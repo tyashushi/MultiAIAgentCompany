@@ -108,6 +108,32 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// <summary>中央ペイン: 秘書との会話。</summary>
     public required ObservableCollection<string> SecretaryTranscript { get; init; }
 
+    /// <summary>
+    /// 過去の相談スレッド（設計 §32-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>左ペインの主役はこれ。</b> 初期ブリーフは「左＝チャットログ一覧」＋
+    /// 「左と中央の UI は Claude Code アプリに似せる」と書いていたのに、
+    /// 実装は<b>システムの作業ログ</b>になっていた —— 「ログ」に引きずられた取り違え。
+    /// </remarks>
+    public ObservableCollection<ThreadItem> Threads { get; } = [];
+
+    /// <summary>いま中央に出しているスレッド。無ければ null。</summary>
+    public string? CurrentThreadId
+    {
+        get;
+        set
+        {
+            field = value;
+            foreach (var thread in Threads)
+            {
+                thread.IsSelected = string.Equals(thread.Id, value, StringComparison.Ordinal);
+            }
+
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentThreadId)));
+        }
+    }
+
     /// <summary>右ペイン: 部門ステータス。</summary>
     /// <summary>
     /// 部門タイル。<b>ワークスペースごとに入れ替わる</b>（設計 §15-8 / §30-4）——
@@ -565,4 +591,32 @@ public sealed record ProposalCard(SecretaryProposal Proposal, string DepartmentL
     public string ProblemText => string.IsNullOrWhiteSpace(Body)
         ? "本文が空なので仕事にできない。秘書に書き直してもらうか、やめる"
         : "宛先が分からないので仕事にできない。秘書に部門を聞き直すか、やめる";
+}
+
+/// <summary>
+/// 左ペインに並ぶ相談スレッド1件（設計 §32-6）。
+/// </summary>
+public sealed class ThreadItem(string id, string title, DateTimeOffset updatedAt) : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Id { get; } = id;
+
+    public string Title { get; } = title;
+
+    public DateTimeOffset UpdatedAt { get; } = updatedAt;
+
+    /// <summary>一覧に出す時刻。<b>秒までは出さない</b> —— 一覧で読むものではない。</summary>
+    public string UpdatedText => UpdatedAt.ToLocalTime().ToString("MM/dd HH:mm");
+
+    public bool IsSelected
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+        }
+    }
 }

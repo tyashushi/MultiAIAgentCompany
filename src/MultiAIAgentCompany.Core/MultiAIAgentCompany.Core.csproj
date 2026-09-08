@@ -9,10 +9,4 @@
     <RootNamespace>MultiAIAgentCompany.Core</RootNamespace>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- **スクリプトの組み立てと窓 id の読み取りをテストで固定する**（設計 §32）。
-         公開 API にはしない —— あれは実装の細部で、外から呼ぶものではない。 -->
-    <InternalsVisibleTo Include="MultiAIAgentCompany.Tests" />
-  </ItemGroup>
-
 </Project>
