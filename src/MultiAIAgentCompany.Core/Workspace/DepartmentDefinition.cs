@@ -24,13 +24,16 @@ namespace MultiAIAgentCompany.Core.Workspace;
 /// だから<b>安全側の既定は false</b>（＝ lease を取る）。
 /// </para>
 /// </remarks>
-/// <param name="AutoApproveAllTools">
-/// この部門の CLI に<b>ツール権限を全部自動承認させる</b>か（設計 §30-4）。<b>既定は false。</b>
-/// </param>
+/// <remarks>
+/// <b><c>AutoApproveAllTools</c>（§30-4 の危険モード）は 2026-09-09 に廃止した</b>（§32-3）。
+/// あれは「人間に聞く手段が無い CLI」への抜け道だったが、
+/// <see cref="DriveMode.ExternalTerminal"/> という聞く手段ができたので要らない ——
+/// <b>聞けるのに聞かない、を残さない。</b>
+/// </remarks>
 /// <param name="ReportDeadlineMinutes">報告を待つ分数。null は既定、0 以下は期限を見ない。</param>
 public sealed record DepartmentDefinition(
     string Id, string DisplayName, string Responsibility, AgentKind Agent, DriveMode Mode,
-    string? Model = null, bool ReadsOnly = false, bool AutoApproveAllTools = false,
+    string? Model = null, bool ReadsOnly = false,
     int? ReportDeadlineMinutes = null)
 {
     /// <summary>期限がファイルに書かれていないときに使う既定。</summary>
@@ -46,25 +49,6 @@ public sealed record DepartmentDefinition(
         var minutes => TimeSpan.FromMinutes(minutes.Value),
     };
 
-    /// <summary>
-    /// 危険モードを<b>この部門で意味のあるものとして扱ってよいか</b>（設計 §30-4）。
-    /// </summary>
-    /// <remarks>
-    /// <b>承認の往復を持つ CLI には出さない。</b> Claude Code には <c>can_use_tool</c> が
-    /// あるので、そちらで人間に聞く（§3）。この抜け道が要るのは
-    /// <b>人間に聞く手段が無い CLI だけ</b> —— 聞けるのに聞かない、を作らない。
-    /// </remarks>
-    [System.Text.Json.Serialization.JsonIgnore]
-    public bool DangerousModeApplies => !AgentCapabilities.For(Agent).SupportsRuntimeApprovalRoundTrip;
-
-    /// <summary>実際に全自動承認で起動するか。<b>宣言と適用を分ける</b>（設計 §30-4）。</summary>
-    /// <remarks>
-    /// <b>ファイルへ書かない</b>（実機で発覚、2026-09-08）。計算値なので読み戻されない ——
-    /// 人間が <c>departments.json</c> でこちらを true にすると、
-    /// <b>設定したのに黙って無視される</b>。人間が触る鍵は <see cref="AutoApproveAllTools"/> だけ。
-    /// </remarks>
-    [System.Text.Json.Serialization.JsonIgnore]
-    public bool RunsWithAllToolsApproved => AutoApproveAllTools && DangerousModeApplies;
 }
 
 /// <remarks>
@@ -181,6 +165,12 @@ public sealed class DepartmentStore
             if (!Enum.IsDefined(department.Agent)) return $"未定義の Agent です: {department.Id}";
             if (!Enum.IsDefined(department.Mode)) return $"未定義の Mode です: {department.Id}";
             var capabilities = AgentCapabilities.For(department.Agent);
+
+            // **ExternalTerminal はどの CLI でも成立する**（設計 §32-2）——
+            // 3つとも対話起動でき、人間がその窓で承認できることを実機で確かめた。
+            // 下の検査は構造化に固有の話なので、ここで抜ける。
+            if (department.Mode is DriveMode.ExternalTerminal) continue;
+
             if (department.Mode is DriveMode.Structured && !capabilities.SupportsStructuredConversation)
                 return $"{department.Agent} は Structured をサポートしません: {department.Id}";
             // **承認の往復が無くても、握りつぶしを検出できるなら構造化でよい**（設計 §13-3 追記2）。

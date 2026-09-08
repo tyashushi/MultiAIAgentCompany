@@ -373,8 +373,10 @@
 
                                     <!-- 起動は仕事の用件と別枠（設計 §15-6）。
                                          同じ列に並べると、用件のある部門を永久に起動できない。
-                                         落ちているときは出さない —— §15-4 の「原因を見てから決める」。 -->
-                                    <Button Content="起動する" IsVisible="{Binding CanStart}"
+                                         落ちているときは出さない —— §15-4 の「原因を見てから決める」。
+                                         外部ターミナルの部門では「前面に出す」になる（§32）——
+                                         窓は仕事を渡したときに開くので、起動ボタンは出さない。 -->
+                                    <Button Content="{Binding LifecycleLabel}" IsVisible="{Binding CanStart}"
                                             Click="OnDepartmentStart" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center" />

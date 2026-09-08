@@ -21,13 +21,11 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
     public string? DetectedVersion => _lastSession?.DetectedVersion;
 
     public async Task<IAgentSession> StartAsync(
-        WorkspaceRef workspace, string departmentId, DriveMode mode, CancellationToken ct, bool approveAllTools = false)
+        WorkspaceRef workspace, string departmentId, DriveMode mode, CancellationToken ct)
     {
         // **聞ける相手には聞く**（設計 §3 / §30-4）。Claude Code は承認の往復を持つので、
         // 危険モードはここに来ない。黙って無視すると「危険モードにしたのに効いていない」と
         // 「安全なのに危険と表示する」が両方起きる。
-        if (approveAllTools) throw new ArgumentOutOfRangeException(nameof(approveAllTools), approveAllTools,
-            "Claude Code は承認の往復を持つので、危険モードは使えません");
 
         ArgumentNullException.ThrowIfNull(workspace);
 

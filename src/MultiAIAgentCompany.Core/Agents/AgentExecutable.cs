@@ -25,6 +25,34 @@ public static class AgentExecutable
     };
 
     /// <summary>
+    /// 外部ターミナルで<b>対話起動</b>するときの引数（設計 §32-2、実測）。
+    /// </summary>
+    /// <remarks>
+    /// <b>3つの CLI で形が違う</b>（2026-09-09 に <c>--help</c> と実機で確かめた）:
+    /// <list type="bullet">
+    /// <item>Claude Code / Codex …… <b>既定が対話</b>で、位置引数のプロンプトを取る</item>
+    /// <item>Antigravity …… <b><c>-i</c>（<c>--prompt-interactive</c>）が要る。</b>
+    /// <c>-p</c> は <c>--print</c> の別名で<b>非対話</b>なので、
+    /// これを使うと §30-1 の auto-deny に戻る</item>
+    /// </list>
+    /// <para>
+    /// <b><paramref name="prompt"/> に指示書の本文を渡さないこと</b>（§32-2f）——
+    /// argv は <c>ps</c> に出る。渡すのは在り処だけ（<c>DepartmentReadme.LaunchPrompt</c>）。
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> InteractiveArguments(AgentKind kind, string prompt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+        return kind switch
+        {
+            AgentKind.ClaudeCode => [prompt],
+            AgentKind.CodexCli => [prompt],
+            AgentKind.AntigravityCli => ["-i", prompt],
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+        };
+    }
+
+    /// <summary>
     /// PATH をたどって実行ファイルを探す。無ければ null。
     /// </summary>
     /// <param name="pathVariable">

@@ -3,6 +3,7 @@ using MultiAIAgentCompany.Core.Agents.Antigravity;
 using MultiAIAgentCompany.Core.Agents.ClaudeCode;
 using MultiAIAgentCompany.Core.Agents.CodexCli;
 using MultiAIAgentCompany.Core.Sessions;
+using MultiAIAgentCompany.Core.Terminal;
 using MultiAIAgentCompany.Core.Status;
 using MultiAIAgentCompany.Core.Workspace;
 
@@ -25,6 +26,9 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// 起動の完了はスレッドプール、読み出しは UI スレッドなので、素の Dictionary では壊れる。
     /// </summary>
     private readonly Dictionary<string, IAgentSession> _sessions = new(StringComparer.Ordinal);
+
+    /// <summary>外部ターミナルを開く道具（設計 §32）。<b>macOS 版だけがある</b>（§32-7）。</summary>
+    private readonly ITerminalLauncher _terminals = TerminalLaunchers.ForCurrentOs();
 
     /// <summary>
     /// 「いまの世代」（設計 §26-1、§17-7 と同じ形）。
@@ -116,10 +120,8 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         try
         {
             var adapter = AdapterFor(department);
-            // **宣言ではなく適用を渡す**（設計 §30-4）。`AutoApproveAllTools` が true でも、
-            // 承認の往復を持つ CLI には渡さない —— 聞ける相手には聞く（§3）。
             var session = await adapter.StartAsync(
-                workspace, department.Id, department.Mode, ct, department.RunsWithAllToolsApproved);
+                workspace, department.Id, department.Mode, ct);
 
             // **起動している間に切り替えられていたら、これは前のフォルダの部門**（§26-1）。
             // ここで登録すると、画面は新しいフォルダなのに CLI は前を触ったまま残る。
@@ -162,6 +164,101 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             return new DepartmentStart.Failed(
                 $"{department.DisplayName} を起動できなかった: {exception.Message}{missing}");
         }
+    }
+
+    /// <summary>
+    /// 外部ターミナルで部門を開く（設計 §32）。
+    /// </summary>
+    /// <remarks>
+    /// <b>仕事を渡したときに呼ばれる</b> —— あちらには「起動しておいて後から渡す」が無い
+    /// （アプリは窓へ打ち込めない）。`TaskDispatcher` が状態を書いてから
+    /// <c>DispatchResult.LaunchTerminal</c> を返すので、その要求をここで開く。
+    /// <b>プロセスの親はアプリのまま</b>である（§9）。
+    /// </remarks>
+    public async Task<DepartmentStart> StartTerminalAsync(
+        DepartmentDefinition department, WorkspaceRef workspace,
+        TerminalLaunchRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(department);
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var tracker = composer.TrackerOf(department.Id);
+
+        int generation;
+        lock (_startGate)
+        {
+            if (_sessions.ContainsKey(department.Id) || !_startingIds.Add(department.Id))
+            {
+                // 既に窓がある。**二重に開かない** —— 同じ部門の窓が2つ並ぶと、
+                // 人間がどちらで答えればよいか分からなくなる。
+                return new DepartmentStart.AlreadyRunning();
+            }
+
+            generation = _generation;
+        }
+
+        try
+        {
+            tracker.OnStarting();
+            var started = await TerminalDepartmentSession.StartAsync(
+                department.Id, department.Agent, request, _terminals, TimeProvider.System, ct);
+
+            if (started is TerminalStartResult.Failed failed)
+            {
+                tracker.OnExited(-1);
+                return new DepartmentStart.Failed($"{department.DisplayName} のターミナルを開けなかった: {failed.Reason}");
+            }
+
+            var session = ((TerminalStartResult.Started)started).Session;
+
+            // 起動中に切り替えられていたら、これは前のフォルダの部門（§26-1）。
+            if (generation != _generation)
+            {
+                await session.DisposeAsync();
+                tracker.OnDisappeared();
+                return new DepartmentStart.Superseded();
+            }
+
+            lock (_startGate)
+            {
+                _sessions[department.Id] = session;
+            }
+
+            Wire(department, workspace, session, tracker);
+
+            // **終了コードを観測できないので、専用の経路で伝える**（§32-2e）。
+            session.Disappeared += (_, _) => tracker.OnDisappeared();
+            return new DepartmentStart.Started();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            tracker.OnExited(-1);
+            return new DepartmentStart.Failed(
+                $"{department.DisplayName} のターミナルを開けなかった: {exception.Message}");
+        }
+        finally
+        {
+            lock (_startGate)
+            {
+                _startingIds.Remove(department.Id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// その部門のターミナルを前面に出す（設計 §32-2c）。
+    /// </summary>
+    /// <returns><b>出せたか。</b> 窓が閉じられていれば false —— 出せたことにしない（§7）。</returns>
+    public async Task<bool> FocusAsync(string departmentId, CancellationToken ct)
+    {
+        IAgentSession? session;
+        lock (_startGate)
+        {
+            _sessions.TryGetValue(departmentId, out session);
+        }
+
+        return session is TerminalDepartmentSession terminal && await terminal.FocusAsync(ct);
     }
 
     private void Wire(

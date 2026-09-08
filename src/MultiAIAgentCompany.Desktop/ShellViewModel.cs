@@ -159,17 +159,6 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     public DriveMode Mode { get; }
 
     /// <summary>
-    /// この部門が<b>ツール権限を全部自動承認して動く</b>か（設計 §30-4）。
-    /// </summary>
-    /// <remarks>
-    /// <b>黙って強い権限で動いている部門を作らない</b>（§7）。宣言そのものではなく、
-    /// <see cref="DepartmentDefinition.RunsWithAllToolsApproved"/>（実際に適用されるか）を映す ——
-    /// 承認の往復を持つ CLI では宣言があっても適用されないので、
-    /// そこで警告を出すと「安全なのに危険と表示する」になる。
-    /// </remarks>
-    public bool RunsWithAllToolsApproved { get; init; }
-
-    /// <summary>
     /// CLI が申告したモデル（設計 §27）。<b>観測できたときだけ入る。</b>
     /// </summary>
     /// <remarks>
@@ -200,7 +189,9 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// 「どの状態で人間が何をすべきか」は業務ロジックであって、表示の都合ではない（§4）。
     /// </summary>
     public DepartmentCallToAction Call =>
-        DepartmentCallToAction.From(Status, DispatchedAcrossRestart, SessionRunning, ReportNotObservedSince is not null);
+        DepartmentCallToAction.From(
+            Status, DispatchedAcrossRestart, SessionRunning, ReportNotObservedSince is not null,
+            Mode is DriveMode.ExternalTerminal);
 
     /// <summary>
     /// セッションが動いているか。<b>沈黙から導かない</b>（§7）——
@@ -238,7 +229,17 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// <summary>
     /// 起動は仕事の用件と別枠（設計 §15-6）。<b>用件を隠さない。</b>
     /// </summary>
-    public bool CanStart => Call.Lifecycle is DepartmentLifecycle.Start;
+    public bool CanStart => Call.Lifecycle is not DepartmentLifecycle.None;
+
+    /// <summary>
+    /// 別枠のボタンの文言。<b>押す前に何が起きるか分かるようにする</b>（設計 §15-6）。
+    /// </summary>
+    public string LifecycleLabel => Call.Lifecycle switch
+    {
+        DepartmentLifecycle.Start => "起動",
+        DepartmentLifecycle.Focus => "ターミナルを前面に出す",
+        _ => string.Empty,
+    };
 
     /// <summary>直近の観測。「原因を見る」「観測を見る」で人間に出す。</summary>
     public IReadOnlyList<string> RecentObservations => _observations;

@@ -130,6 +130,17 @@ public enum DepartmentLifecycle
 
     /// <summary>セッションを開く。</summary>
     Start,
+
+    /// <summary>
+    /// その部門のターミナルを前面に出す（設計 §32）。
+    /// </summary>
+    /// <remarks>
+    /// <b>外部ターミナルの部門に「起動」は出さない。</b> 窓は**仕事を渡したときに開く**ので、
+    /// 仕事の無い部門を起動しても、そこに渡す手段が無い（アプリは窓へ打ち込めない）。
+    /// 代わりに、開いている窓へ<b>人間を連れて行く</b>のがここの役目である ——
+    /// 承認も相談も、その窓で人間が答える（ブリーフ #3 / §32-5）。
+    /// </remarks>
+    Focus,
 }
 
 /// <summary>左下の印。稼働状態の担当（設計 §15-4）。</summary>
@@ -185,9 +196,13 @@ public sealed record DepartmentCallToAction(
     /// <param name="reportNotObservedByDeadline">
     /// 期限までに報告を観測していないか。この型は自分で推定しない。呼び出し元が計算して渡す。
     /// </param>
+    /// <param name="externalTerminal">
+    /// その部門が外部ターミナルで動くか（設計 §32）。
+    /// <b>この型は自分で推定しない。</b> 呼び出し元が部門定義から渡す。
+    /// </param>
     public static DepartmentCallToAction From(
         DepartmentStatus status, bool dispatchedAcrossRestart = false, bool sessionRunning = false,
-        bool reportNotObservedByDeadline = false)
+        bool reportNotObservedByDeadline = false, bool externalTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(status);
 
@@ -201,10 +216,26 @@ public sealed record DepartmentCallToAction(
 
             // 落ちているときは出さない。§15-4 は「原因を見て、再起動するか決める」であり、
             // すぐ横に「起動」を置くとその判断を飛ばさせる。
-            Lifecycle = !sessionRunning && mark is not DepartmentRuntimeMark.Down
-                ? DepartmentLifecycle.Start
-                : DepartmentLifecycle.None,
+            //
+            // **外部ターミナルの部門は別**（§32）。窓は仕事を渡したときに開くので
+            // 「起動」は出さず、開いている間だけ「前面に出す」を出す。
+            Lifecycle = LifecycleOf(sessionRunning, mark, externalTerminal),
         };
+    }
+
+    private static DepartmentLifecycle LifecycleOf(
+        bool sessionRunning, DepartmentRuntimeMark mark, bool externalTerminal)
+    {
+        if (externalTerminal)
+        {
+            // 開いていれば連れて行く。開いていなければ何も出さない ——
+            // **押しても何も起きないボタンを置かない**（§15-6）。
+            return sessionRunning ? DepartmentLifecycle.Focus : DepartmentLifecycle.None;
+        }
+
+        return !sessionRunning && mark is not DepartmentRuntimeMark.Down
+            ? DepartmentLifecycle.Start
+            : DepartmentLifecycle.None;
     }
 
     /// <summary>§15-6 の8段。<b>順序が意味を持つ</b>。</summary>

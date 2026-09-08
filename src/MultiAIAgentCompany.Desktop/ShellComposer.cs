@@ -63,12 +63,7 @@ public sealed class ShellComposer
             _trackers[department.Id] = tracker;
             _definitions[department.Id] = department;
             Shell.Departments.Add(new DepartmentTile(
-                department.Id, department.DisplayName, department.Agent, department.Mode, tracker)
-            {
-                // **適用されるかどうかを映す**（設計 §30-4）。宣言をそのまま映すと、
-                // 往復を持つ CLI で「安全なのに危険と表示する」になる。
-                RunsWithAllToolsApproved = department.RunsWithAllToolsApproved,
-            });
+                department.Id, department.DisplayName, department.Agent, department.Mode, tracker));
         }
     }
 
@@ -520,6 +515,18 @@ public sealed class ShellComposer
                 [.. _definitions.Values.Select(d =>
                     $"- `{d.Id}` … {d.DisplayName}（{d.Responsibility}）")],
                 ct)
+            : Task.CompletedTask;
+
+    /// <summary>
+    /// 部門の protocol の正本を置く（設計 §32-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>窓を開くより前に呼ぶこと。</b> 起動時に渡すのは「これを読んで」だけなので、
+    /// 順序が逆になると読ませる先が無い（秘書の README と同じ理由）。
+    /// </remarks>
+    public Task WriteDepartmentProtocolAsync(CancellationToken ct) =>
+        Workspace is { } workspace
+            ? DepartmentReadme.WriteAsync(workspace.Company, ct)
             : Task.CompletedTask;
 
     public static ShellComposer CreateDefault(TimeProvider clock) =>

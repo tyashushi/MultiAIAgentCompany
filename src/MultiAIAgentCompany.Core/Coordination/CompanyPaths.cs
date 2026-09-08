@@ -49,6 +49,15 @@ public sealed class CompanyPaths
     /// <summary><b>未処理の提案の正本</b>。走査はここだけを見る（§17-6）。</summary>
     public string SecretaryOutbox => Path.Combine(SecretaryRoot, "outbox");
 
+    /// <summary>秘書との会話スレッドの保存場所。</summary>
+    public string SecretaryThreads => Path.Combine(SecretaryRoot, "threads");
+
+    public string ThreadDirectory(string slug) => Path.Combine(SecretaryThreads, RequireSlug(slug));
+
+    public string ThreadMeta(string slug) => Path.Combine(ThreadDirectory(slug), "meta.json");
+
+    public string ThreadTranscript(string slug) => Path.Combine(ThreadDirectory(slug), "transcript.jsonl");
+
     /// <summary>受理した提案の保管場所。<b>消さずに移す</b>（§16-4 / §17-6）。</summary>
     public string SecretaryAccepted => Path.Combine(SecretaryRoot, "processed", "accepted");
 

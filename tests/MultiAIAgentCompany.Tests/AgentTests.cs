@@ -13,9 +13,14 @@ public sealed class AgentTests
         Assert.False(AgentCapabilities.For(AgentKind.AntigravityCli).SupportsRuntimeApprovalRoundTrip);
 
         // **承認の往復が無いことと、駆動モードは別の話。**
-        // 2026-09-06 に既定を Tui から Structured へ変えた（§5 / §13-3 追記2）——
-        // 握りつぶしは denied_actions で検出でき、1プロセス多ターンも実測で回るため。
-        Assert.Equal(DriveMode.Structured, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
+        // 2026-09-06 に Tui → Structured、2026-09-09 に Structured → ExternalTerminal（§32-3）。
+        // **往復が無いことは変わらない**ので、上の Assert はそのまま生きている ——
+        // 変わったのは「では、どこで人間に聞くか」の答えの方である。
+        Assert.Equal(
+            DriveMode.ExternalTerminal, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
+
+        // **構造化の能力は消していない**（§32-3）。既定を変えただけ。
+        Assert.True(AgentCapabilities.For(AgentKind.AntigravityCli).SupportsStructuredConversation);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Sessions;
+using MultiAIAgentCompany.Core.Terminal;
 using MultiAIAgentCompany.Core.Workspace;
 
 namespace MultiAIAgentCompany.Core.Coordination;
@@ -77,6 +78,18 @@ public sealed class TaskDispatcher
                 await ReleaseIfHeldAsync(department, ct);
                 return new DispatchResult.Conflicted(conflicted.Reason);
             case TaskWriteResult.Written written:
+                // **外部ターミナルの部門には送らない**（設計 §32）—— パイプが無い。
+                // 状態は書いたので、あとは**呼び出し元が窓を開ける** ——
+                // プロセスの親はアプリである（§9）ので、Core は起こさない。
+                //
+                // ここで失敗しても状態は巻き戻さない。`Dispatched` は
+                // 「送ったかもしれない」であり、**窓が開いたかもしれない**も同じ扱いでよい（§14-1）。
+                if (department.Mode is DriveMode.ExternalTerminal)
+                {
+                    return new DispatchResult.LaunchTerminal(
+                        written.State, TerminalRequestFor(department, written.State.Slug));
+                }
+
                 // Structured なのに session が無い場合は最初に弾いてある（この上）。
                 // ここに来た時点で必ず非 null なので、コンパイラにもそう伝える。
                 ArgumentNullException.ThrowIfNull(session);
@@ -354,6 +367,13 @@ public sealed class TaskDispatcher
 
         var written = ((TaskWriteResult.Written)transition).State;
 
+        // **外部ターミナルの部門には送らない**（設計 §32）。差し戻しでも同じで、
+        // 昇格した instruction.md は**窓の中の CLI が読みに行く**。
+        if (department.Mode is DriveMode.ExternalTerminal)
+        {
+            return new DispatchResult.LaunchTerminal(written, TerminalRequestFor(department, written.Slug));
+        }
+
         // ここで読むのは**昇格したあとの** instruction.md。
         var instruction = await ReadInstructionAsync(written.Slug, ct);
         if (string.IsNullOrWhiteSpace(instruction))
@@ -371,6 +391,30 @@ public sealed class TaskDispatcher
             // 状態は巻き戻さない（§14-1）。Dispatched は「送ったかもしれない」。
             return new DispatchResult.SentUncertain(written, $"送信中に例外が発生しました: {exception.Message}");
         }
+    }
+
+    /// <summary>
+    /// 外部ターミナルの部門へ渡すときの、窓を開く要求を作る（設計 §32）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ここでプロセスを起こさない。</b> §9 の「アプリが全部門の親になる」を守るため、
+    /// 起こすのは呼び出し元（アプリ側）で、Core は<b>何を開くべきか</b>だけを決める。
+    /// <para>
+    /// <b>指示書の本文を argv に入れない</b>（§32-2f）—— 渡すのは在り処だけ。
+    /// </para>
+    /// </remarks>
+    public TerminalLaunchRequest TerminalRequestFor(DepartmentDefinition department, string slug)
+    {
+        ArgumentNullException.ThrowIfNull(department);
+        ArgumentException.ThrowIfNullOrWhiteSpace(slug);
+
+        var command = AgentExecutable.ResolveCommand(AgentExecutable.NameOf(department.Agent));
+        var prompt = DepartmentReadme.LaunchPrompt(_paths, slug);
+        return new TerminalLaunchRequest(
+            $"MultiAI-{department.Id}",
+            _paths.WorkspaceRoot,
+            command,
+            AgentExecutable.InteractiveArguments(department.Agent, prompt));
     }
 
     /// <summary>BOM 付きで publish されても本文だけを送る。</summary>
@@ -517,4 +561,13 @@ public abstract record DispatchResult
     public sealed record Conflicted(string Reason) : DispatchResult;
 
     public sealed record SentUncertain(TaskState State, string Reason) : DispatchResult;
+
+    /// <summary>
+    /// 状態は書いた。<b>あとは呼び出し元が窓を開ける</b>（設計 §32）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「送った」とは言っていない。</b> 外部ターミナルの部門にはパイプが無いので、
+    /// Core にできるのは「何を開くべきか」を決めるところまでである（§9）。
+    /// </remarks>
+    public sealed record LaunchTerminal(TaskState State, TerminalLaunchRequest Request) : DispatchResult;
 }

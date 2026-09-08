@@ -239,11 +239,14 @@ public sealed class AntigravityTests
         Assert.DoesNotContain("/Users/", summary);
     }
     [Fact]
-    public async Task 既定の駆動モードは構造化で起動できる()
+    public async Task 構造化でも起動できる()
     {
-        // 2026-09-06 に既定を Tui から Structured へ変えた（§5 / §13-3 追記2）。
-        // 根拠: 握りつぶしは denied_actions で検出でき、1プロセス多ターンも実測で回る。
-        Assert.Equal(DriveMode.Structured, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
+        // **既定は 2026-09-09 に ExternalTerminal へ移した**（§32-3）が、
+        // **構造化の経路は残っている** —— 秘書が使うし、部門で使えないと決める理由も無い。
+        // ここはその経路が生きていることを見張る。
+        Assert.Equal(
+            DriveMode.ExternalTerminal, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode);
+        Assert.True(AgentCapabilities.For(AgentKind.AntigravityCli).SupportsStructuredConversation);
 
         // 起動経路が生きていること（プロセスは偽物で確かめる）。
         var started = 0;
@@ -256,35 +259,32 @@ public sealed class AntigravityTests
         await using var session = await adapter.StartAsync(
             new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
             "調査",
-            AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
+
+            // **既定は ExternalTerminal になった**（§32-3）ので、構造化の経路を試すには明示する。
+            DriveMode.Structured,
             CancellationToken.None);
 
         Assert.Equal(1, started);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task 危険モードのときだけ全自動承認の引数を足す(bool approveAllTools)
+    [Fact]
+    public async Task 全自動承認の引数は渡さない()
     {
-        // headless の agy はツール権限を人間に聞けず全部自動拒否する（設計 §30-1、実測）。
-        // **既定では足さない** —— 読むだけの部門に全ツール自動承認を渡すのは逆向き（§30-4）。
-        IReadOnlyList<string> passed = [];
+        // **§30-4 の危険モードは廃止した**（設計 §32-3）。外部ターミナルという
+        // 「人間に聞く手段」ができたので要らない —— **聞けるのに聞かない、を残さない。**
+        // 消したものが復活しないように、**引数に綴りが現れないこと**で見張る。
+        string[] passed = [];
         var adapter = new AntigravityAdapter((_, args, _, _) =>
         {
-            passed = args;
+            passed = [.. args];
             return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));
         });
 
         await using var session = await adapter.StartAsync(
             new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
-            "調査", DriveMode.Structured, CancellationToken.None, approveAllTools);
+            "調査", DriveMode.Structured, CancellationToken.None);
 
-        Assert.Equal(approveAllTools, passed.Contains("--dangerously-skip-permissions"));
-
-        // 既存の引数を壊していないこと。
-        Assert.Contains("--input-format", passed);
-        Assert.Contains("stream-json", passed);
+        Assert.DoesNotContain("--dangerously-skip-permissions", passed);
     }
 
     [Fact]

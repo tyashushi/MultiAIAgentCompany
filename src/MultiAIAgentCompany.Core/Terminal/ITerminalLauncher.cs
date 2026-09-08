@@ -1,0 +1,99 @@
+namespace MultiAIAgentCompany.Core.Terminal;
+
+/// <summary>
+/// 部門を外部ターミナルで起動する要求（設計 §32）。
+/// </summary>
+/// <param name="Title">
+/// 窓の見出し。<b>人間が窓を見分けるためのもので、照合には使わない</b>（§32-2c）——
+/// 前面化のハンドルは <see cref="TerminalHandle.WindowId"/> である。
+/// </param>
+/// <param name="WorkingDirectory">その部門の作業フォルダ。</param>
+/// <param name="Command">実行ファイル。<b>解決済みのフルパスを渡す</b>（§28-1）。</param>
+/// <param name="Arguments">
+/// 引数。<b>指示書の本文を入れないこと</b>（設計 §32-2f）——
+/// argv は <c>ps</c> に出るので、指示に秘密が入り得る以上そこへ流さない。
+/// 渡すのは<b>指示書の在り処だけ</b>で、中身は CLI に読ませる。
+/// </param>
+/// <param name="ReuseWindowId">
+/// 既にある窓のタブとして開くなら、その窓（設計 §33-5）。null なら新しい窓。
+/// </param>
+public sealed record TerminalLaunchRequest(
+    string Title,
+    string WorkingDirectory,
+    string Command,
+    IReadOnlyList<string> Arguments,
+    string? ReuseWindowId = null);
+
+/// <summary>
+/// 起動した窓（タブ）を指すハンドル。
+/// </summary>
+/// <remarks>
+/// <b>タイトルで照合しない。</b> `osascript` の `do script` は
+/// <c>tab 1 of window id 43990</c> を返すので、**安定したハンドルが最初から手に入る**
+/// （§32-2c の実測）。タイトル照合は、人間が窓の名前を変えた瞬間に壊れる。
+/// </remarks>
+/// <param name="WindowId">ターミナルの窓。前面化はこれで行う。</param>
+/// <param name="TabIndex">その窓の中のタブ。窓を共有するときに要る（§33-5）。</param>
+/// <param name="PidFilePath">
+/// 起動したシェルが自分の PID を書くファイル。
+/// <b>起動時には、まだ書かれていないことがある</b>ので、
+/// 読むのは終了させるとき（<see cref="ITerminalLauncher.TerminateAsync"/>）。
+/// </param>
+public sealed record TerminalHandle(string WindowId, int TabIndex, string PidFilePath);
+
+public abstract record TerminalLaunchResult
+{
+    public sealed record Launched(TerminalHandle Handle) : TerminalLaunchResult;
+
+    /// <summary>起動できなかった。<b>理由を人間に見せる</b>（§28-1）。</summary>
+    public sealed record Failed(string Reason) : TerminalLaunchResult;
+}
+
+public abstract record TerminalTerminateResult
+{
+    /// <summary>シグナルを送れた。<b>「死んだ」とは言わない</b>（§7）——送れたことだけを観測している。</summary>
+    public sealed record Signalled(int ProcessGroupId) : TerminalTerminateResult;
+
+    /// <summary>もう居ない。PID ファイルが無い場合もここ。</summary>
+    public sealed record NotRunning(string Reason) : TerminalTerminateResult;
+
+    public sealed record Failed(string Reason) : TerminalTerminateResult;
+}
+
+/// <summary>
+/// 外部ターミナルを開き、前面に出し、終了させる（設計 §32）。
+/// </summary>
+/// <remarks>
+/// <b>プロセスの終了を待たない。</b> 実測（§32-2e）で、3つの CLI はどれも
+/// <b>turn が終わってもセッションを終了しない</b> ——
+/// `agy -i` の help が "continue the session" と書いているとおりで、
+/// Claude Code と Codex も同じだった。
+/// <para>
+/// したがって<b>完了の信号は <c>report.md</c> しかない</b>（§16-1 の publish 契約）。
+/// 提案書にあった <c>exit_code</c> のファイル契約は<b>持たない</b> ——
+/// あれが書かれるのは人間が窓を閉じたときだけで、仕事の終わりとは無関係だった。
+/// </para>
+/// <para>
+/// <b>OS 依存であって UI 依存ではない</b>ので Core に置く。
+/// Core の禁じ手は Avalonia を参照することであって、OS を知ることではない。
+/// </para>
+/// </remarks>
+public interface ITerminalLauncher
+{
+    Task<TerminalLaunchResult> LaunchAsync(TerminalLaunchRequest request, CancellationToken ct);
+
+    /// <summary>その窓を前面に出す。<b>戻り値は「出せたか」</b> —— 窓が閉じられていれば false。</summary>
+    Task<bool> FocusAsync(TerminalHandle handle, CancellationToken ct);
+
+    /// <summary>
+    /// その窓で動いているものを終了させる（設計 §9）。
+    /// </summary>
+    /// <remarks>
+    /// <b>プロセスグループへ送る。</b> 実測（§32-2d）で、
+    /// <c>kill -TERM &lt;script-pid&gt;</c> では**子が生き残った** ——
+    /// Terminal.app 起動時は PGID がスクリプトの PID と一致していたので、
+    /// <c>kill -TERM -&lt;pgid&gt;</c> が正しい形である。
+    /// これは §14-5 に未決で残していた foreground PGID の答えでもある。
+    /// </remarks>
+    Task<TerminalTerminateResult> TerminateAsync(TerminalHandle handle, CancellationToken ct);
+}

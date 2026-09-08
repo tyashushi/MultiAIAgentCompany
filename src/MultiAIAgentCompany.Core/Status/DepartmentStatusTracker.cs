@@ -147,6 +147,26 @@ public sealed class DepartmentStatusTracker
     }
 
     /// <summary>
+    /// プロセスがもう居ないと分かった（設計 §32）。<b>終了コードは観測していない。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="OnExited"/> と分ける。</b> あちらに <c>0</c> を渡すと
+    /// 「exit code 0 で終了した」と記録され、**観測していないことを言う**ことになる。
+    /// 外部ターミナル（§32）では終了コードを受け取る経路が無い ——
+    /// 分かるのは「もう居ない」だけである。
+    /// </remarks>
+    public void OnDisappeared() => Update(() =>
+    {
+        _pendingApprovals.Clear();
+        var evidence = NewEvidence(EvidenceSource.ProcessExit, "プロセスがもう居ない（終了コードは観測していない）");
+
+        // **意図した終了として扱う。** 人間が窓を閉じたのがふつうで、
+        // 落ちたと決めつけると ⚠ が出て「原因を見る」を押させることになる（§15-4）。
+        SetRuntime(RuntimeState.Exited, evidence);
+        SetActivity(ActivityState.Unknown, evidence);
+    });
+
+    /// <summary>
     /// この部門に読める仕事が無くなった。<b>状態を消すのも観測である</b> ——
     /// 残しておくと、別のワークスペースに切り替えたあとも古い報告まちを指し続ける。
     /// </summary>

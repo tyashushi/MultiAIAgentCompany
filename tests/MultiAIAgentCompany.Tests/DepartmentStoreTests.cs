@@ -169,15 +169,16 @@ public sealed class DepartmentStoreTests : IDisposable
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
     [Fact]
-    public void 既定の部門はすべて構造化になる()
+    public void 既定の部門はすべて同じ駆動モードになる()
     {
-        // 2026-09-06 に Antigravity の既定を Structured へ変えた（§5 / §13-3 追記2）。
-        // これで v1 の部門はすべて構造化で動き、部門を動かすために PTY は要らない。
-        // TUI セッションが入るまで、ここが Tui を含むと起動できない部門ができる。
+        // **AI ごとに分けない**（設計 §32-3、2026-09-09）。
+        // ブリーフ #3 が「部門は全部ターミナル、例外は秘書だけ」と最初から書いている。
+        // ここが割れると、人間が「この部門は聞いてくるが、あの部門は聞いてこない」を
+        // 覚える羽目になる。
         var departments = DepartmentStore.CreateDefaultDepartments();
 
         Assert.Equal(7, departments.Count);
-        Assert.All(departments, department => Assert.Equal(DriveMode.Structured, department.Mode));
+        Assert.All(departments, department => Assert.Equal(DriveMode.ExternalTerminal, department.Mode));
     }
 
     [Fact]
@@ -218,65 +219,29 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
-    public void 危険モードは承認の往復を持たないCLIにだけ適用される()
+    public void 危険モードは廃止されたので設定として残っていない()
     {
-        // **聞ける相手には聞く**（設計 §3 / §30-4）。Claude Code と Codex CLI は
-        // can_use_tool の往復を持つので、危険モードはそちらでは意味を持たない。
-        var claude = new DepartmentDefinition(
-            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.Structured,
-            AutoApproveAllTools: true);
-        var codex = new DepartmentDefinition(
-            "implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.Structured,
-            AutoApproveAllTools: true);
-        var antigravity = new DepartmentDefinition(
-            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured,
-            AutoApproveAllTools: true);
+        // **§30-4 の抜け道は 2026-09-09 に消した**（設計 §32-3）。
+        // 外部ターミナルという「人間に聞く手段」ができたので要らない ——
+        // **聞けるのに聞かない、を残さない。**
+        //
+        // 消したものが復活しないように、**書き出しに綴りが現れないこと**で見張る。
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            new CompanyDefinition(0, DepartmentStore.CreateDefaultDepartments()),
+            TaskStateJson.Options);
 
-        // **宣言は残る**（人間が書いたものを消さない）が、**適用されない**。
-        Assert.True(claude.AutoApproveAllTools);
-        Assert.False(claude.RunsWithAllToolsApproved);
-        Assert.False(codex.RunsWithAllToolsApproved);
-        Assert.True(antigravity.RunsWithAllToolsApproved);
-    }
-
-    [Fact]
-    public void 危険モードの既定はオフ()
-    {
-        var antigravity = new DepartmentDefinition(
-            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured);
-
-        Assert.False(antigravity.AutoApproveAllTools);
-        Assert.False(antigravity.RunsWithAllToolsApproved);
-
-        // 既定部門にも仕込まない（設計 §30-4）。
-        Assert.All(DepartmentStore.CreateDefaultDepartments(), d => Assert.False(d.AutoApproveAllTools));
-    }
-
-    [Fact]
-    public async Task 危険モードはdepartments_jsonに残って読み戻せる()
-    {
-        // 人間が手で書く場所（設計 §15-8）。**読み書きで落ちると「設定したのに効かない」になる。**
-        var dangerous = new DepartmentDefinition(
-            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured,
-            AutoApproveAllTools: true);
-
-        var written = Assert.IsType<DefinitionWriteResult.Written>(
-            await _store.SaveAsync(new(0, []), [dangerous], CancellationToken.None));
-        Assert.True(Assert.Single(written.Definition.Departments).AutoApproveAllTools);
-
-        var back = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
-        var department = Assert.Single(back.Definition.Departments);
-        Assert.True(department.AutoApproveAllTools);
-        Assert.True(department.RunsWithAllToolsApproved);
-
-        var json = await File.ReadAllTextAsync(_paths.Departments);
-
-        // 画面のログでこの名前を人間に案内しているので、綴りが変わったら気付けること。
-        Assert.Contains("autoApproveAllTools", json);
-
-        // **計算値を書き出さない**（実機で発覚、2026-09-08）。読み戻されないので、
-        // 人間がそちらを true にすると「設定したのに黙って無視される」になる。
+        Assert.DoesNotContain("autoApproveAllTools", json);
         Assert.DoesNotContain("runsWithAllToolsApproved", json);
         Assert.DoesNotContain("dangerousModeApplies", json);
+    }
+
+    [Fact]
+    public void 既定の部門はすべて外部ターミナルで動く()
+    {
+        // **AI ごとに分けない**（設計 §32-3）。ブリーフ #3 が
+        // 「部門は全部ターミナル、例外は秘書だけ」と最初から書いている。
+        Assert.All(
+            DepartmentStore.CreateDefaultDepartments(),
+            d => Assert.Equal(DriveMode.ExternalTerminal, d.Mode));
     }
 }

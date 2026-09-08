@@ -394,6 +394,19 @@ public partial class MainWindow : Window
 
         Select(tile);
 
+        // **外部ターミナルの部門は「前面に出す」**（設計 §32）。
+        // あちらは窓を**仕事を渡したときに**開くので、ここで起こすものが無い。
+        if (tile.Call.Lifecycle is DepartmentLifecycle.Focus)
+        {
+            if (!await _runner!.FocusAsync(tile.Id, CancellationToken.None))
+            {
+                // **前面に出せなかったことを言う**（§7）。窓は人間が閉じたのかもしれない。
+                Note($"{tile.Name}: ターミナルを前面に出せなかった（窓が閉じられている可能性があります）");
+            }
+
+            return;
+        }
+
         // **起動していないなら走査しない**（設計 §26-1）。切り替えで捨てられた場合、
         // ここで走査すると前のフォルダを触りに行くか、新しいフォルダの起動時走査を潰す。
         if (await StartAsync(tile))
@@ -478,9 +491,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        var result = await dispatcher.DispatchAsync(
-            found.State, _composer.DefinitionOf(tile.Id), SessionOf(tile.Id),
-            TimeSpan.FromMinutes(30), CancellationToken.None);
+        var result = await LaunchIfTerminalAsync(
+            await dispatcher.DispatchAsync(
+                found.State, _composer.DefinitionOf(tile.Id), SessionOf(tile.Id),
+                TimeSpan.FromMinutes(30), CancellationToken.None),
+            tile.Id);
 
         Note(result switch
         {
@@ -624,9 +639,11 @@ public partial class MainWindow : Window
 
     private async Task RedispatchCoreAsync(DepartmentTile tile, TaskState state, TaskDispatcher dispatcher)
     {
-        var result = await dispatcher.RedispatchAsync(
-            state, _composer!.DefinitionOf(tile.Id), SessionOf(tile.Id),
-            TimeSpan.FromMinutes(30), CancellationToken.None);
+        var result = await LaunchIfTerminalAsync(
+            await dispatcher.RedispatchAsync(
+                state, _composer!.DefinitionOf(tile.Id), SessionOf(tile.Id),
+                TimeSpan.FromMinutes(30), CancellationToken.None),
+            tile.Id);
 
         Note(result switch
         {
@@ -694,14 +711,6 @@ public partial class MainWindow : Window
         }
 
         var definition = _composer.DefinitionOf(tile.Id);
-
-        // **起動のたびに言う**（設計 §30-4）。タイルの印は見落とせるし、
-        // 危険モードはワークスペースを開き直すたびに効き続ける。
-        if (definition.RunsWithAllToolsApproved)
-        {
-            Note($"{tile.Name}: **ツール権限を全部自動承認して起動する**"
-                + "（departments.json の autoApproveAllTools）");
-        }
 
         var started = await _runner.StartAsync(definition, workspace, CancellationToken.None);
         tile.SessionRunning = _runner.IsRunning(tile.Id);
@@ -959,9 +968,11 @@ public partial class MainWindow : Window
             CompanyInstruction.Compose(text, workspace.Company, slug),
             CancellationToken.None);
 
-        var result = await dispatcher.DispatchAsync(
-            created.State, _composer.DefinitionOf(tile.Id), SessionOf(tile.Id),
-            TimeSpan.FromMinutes(30), CancellationToken.None);
+        var result = await LaunchIfTerminalAsync(
+            await dispatcher.DispatchAsync(
+                created.State, _composer.DefinitionOf(tile.Id), SessionOf(tile.Id),
+                TimeSpan.FromMinutes(30), CancellationToken.None),
+            tile.Id);
 
         Note(result switch
         {
@@ -1034,6 +1045,45 @@ public partial class MainWindow : Window
                 // 走査の失敗はここでは扱わない。待つことだけが目的。
             }
         }
+    }
+
+    /// <summary>
+    /// 外部ターミナルの部門なら、ここで窓を開く（設計 §32）。
+    /// </summary>
+    /// <remarks>
+    /// <b>状態は `TaskDispatcher` が既に書いている。</b> ここでやるのは
+    /// プロセスを起こすことだけ —— §9 の「アプリが全部門の親になる」を守るために、
+    /// Core ではなくここで起こす。
+    /// <para>
+    /// 呼び出し元の結果表示を増やさずに済むよう、<b>既にある結果に畳んで返す。</b>
+    /// 開けたら <c>Dispatched</c>、開けなければ <c>SentUncertain</c> ——
+    /// どちらも状態は <c>Dispatched</c> のままで、**自動で送り直さない**（§14-1）。
+    /// </para>
+    /// </remarks>
+    private async Task<DispatchResult> LaunchIfTerminalAsync(DispatchResult result, string departmentId)
+    {
+        if (result is not DispatchResult.LaunchTerminal launch
+            || _composer?.Workspace is not { } workspace || _runner is null)
+        {
+            return result;
+        }
+
+        // **protocol は窓を開く前に置く。** 起動時に渡すのは「これを読んで」だけ。
+        await _composer.WriteDepartmentProtocolAsync(CancellationToken.None);
+
+        var started = await _runner.StartTerminalAsync(
+            _composer.DefinitionOf(departmentId), workspace, launch.Request, CancellationToken.None);
+
+        return started switch
+        {
+            DepartmentStart.Started or DepartmentStart.AlreadyRunning =>
+                new DispatchResult.Dispatched(launch.State),
+            DepartmentStart.Failed failed =>
+                new DispatchResult.SentUncertain(launch.State, $"{failed.Reason}。窓が開いていないか確かめる"),
+
+            // 切り替えの最中だった。**前のフォルダの話なので、ここでは何も言わない**（§26-1）。
+            _ => new DispatchResult.SentUncertain(launch.State, "切り替えの最中だったので窓を開かなかった"),
+        };
     }
 
     private async Task ScanCoreAsync(CompanyScanKind kind)
@@ -1418,9 +1468,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        var result = await dispatcher.DispatchAsync(
-            created.State, composer.DefinitionOf(departmentId), SessionOf(departmentId),
-            TimeSpan.FromMinutes(30), CancellationToken.None);
+        var result = await LaunchIfTerminalAsync(
+            await dispatcher.DispatchAsync(
+                created.State, composer.DefinitionOf(departmentId), SessionOf(departmentId),
+                TimeSpan.FromMinutes(30), CancellationToken.None),
+            departmentId);
 
         Note(result switch
         {

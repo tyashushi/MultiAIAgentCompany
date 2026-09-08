@@ -17,7 +17,9 @@ public sealed class AntigravityAdapter : IAgentAdapter
     /// アプリが拒否を人間へ見せて許可をもらう経路が存在しない ——
     /// **人間が部門ごとに、事前に決めるしかない。**
     /// </remarks>
-    private const string ApproveAllToolsArgument = "--dangerously-skip-permissions";
+    // **`--dangerously-skip-permissions` は使わない**（設計 §32-3、2026-09-09）。
+    // §30-4 の危険モードは、外部ターミナルという「人間に聞く手段」ができたので廃止した ——
+    // **聞けるのに聞かない、を残さない。**
     private readonly Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>> _channelFactory;
     private AntigravitySession? _lastSession;
 
@@ -29,14 +31,13 @@ public sealed class AntigravityAdapter : IAgentAdapter
     public string? DetectedVersion => _lastSession?.DetectedVersion;
 
     public async Task<IAgentSession> StartAsync(
-        WorkspaceRef workspace, string departmentId, DriveMode mode, CancellationToken ct, bool approveAllTools = false)
+        WorkspaceRef workspace, string departmentId, DriveMode mode, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
         if (mode != DriveMode.Structured) throw new ArgumentOutOfRangeException(nameof(mode), mode, null);
 
-        string[] arguments = approveAllTools ? [.. Arguments, ApproveAllToolsArgument] : Arguments;
-        var channel = await _channelFactory("agy", arguments, workspace.Root, ct).ConfigureAwait(false);
+        var channel = await _channelFactory("agy", Arguments, workspace.Root, ct).ConfigureAwait(false);
         try { return _lastSession = new AntigravitySession(channel, departmentId); }
         catch { await channel.DisposeAsync().ConfigureAwait(false); throw; }
     }

@@ -24,14 +24,6 @@ public interface IAgentAdapter
     /// どの部門として動かすか。<b>同じ CLI を複数の部門に割り当てられる</b>ので、
     /// エージェントの種類だけでは足りない。
     /// </param>
-    /// <param name="approveAllTools">
-    /// ツール権限を<b>全部自動承認させる</b>か（設計 §30-4 の危険モード）。<b>既定は false。</b>
-    /// <para>
-    /// <b>承認の往復を持つ CLI に渡してはいけない。</b> 聞ける相手には聞く（§3）ので、
-    /// そちらのアダプタは true を受けたら例外にする —— 黙って無視すると
-    /// 「危険モードにしたのに効いていない」と「安全なのに危険と表示する」が両方起きる。
-    /// </para>
-    /// </param>
     /// <returns>
     /// <see cref="Sessions.IStructuredSession"/>。v1 の駆動モードはこれだけ（設計 §22-4）。
     /// </returns>
@@ -39,6 +31,5 @@ public interface IAgentAdapter
         Workspace.WorkspaceRef workspace,
         string departmentId,
         DriveMode mode,
-        CancellationToken ct,
-        bool approveAllTools = false);
+        CancellationToken ct);
 }
