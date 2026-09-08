@@ -50,9 +50,6 @@ public sealed class AntigravitySession : IStructuredSession
     /// <inheritdoc />
     public event EventHandler<LiveAgentMessage>? Spoke;
 
-    /// <summary>delta を1つでも受けたか。<b>受けていれば result.response を出さない</b>（二重表示を避ける。§17-5）。</summary>
-    private bool _sawDelta;
-
     public Task SendUserMessageAsync(string text, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -84,9 +81,16 @@ public sealed class AntigravitySession : IStructuredSession
                         _sawStepError = true;
                         break;
                     case AntigravityEvent.Finished finished:
-                        // delta が無いときの fallback（設計 §17-5）。**ライブ表示専用。**
-                        // delta を受けていれば出さない —— 二重表示になる。
-                        if (!_sawDelta && finished.Response.Length > 0)
+                        // **Antigravity の protocol に delta イベントは存在しない**
+                        // （§13-3。読めるのは init / step_update / result だけ）。
+                        // だから `result.response` をそのまま出してよい。
+                        //
+                        // **delta を足すときは、ここも同時に塞ぐこと** ——
+                        // 受けた delta を出したうえでここも出すと二重表示になる。
+                        // 以前は「delta を見たか」の bool を置いてあったが、
+                        // **一度も true にならないので嘘の番人だった**（CS0649）。
+                        // 番人は、実際に見張れるようになった時に戻す（2026-09-09）。
+                        if (finished.Response.Length > 0)
                         {
                             SafeInvoke(() => Spoke?.Invoke(this, new LiveAgentMessage(finished.Response)), "Spoke");
                         }

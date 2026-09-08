@@ -1038,8 +1038,15 @@ public partial class MainWindow : Window
 
     private async Task ScanCoreAsync(CompanyScanKind kind)
     {
+        // 呼び出し元（ScanAsync）が既に弾いているが、**不変条件をここにも書く** ——
+        // 書かないとコンパイラの null 警告を抑えるだけになり、
+        // 前提が変わったときに気付けない。
+        if (_composer is not { } composer)
+        {
+            return;
+        }
 
-        var result = await _composer.ScanAsync(kind, CancellationToken.None);
+        var result = await composer.ScanAsync(kind, CancellationToken.None);
         foreach (var applied in result?.Applied ?? [])
         {
             Note($"{applied.Slug}: {applied.From} → {applied.To}（{applied.Because}）");
@@ -1050,7 +1057,7 @@ public partial class MainWindow : Window
             Note($"{blocked.Slug}: {blocked.From} → {blocked.To} を書けなかった（{blocked.Reason}）");
         }
 
-        foreach (var line in _composer.DrainSilenceNotices())
+        foreach (var line in composer.DrainSilenceNotices())
         {
             Note(line);
         }
@@ -1406,8 +1413,13 @@ public partial class MainWindow : Window
         // ここまで済んでから移す（§17-6）。
         outbox.Accept(card.Id, slug, DateTimeOffset.Now);
 
+        if (_composer is not { } composer)
+        {
+            return;
+        }
+
         var result = await dispatcher.DispatchAsync(
-            created.State, _composer.DefinitionOf(departmentId), SessionOf(departmentId),
+            created.State, composer.DefinitionOf(departmentId), SessionOf(departmentId),
             TimeSpan.FromMinutes(30), CancellationToken.None);
 
         Note(result switch
