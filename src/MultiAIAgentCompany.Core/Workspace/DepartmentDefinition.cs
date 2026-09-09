@@ -102,6 +102,83 @@ public sealed class DepartmentStore
         }
     }
 
+    /// <summary>
+    /// <c>departments.json</c> のうち、<b>アプリが読まなかったキー</b>を挙げる（設計 §32-10）。
+    /// </summary>
+    /// <remarks>
+    /// <b>JSON は未知のキーを黙って捨てる</b>（既定の <c>UnmappedMemberHandling</c>）。
+    /// だから廃止したキーが残っていても読めてしまい、**人間が書いたものが
+    /// 黙って無視される** —— §30-6 で潰したはずの形が、**廃止した側から**戻ってくる。
+    /// <para>
+    /// <b>弾かない。</b> 余分なキーがあるだけで開けなくすると、
+    /// 人間が書き置き代わりに1行足しただけでフォルダが死ぬ。**言うだけにする。**
+    /// </para>
+    /// <para>
+    /// <b>定義の型に <c>JsonExtensionData</c> を持たせない。</b> record の等値比較に
+    /// 辞書が入ると参照比較になり、**読むたびに「顔ぶれが変わった」ことになって
+    /// 部門タイルが毎回作り直される**（§30-6 の「同じ顔ぶれなら作り直さない」が壊れる）。
+    /// だからここでは<b>生の JSON をもう一度読む。</b>
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<string>> FindUnreadKeysAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!File.Exists(_paths.Departments))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(await File.ReadAllBytesAsync(_paths.Departments, ct));
+            if (document.RootElement.ValueKind is not JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("departments", out var departments)
+                || departments.ValueKind is not JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            var unread = new List<string>();
+            foreach (var department in departments.EnumerateArray())
+            {
+                if (department.ValueKind is not JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var id = department.TryGetProperty("id", out var idValue) ? idValue.GetString() : null;
+                foreach (var property in department.EnumerateObject())
+                {
+                    if (!KnownKeys.Contains(property.Name))
+                    {
+                        unread.Add($"{id ?? "(id 不明)"}: {property.Name}");
+                    }
+                }
+            }
+
+            return unread;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // **読めないことは、ここでは扱わない。** それは ReadAsync が Unreadable として返す。
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// アプリが読むキー。<b><see cref="DepartmentDefinition"/> と一緒に直すこと。</b>
+    /// </summary>
+    /// <remarks>
+    /// camelCase で持つ（<see cref="TaskStateJson.Options"/> がそう書く）。
+    /// <b>ここを直し忘れると、読んでいるキーを「読んでいない」と言う</b>ので、
+    /// テストで既定の部門を往復させて見張る。
+    /// </remarks>
+    private static readonly HashSet<string> KnownKeys = new(StringComparer.Ordinal)
+    {
+        "id", "displayName", "responsibility", "agent", "mode",
+        "model", "readsOnly", "reportDeadlineMinutes",
+    };
+
     public async Task<DefinitionWriteResult> SaveAsync(
         CompanyDefinition expected, IReadOnlyList<DepartmentDefinition> departments, CancellationToken ct)
     {

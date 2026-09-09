@@ -93,6 +93,16 @@
                                                 Click="OnRecoveryRescan" />
                                     </WrapPanel>
 
+                                    <!-- 設定の話は**人間が直す**（設計 §32-10）。
+                                         アプリは departments.json を書き換えない（§30-4 / §30-6）ので、
+                                         出すのは開く手立てだけ。 -->
+                                    <WrapPanel IsVisible="{Binding IsConfiguration}" Margin="0,4,0,0">
+                                        <Button Content="フォルダを開く" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
+                                                Click="OnRecoveryOpenFolder" />
+                                        <Button Content="もう一度読む" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
+                                                Click="OnRecoveryRescan" />
+                                    </WrapPanel>
+
                                     <WrapPanel IsVisible="{Binding IsUnreadable}" Margin="0,4,0,0">
                                         <Button Content="フォルダを開く" FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,4"
                                                 Click="OnRecoveryOpenFolder" />

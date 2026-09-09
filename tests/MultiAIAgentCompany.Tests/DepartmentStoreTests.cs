@@ -205,6 +205,69 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 読まなかったキーを挙げる()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_paths.Departments)!);
+        await File.WriteAllTextAsync(_paths.Departments,
+            """
+            {
+              "revision": 1,
+              "departments": [
+                {
+                  "id": "research", "displayName": "調査", "responsibility": "調べる",
+                  "agent": "AntigravityCli", "mode": "Structured",
+                  "autoApproveAllTools": true, "むかしのメモ": "何か"
+                }
+              ]
+            }
+            """);
+
+        var unread = await _store.FindUnreadKeysAsync(CancellationToken.None);
+
+        Assert.Contains("research: autoApproveAllTools", unread);
+        Assert.Contains("research: むかしのメモ", unread);
+    }
+
+    [Fact]
+    public async Task 既定の部門には読まなかったキーが無い()
+    {
+        // **`KnownKeys` を直し忘れると、読んでいるキーを「読んでいない」と言う。**
+        // 既定の部門を往復させて見張る（DepartmentDefinition を足したら、ここが落ちる）。
+        Assert.IsType<DefinitionWriteResult.Written>(await _store.SaveAsync(
+            new CompanyDefinition(0, []), DepartmentStore.CreateDefaultDepartments(), CancellationToken.None));
+
+        Assert.Empty(await _store.FindUnreadKeysAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public void 権限を人間に聞けない組み合わせを見つける()
+    {
+        // **2026-09-09 に実機で踏んだ**（§30-1 の再現）。
+        var broken = new DepartmentDefinition(
+            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.Structured);
+        var fine = new DepartmentDefinition(
+            "research2", "調査2", "調べる", AgentKind.AntigravityCli, DriveMode.ExternalTerminal);
+
+        // 承認の往復を持つ CLI は Structured でも聞ける（§13-1 / §13-2）。
+        var claude = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.Structured);
+
+        Assert.True(DepartmentWarnings.CannotAskHuman(broken));
+        Assert.False(DepartmentWarnings.CannotAskHuman(fine));
+        Assert.False(DepartmentWarnings.CannotAskHuman(claude));
+
+        var warning = Assert.Single(DepartmentWarnings.For([broken, fine, claude]));
+        Assert.Equal("research", warning.DepartmentId);
+        Assert.Contains("ExternalTerminal", warning.Message);
+    }
+
+    [Fact]
+    public void 既定の部門は誰も権限で詰まらない()
+    {
+        Assert.Empty(DepartmentWarnings.For(DepartmentStore.CreateDefaultDepartments()));
+    }
+
+    [Fact]
     public void 既定の部門はすべて同じ駆動モードになる()
     {
         // **AI ごとに分けない**（設計 §32-3、2026-09-09）。

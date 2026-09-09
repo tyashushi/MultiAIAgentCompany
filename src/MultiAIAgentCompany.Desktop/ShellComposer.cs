@@ -275,6 +275,8 @@ public sealed class ShellComposer
                 // 部門に紐づけない —— state.json が読めないなら departmentId も信用できない。
                 Shell.Recovery.Add(new RecoveryItem(RecoveryKind.Unreadable, broken.Slug, broken.Reason));
             }
+
+            await AddConfigurationWarningsAsync(ct);
         }
 
         return result;
@@ -532,6 +534,46 @@ public sealed class ShellComposer
         Workspace is { } workspace
             ? DepartmentReadme.WriteAsync(workspace.Company, ct)
             : Task.CompletedTask;
+
+    /// <summary>
+    /// 部門定義について、人間に伝えるべきことを出す（設計 §32-10）。
+    /// </summary>
+    /// <remarks>
+    /// <b>2つとも、版番号では見つけられない。</b> 中身を見ないと分からないし、
+    /// 版が同じでも起きる（人間は手で書き換える）——
+    /// §23-4 の「<c>schemaVersion</c> を持つか」は、これで閉じられる。
+    /// <para>
+    /// <b>アプリは直さない。</b> `departments.json` は人間の持ち物である（§30-4 / §30-6）。
+    /// </para>
+    /// </remarks>
+    private async Task AddConfigurationWarningsAsync(CancellationToken ct)
+    {
+        // ① 動かない組み合わせ（§30-1 の実測）。
+        foreach (var warning in DepartmentWarnings.For([.. _definitions.Values]))
+        {
+            Shell.Recovery.Add(
+                new RecoveryItem(RecoveryKind.Configuration, "departments.json", warning.Message)
+                {
+                    DepartmentId = warning.DepartmentId,
+                });
+        }
+
+        // ② アプリが読まなかったキー。**黙って捨てない**（§30-6 の裏返し）。
+        if (Workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var unread = await new DepartmentStore(workspace.Company).FindUnreadKeysAsync(ct);
+        if (unread.Count > 0)
+        {
+            Shell.Recovery.Add(new RecoveryItem(
+                RecoveryKind.Configuration, "departments.json",
+                $"`departments.json` に、**このアプリが読まなかったキー**があります: "
+                + $"{string.Join(", ", unread)}。"
+                + "書いても効きません（廃止されたか、綴りが違います）"));
+        }
+    }
 
     /// <summary>
     /// 相談スレッドの一覧を読み直す（設計 §32-6）。

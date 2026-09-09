@@ -542,6 +542,7 @@ public sealed record RecoveryItem(RecoveryKind Kind, string Slug, string Detail)
         RecoveryKind.MaybeSent => "送ったかもしれない",
         RecoveryKind.UnreadableLease => "書き込み権を読めない",
         RecoveryKind.ExpiredLease => "書き込み権が失効したまま",
+        RecoveryKind.Configuration => "部門の設定",
         _ => "読めない",
     };
 
@@ -558,6 +559,11 @@ public sealed record RecoveryItem(RecoveryKind Kind, string Slug, string Detail)
     /// 失効した書き込み権が残っている（設計 §24）。<b>待っても空かない。</b>
     /// </summary>
     public bool IsExpiredLease => Kind is RecoveryKind.ExpiredLease;
+
+    /// <summary>
+    /// 部門の設定の話（設計 §32-10）。<b>直すのは人間</b>なので、出すのは「開く」だけ。
+    /// </summary>
+    public bool IsConfiguration => Kind is RecoveryKind.Configuration;
 
     /// <summary>担当部門。<b>読めない仕事では null</b> —— 中の departmentId も信用できない（§16-3）。</summary>
     public string? DepartmentId { get; init; }
@@ -584,6 +590,12 @@ public enum RecoveryKind
     /// <b>仕事1件の問題ではなく、ワークスペース全体が止まる。</b>
     /// </summary>
     UnreadableLease,
+
+    /// <summary>
+    /// 部門の設定が、そのままでは動かない組み合わせ（設計 §32-10）。
+    /// <b>壊れてはいないので開ける。</b> 直すのは人間で、アプリは書き換えない。
+    /// </summary>
+    Configuration,
 
     /// <summary>
     /// 書き込み権が失効した保持者を持ったまま（設計 §24）。
