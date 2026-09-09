@@ -79,6 +79,15 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     /// <summary>秘書の発言。<b>ライブ表示だけ</b> —— 永続しない（§17-3 / §10）。</summary>
     public event EventHandler<string>? Said;
 
+    /// <summary>
+    /// 秘書の診断（設計 §22）。<b>ライブ専用で、永続させない</b>（§10）。
+    /// </summary>
+    /// <remarks>
+    /// <b>秘書は部門ではない</b>ので、部門タイルの診断には置き場が無い ——
+    /// アプリ全体の診断（§28-9）へ流す。
+    /// </remarks>
+    public event EventHandler<LiveDiagnostic>? Diagnosed;
+
     public bool IsRunning => _session is not null;
 
     /// <summary>
@@ -165,6 +174,23 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
             SetState(exitCode == 0 ? SecretaryState.NotStarted : SecretaryState.Failed,
                 exitCode == 0 ? null : $"終了コード {exitCode}");
         };
+
+        // **診断（stderr の生の行）を捨てない**（設計 §22、2026-09-09 に実機で踏んだ）。
+        // ここが繋がっていなかったので、秘書が「API Error: 400 status code (no body)」
+        // としか言えないとき、**その後ろにある理由がどこにも出なかった** ——
+        // §22 が stderr を運ぶために作った経路が、秘書にだけ無かった（§30-2 と同じ形）。
+        //
+        // 出し先は<b>アプリ全体の診断</b>（§28-9）。秘書は部門ではないので、
+        // 部門タイルの診断には置き場が無い。
+        session.Diagnosed += (_, diagnostic) => Diagnosed?.Invoke(this, diagnostic);
+
+        // **購読より前に出た分を流し込む**（§22-2）。**起動の失敗こそ見せたいもの**
+        // （trust・login・ハンドシェイク・proxy）なのに、アダプタはハンドシェイクを
+        // 終えてからセッションを返すので、イベントだけでは取りこぼす。
+        foreach (var diagnostic in session.RecentDiagnostics(50).Reverse())
+        {
+            Diagnosed?.Invoke(this, diagnostic);
+        }
 
         // 承認の仕組みは部門と共通。**出す場所だけが違う**（§1 / §17-2）。
         session.ApprovalRequested += (_, request) => approvals.Add(new PendingApproval(

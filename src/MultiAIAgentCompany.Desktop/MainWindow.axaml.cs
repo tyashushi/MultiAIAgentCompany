@@ -120,6 +120,16 @@ public partial class MainWindow : Window
         _secretary.StateChanged += (_, _) => Dispatcher.UIThread.Post(UpdateSecretaryStatus);
         _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => SayAndRecord("secretary", line));
 
+        // **秘書の stderr を捨てない**（設計 §22、2026-09-09 に実機で踏んだ）。
+        // 「API Error: 400 status code (no body)」の**後ろにある理由**は、ここにしか出ない。
+        _secretary.Diagnosed += (_, diagnostic) => Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is ShellViewModel shell)
+            {
+                shell.Diagnostics.Add(diagnostic);
+            }
+        });
+
         // **窓が閉じられたらタイルも直す**（設計 §32）。放っておくと
         // 「前面に出す」が残り、押しても何も起きない。
         _runner.SessionsChanged += (_, departmentId) =>
@@ -1873,7 +1883,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var recent = shell.Diagnostics.Recent(5);
+        // **5行では足りない**（2026-09-09 に実機で踏んだ）。proxy や login の失敗は
+        // 数行にわたるので、途中で切れると原因に辿り着けない。
+        // 出し先は作業ログ（上限 500 行、永続しない）なので、広げても害が無い。
+        var recent = shell.Diagnostics.Recent(30);
         NoteBlock(
             $"—— 直近のエラーの詳細（{shell.Diagnostics.Summary}）——",
             recent.Count is 0 ? ["まだ記録がない"] : recent.Select(d => d.Text));
