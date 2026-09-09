@@ -98,6 +98,18 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
                     case ClaudeEvent.TurnFinished finished:
                         var verdict = ClaudeTurnOutcome.ToSignals(finished)
                             .Judge(OutcomeRequirement.For(AgentKind.ClaudeCode));
+
+                        // **分かっている手がかりを、人間に届ける**（設計 §13、2026-09-09）。
+                        // 判定（どの層が落ちたか）だけでは動けない —— API エラーの番号は
+                        // ここでしか分からないのに、捨てていた。
+                        if (!verdict.Succeeded && ClaudeTurnOutcome.DescribeFailure(finished) is { } detail)
+                        {
+                            verdict = verdict with { Reason = $"{verdict.Reason}（{detail}）" };
+
+                            // 診断にも出す。**永続させない**（§10 / §22）。
+                            Diagnose(DiagnosticStream.Protocol, $"turn が失敗した: {detail}");
+                        }
+
                         SafeInvoke(() => TurnFinished?.Invoke(this, verdict), "TurnFinished");
                         break;
                     case ClaudeEvent.AssistantSpoke spoke:
@@ -167,6 +179,17 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
     /// <b>ここでは分類しない。</b> 分類（永続してよい要約）は <c>Observed</c> の仕事で、
     /// こちらは<b>中身</b>を運ぶ。画面にだけ出し、保存しない（§10）。
     /// </remarks>
+    /// <summary>
+    /// アプリ側で分かった経路の異常を、診断へ出す（設計 §22）。
+    /// </summary>
+    /// <remarks><b>永続させない</b>（§10）—— <c>Evidence</c> には渡さない。</remarks>
+    private void Diagnose(DiagnosticStream stream, string text)
+    {
+        var diagnostic = new LiveDiagnostic(stream, text);
+        _diagnostics.Add(diagnostic);
+        SafeInvoke(() => Diagnosed?.Invoke(this, diagnostic), "Diagnosed");
+    }
+
     private void StandardErrorLine(object? sender, string line)
     {
         // **購読より前の分も残す**（設計 §22-2）—— 起動の失敗はここに出る。

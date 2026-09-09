@@ -11,8 +11,21 @@ public abstract record ClaudeEvent
 
     public sealed record ApprovalAsked(ClaudeApprovalRequest Request) : ClaudeEvent;
 
+    /// <param name="Subtype">CLI が言う結末（<c>success</c> ほか）。</param>
+    /// <param name="Denials">握りつぶされたツール実行。</param>
+    /// <param name="IsError">
+    /// <c>is_error</c>。<b>`subtype` とは別の手がかり</b>（設計 §13 の3層）——
+    /// 片方だけを見ていると、**もう片方が失敗と言っているのに成功にしてしまう。**
+    /// </param>
+    /// <param name="ApiErrorStatus">
+    /// <c>api_error_status</c>。**人間に見せる理由がここにしか無いことがある**
+    /// （2026-09-09 に実機で踏んだ: 秘書が「API Error: 400 status code (no body)」と
+    /// 発言だけして、アプリは理由を持てなかった）。
+    /// </param>
     public sealed record TurnFinished(string? Subtype,
-        IReadOnlyList<ClaudePermissionDenial> Denials) : ClaudeEvent;
+        IReadOnlyList<ClaudePermissionDenial> Denials,
+        bool IsError = false,
+        string? ApiErrorStatus = null) : ClaudeEvent;
 
     public sealed record Passthrough(string Type, string? Subtype) : ClaudeEvent;
 
@@ -249,7 +262,16 @@ public static class ClaudeStreamReader
             }
         }
 
-        return new ClaudeEvent.TurnFinished(GetString(root, "subtype"), denials);
+        // **`subtype` だけを見ない**（設計 §13 の3層）。`is_error` と `api_error_status` は
+        // 別の手がかりで、**API エラーのときは理由がここにしか無い。**
+        var isError = root.TryGetProperty("is_error", out var errorFlag)
+            && errorFlag.ValueKind is JsonValueKind.True;
+        var apiErrorStatus = root.TryGetProperty("api_error_status", out var status)
+            && status.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
+            ? status.ToString()
+            : null;
+
+        return new ClaudeEvent.TurnFinished(GetString(root, "subtype"), denials, isError, apiErrorStatus);
     }
 
     private static IReadOnlyList<PermissionSuggestion> ReadSuggestions(JsonElement request)
@@ -345,13 +367,50 @@ public static class ClaudeControlResponse
 
 public static class ClaudeTurnOutcome
 {
+    /// <summary>
+    /// 人間に見せる、失敗の理由（設計 §13）。<b>分かっている手がかりを全部並べる。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b>「うまくいかなかった」だけでは動けない</b>（2026-09-09 に実機で踏んだ）——
+    /// 秘書が API エラーで止まったとき、画面に出たのは発言の1行だけで、
+    /// <c>api_error_status</c> はアプリの中で捨てられていた。
+    /// </remarks>
+    public static string? DescribeFailure(ClaudeEvent.TurnFinished finished)
+    {
+        ArgumentNullException.ThrowIfNull(finished);
+
+        var parts = new List<string>();
+        if (finished.ApiErrorStatus is { Length: > 0 } status)
+        {
+            parts.Add($"API エラー {status}");
+        }
+
+        if (finished.Subtype is { Length: > 0 } subtype
+            && !string.Equals(subtype, "success", StringComparison.Ordinal))
+        {
+            parts.Add($"結末 {subtype}");
+        }
+
+        if (finished.IsError)
+        {
+            parts.Add("is_error");
+        }
+
+        return parts.Count is 0 ? null : string.Join(" / ", parts);
+    }
+
     public static OutcomeSignals ToSignals(ClaudeEvent.TurnFinished finished)
     {
         ArgumentNullException.ThrowIfNull(finished);
+        // **どちらか一方でも失敗と言っていたら失敗**（設計 §13 の3層 / §14-4）。
+        // `subtype` だけを見ていたので、`is_error` を見落としていた（2026-09-09）。
+        var succeeded = string.Equals(finished.Subtype, "success", StringComparison.Ordinal)
+            && !finished.IsError;
+
         return new OutcomeSignals(
             Protocol: LayerObservation.Ok,
             Tool: LayerObservation.NotApplicable,
-            Payload: string.Equals(finished.Subtype, "success", StringComparison.Ordinal) ? LayerObservation.Ok : LayerObservation.Failed,
+            Payload: succeeded ? LayerObservation.Ok : LayerObservation.Failed,
             DeniedActions: finished.Denials.Select(denial => denial.ToolName).ToArray());
     }
 }

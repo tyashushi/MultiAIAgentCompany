@@ -165,4 +165,47 @@ public sealed class ClaudeStreamTests
 
         Assert.Contains("initialize", unknown.Reason);
     }
+
+    [Fact]
+    public void api_error_statusとis_errorを読む()
+    {
+        // **subtype だけを見ない**（設計 §13 の3層）。2026-09-09 に実機で踏んだ ——
+        // 秘書が「API Error: 400 status code (no body)」と発言しただけで、
+        // **アプリは理由を持てなかった。**
+        var finished = Assert.IsType<ClaudeEvent.TurnFinished>(ClaudeStreamReader.ReadLine(
+            """{"type":"result","subtype":"error_during_execution","is_error":true,"api_error_status":400}"""));
+
+        Assert.True(finished.IsError);
+        Assert.Equal("400", finished.ApiErrorStatus);
+
+        var verdict = ClaudeTurnOutcome.ToSignals(finished)
+            .Judge(OutcomeRequirement.For(AgentKind.ClaudeCode));
+        Assert.False(verdict.Succeeded);
+
+        var detail = ClaudeTurnOutcome.DescribeFailure(finished);
+        Assert.Contains("API エラー 400", detail);
+        Assert.Contains("error_during_execution", detail);
+    }
+
+    [Fact]
+    public void subtypeがsuccessでもis_errorなら失敗にする()
+    {
+        // **片方だけを見ていると、もう片方が失敗と言っているのに成功にしてしまう。**
+        var finished = Assert.IsType<ClaudeEvent.TurnFinished>(ClaudeStreamReader.ReadLine(
+            """{"type":"result","subtype":"success","is_error":true}"""));
+
+        Assert.False(ClaudeTurnOutcome.ToSignals(finished)
+            .Judge(OutcomeRequirement.For(AgentKind.ClaudeCode)).Succeeded);
+    }
+
+    [Fact]
+    public void 成功したturnには失敗の説明を作らない()
+    {
+        var finished = Assert.IsType<ClaudeEvent.TurnFinished>(ClaudeStreamReader.ReadLine(
+            """{"type":"result","subtype":"success","is_error":false,"api_error_status":null}"""));
+
+        Assert.True(ClaudeTurnOutcome.ToSignals(finished)
+            .Judge(OutcomeRequirement.For(AgentKind.ClaudeCode)).Succeeded);
+        Assert.Null(ClaudeTurnOutcome.DescribeFailure(finished));
+    }
 }
