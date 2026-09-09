@@ -411,8 +411,23 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     public bool NeedsHuman => Call.NeedsHuman;
 
     /// <summary>状態の根拠。<b>状態だけを見せない</b>（設計 §7）。</summary>
+    /// <summary>
+    /// 活動状態の根拠。<b>分からないなら、なぜ分からないかを出す。</b>
+    /// </summary>
+    /// <remarks>
+    /// 外部ターミナルの部門は<b>構造化イベントを受け取らない</b>ので、
+    /// 活動は原理的に <c>Unknown</c> のままになる（設計 §32-4）。
+    /// そこに初期化時の根拠（「状態検出器を初期化した」）を出すと、
+    /// **観測が止まっているように見える** —— 実機で人間が引っかかった（2026-09-09）。
+    /// <para>
+    /// <b>根拠を作り替えてはいない。</b> <see cref="Status"/> はそのままで、
+    /// **画面が自分の限界を説明している**だけである。
+    /// </para>
+    /// </remarks>
     public string EvidenceText =>
-        $"{Status.Activity.Evidence.Source} / {Status.Activity.Evidence.RedactedSummary}";
+        Mode is DriveMode.ExternalTerminal && Status.Activity.Value is ActivityState.Unknown
+            ? "活動は観測できない（外部ターミナルなので、何をしているかはその窓で見る）"
+            : $"{Status.Activity.Evidence.Source} / {Status.Activity.Evidence.RedactedSummary}";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
