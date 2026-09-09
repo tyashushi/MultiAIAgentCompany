@@ -169,6 +169,42 @@ public sealed class DepartmentStoreTests : IDisposable
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
     [Fact]
+    public async Task 廃止したキーが残っていても読めるが黙って無視される()
+    {
+        // **これは「いまの形の弱点」を固定するテストであって、望ましい姿ではない**（設計 §32-10）。
+        // JSON は未知のキーを既定で捨てるので、**人間が書いた `autoApproveAllTools` は
+        // 読み流される** —— §30-6 で潰したはずの「設定したのに黙って無視される」が、
+        // **廃止した側から**戻ってくる。
+        Directory.CreateDirectory(Path.GetDirectoryName(_paths.Departments)!);
+        await File.WriteAllTextAsync(_paths.Departments,
+            """
+            {
+              "revision": 1,
+              "departments": [
+                {
+                  "id": "research",
+                  "displayName": "調査",
+                  "responsibility": "調べる",
+                  "agent": "AntigravityCli",
+                  "mode": "Structured",
+                  "autoApproveAllTools": true
+                }
+              ]
+            }
+            """);
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        var department = Assert.Single(read.Definition.Departments);
+
+        // 読めてしまう。**エラーにならない。**
+        Assert.Equal("research", department.Id);
+
+        // そして古い駆動モードのまま残る —— agy は Structured では
+        // 権限を人間に聞けない（§30-1 の実測）。**今朝これを実機で踏んだ。**
+        Assert.Equal(DriveMode.Structured, department.Mode);
+    }
+
+    [Fact]
     public void 既定の部門はすべて同じ駆動モードになる()
     {
         // **AI ごとに分けない**（設計 §32-3、2026-09-09）。
