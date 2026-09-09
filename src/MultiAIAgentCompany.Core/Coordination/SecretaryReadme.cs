@@ -11,11 +11,51 @@ namespace MultiAIAgentCompany.Core.Coordination;
 public static class SecretaryReadme
 {
     /// <summary>起動直後に送る1通目。<b>protocol 本体は送らない。</b></summary>
-    public static string StartupMessage(CompanyPaths paths) =>
-        $"""
-        {paths.SecretaryReadme} を読んで、その protocol に従ってください。
-        会話履歴は正本ではありません。仕事の提案は outbox に publish してください。
-        """;
+    /// <remarks>
+    /// <b>人間の1通目と、同じ turn にまとめる</b>（2026-09-09）。
+    /// <para>
+    /// 以前は「protocol を読んで」を1通目、人間の本文を2通目として<b>続けて書いていた。</b>
+    /// <c>SendUserMessageAsync</c> は<b>行を書くだけで turn の完了を待たない</b>ので、
+    /// **1通目がツールを実行している最中に2通目が割り込む**（§32-12）。
+    /// </para>
+    /// <para>
+    /// <b>これは 400 の原因ではなかった</b>（あれは間欠的な上流エラーで、
+    /// 素の <c>claude -p</c> でも出た。§32-12 に顛末を書いた）。
+    /// それでもこの形にするのは、<b>二重送信の道が実際に開いているから</b>と、
+    /// 別 turn にすると「1通目で読ませたはず」を<b>アプリが会話の外で仮定する</b>ことに
+    /// なるからである。
+    /// </para>
+    /// <para>
+    /// <b>protocol を会話に埋めてはいない</b>（§17-6）—— 埋めているのは
+    /// <b>「正本を読め」という参照だけ</b>である。むしろ別 turn にするほうが、
+    /// 「1通目で読ませたはず」をアプリが会話の外で仮定することになって壊れやすい。
+    /// </para>
+    /// </remarks>
+    /// <param name="paths">ワークスペースの <c>.company/</c>。</param>
+    /// <param name="firstMessage">
+    /// 人間が最初に打った本文。null なら protocol を読ませるだけ。
+    /// </param>
+    public static string StartupMessage(CompanyPaths paths, string? firstMessage = null)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        var header = $"""
+            {paths.SecretaryReadme} を読んで、その protocol に従ってください。
+            会話履歴は正本ではありません。仕事の提案は outbox に publish してください。
+            """;
+
+        return string.IsNullOrWhiteSpace(firstMessage)
+            ? header
+            : $"""
+              {header}
+
+              そのうえで、次の依頼を処理してください。
+
+              <人間からの依頼>
+              {firstMessage}
+              </人間からの依頼>
+              """;
+    }
 
     /// <summary>protocol を書き出す。既にあれば上書きする（形式が変わることがあるため）。</summary>
     public static async Task WriteAsync(

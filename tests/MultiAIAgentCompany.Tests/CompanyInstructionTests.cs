@@ -48,4 +48,31 @@ public sealed class CompanyInstructionTests
         Assert.Contains("git", text, StringComparison.Ordinal);   // 設計 §8
         Assert.Contains("トークン", text, StringComparison.Ordinal); // 設計 §10 / §14-5
     }
+
+    [Fact]
+    public void 起動の案内と最初の依頼を1通にまとめる()
+    {
+        // 別々の turn にすると、1通目のツール実行中に2通目が割り込む（設計 §32-12）——
+        // `SendUserMessageAsync` は行を書くだけで turn の完了を待たない。
+        var paths = new CompanyPaths("/tmp/ws");
+
+        var merged = SecretaryReadme.StartupMessage(paths, "認証まわりを設計したい");
+
+        Assert.Contains(paths.SecretaryReadme, merged);
+        Assert.Contains("認証まわりを設計したい", merged);
+
+        // **protocol の中身は埋めない**（§17-6）。埋めるのは「正本を読め」だけ。
+        Assert.DoesNotContain("あなたは**秘書**です", merged);
+    }
+
+    [Fact]
+    public void 依頼が無ければ案内だけを送る()
+    {
+        var paths = new CompanyPaths("/tmp/ws");
+
+        var alone = SecretaryReadme.StartupMessage(paths);
+
+        Assert.Contains(paths.SecretaryReadme, alone);
+        Assert.DoesNotContain("人間からの依頼", alone);
+    }
 }

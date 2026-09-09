@@ -1070,7 +1070,18 @@ public partial class MainWindow : Window
 
         ClearMessage();
         SayAndRecord("human", text);
-        await _secretary.SendAsync(text, CancellationToken.None);
+
+        // **1通にまとめて送る**（設計 §32-12）。protocol の案内と人間の本文を
+        // 別々の turn にすると、1通目のツール実行中に2通目が割り込む。
+        var toSend = _secretaryNeedsProtocol
+            ? SecretaryReadme.StartupMessage(workspace.Company, text)
+            : text;
+
+        await _secretary.SendAsync(toSend, CancellationToken.None);
+
+        // **送れてから降ろす。** 先に降ろすと、送信で落ちたとき
+        // protocol を読ませないまま次へ進む（§7 の「していないことをしたことにしない」）。
+        _secretaryNeedsProtocol = false;
     }
 
     /// <summary>
@@ -1114,11 +1125,22 @@ public partial class MainWindow : Window
             return false;
         }
 
-        // protocol の正本は README。**中身を会話に埋めない**（設計 §17-6）。
-        await _secretary.SendAsync(
-            SecretaryReadme.StartupMessage(workspace.Company), CancellationToken.None);
+        // **ここでは送らない**（設計 §32-12）。ここで protocol を送り、呼び出し元が
+        // 続けて本文を送ると、**1通目がツールを実行している最中に2通目が割り込む** ——
+        // `SendUserMessageAsync` は行を書くだけで turn の完了を待たない。
+        // 送るのは呼び出し元で、**1通にまとめる**（SecretaryReadme.StartupMessage）。
+        _secretaryNeedsProtocol = true;
         return true;
     }
+
+    /// <summary>
+    /// 次の送信に protocol の案内を混ぜるか（設計 §17-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「送った」ではなく「まだ送っていない」を持つ。</b> 起動しただけでは
+    /// 秘書は protocol を読んでいないので、**最初の1通に必ず混ぜる。**
+    /// </remarks>
+    private bool _secretaryNeedsProtocol;
 
     /// <summary>
     /// 選んだ部門に仕事を作る（設計 §17-4 で右ペインへ移した）。
