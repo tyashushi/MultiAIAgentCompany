@@ -384,6 +384,86 @@ public sealed class TaskDispatcherTests : IDisposable
             await DispatchAsync(draft, TerminalDepartment, session: null));
     }
 
+    [Fact]
+    public async Task 保持者の仕事が終わっていたら待てとは言わない()
+    {
+        // **2026-09-09 に実機で踏んだ。** Failed の仕事が lease を握ったまま残り、
+        // 画面は「失敗ではない。待つ」と出していた —— 待っても、その仕事はもう動かない。
+        var dead = Assert.IsType<TaskWriteResult.Written>(
+            await _tasks.CreateAsync("dead", "review", CancellationToken.None)).State;
+        dead = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            dead, CoreTaskStatus.Dispatched, TransitionOrigin.Human, null, CancellationToken.None)).State;
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            dead, CoreTaskStatus.Failed, TransitionOrigin.Automation, "権限を拒否された", CancellationToken.None));
+
+        var leases = await ReadLeasesAsync();
+        await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("review"), "dead",
+            TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None);
+
+        var draft = await CreateDraftAsync();
+        var blocked = Assert.IsType<DispatchResult.Blocked>(
+            await DispatchAsync(draft, StructuredDepartment, new FakeSession("implementation")));
+
+        Assert.True(blocked.HolderWorkIsOver);
+        Assert.Contains("待っても空きません", blocked.Reason);
+    }
+
+    [Fact]
+    public async Task 抱えている仕事が無くなったら書き込み権を返す()
+    {
+        // **仕事を1つ終えるたびにワークスペースが塞がっていた**（2026-09-09）。
+        var done = Assert.IsType<TaskWriteResult.Written>(
+            await _tasks.CreateAsync("done", "implementation", CancellationToken.None)).State;
+        done = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            done, CoreTaskStatus.Dispatched, TransitionOrigin.Human, null, CancellationToken.None)).State;
+        done = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            done, CoreTaskStatus.Reported, TransitionOrigin.Automation, null, CancellationToken.None)).State;
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            done, CoreTaskStatus.Accepted, TransitionOrigin.Human, null, CancellationToken.None));
+
+        var leases = await ReadLeasesAsync();
+        await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("implementation"), "done",
+            TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None);
+
+        Assert.True(await _dispatcher.ReleaseWriteLeaseIfIdleAsync(
+            StructuredDepartment, CancellationToken.None));
+
+        var after = await ReadLeasesAsync();
+        Assert.False(after.Holders.ContainsKey(LeaseKind.Write));
+    }
+
+    [Fact]
+    public async Task まだ動いている仕事があれば書き込み権を返さない()
+    {
+        // **無条件に返さない。** 同じ部門が別の仕事を抱えていることがある。
+        var flying = Assert.IsType<TaskWriteResult.Written>(
+            await _tasks.CreateAsync("flying", "implementation", CancellationToken.None)).State;
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            flying, CoreTaskStatus.Dispatched, TransitionOrigin.Human, null, CancellationToken.None));
+
+        var leases = await ReadLeasesAsync();
+        await _leases.AcquireAsync(leases, LeaseKind.Write, Actor.OfDepartment("implementation"), "flying",
+            TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None);
+
+        Assert.False(await _dispatcher.ReleaseWriteLeaseIfIdleAsync(
+            StructuredDepartment, CancellationToken.None));
+
+        var after = await ReadLeasesAsync();
+        Assert.True(after.Holders.ContainsKey(LeaseKind.Write));
+    }
+
+    [Fact]
+    public async Task 読むだけの部門は返す権利を持っていない()
+    {
+        // 取っていないので返せない（§29-1）。**「返した」と言わない。**
+        var readOnly = StructuredDepartment with { ReadsOnly = true };
+
+        Assert.False(await _dispatcher.ReleaseWriteLeaseIfIdleAsync(readOnly, CancellationToken.None));
+    }
+
+    private async Task<WorkspaceLeases> ReadLeasesAsync() =>
+        Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
+
     private async Task<TaskState> CreateDraftAsync()
     {
         var state = Assert.IsType<TaskWriteResult.Written>(await _tasks.CreateAsync("feature", "implementation", CancellationToken.None)).State;

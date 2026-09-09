@@ -531,8 +531,22 @@ public partial class MainWindow : Window
     /// 人間が引き取ると決めない限り永久に空かない。実機で「失敗ではない。待つ」と出て、
     /// 待っても直らなかった（2026-09-06）。
     /// </remarks>
+    /// <summary>
+    /// 有効な保持者がいて渡せないとき（設計 §14-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「待つ」と言い切らない</b>（2026-09-09 に実機で踏んだ）。
+    /// 保持者の仕事が既に終端（<c>Failed</c> など）なら、**待っても、その仕事はもう動かない** ——
+    /// そのとき人間がすべきことは「待つ」ではなく「その部門の権利を外す」である。
+    /// <b>アプリは勝手に外さない</b>（§14-2 の「失効は停止の証拠ではない」と同じ理由で、
+    /// 終端も停止の証拠ではない）。**言い方だけを正す。**
+    /// </remarks>
     private static string BlockedText(DispatchResult.Blocked blocked) =>
-        $"{blocked.Reason}（失敗ではない。待つ）";
+        blocked.HolderWorkIsOver
+
+            // **「待つ」と言い切らない。** 保持者の仕事が終端なら、待っても空かない。
+            ? blocked.Reason
+            : $"{blocked.Reason}（失敗ではない。待つ）";
 
     /// <summary>
     /// 失効した書き込み権で弾かれたとき（設計 §24-1）。
@@ -705,6 +719,18 @@ public partial class MainWindow : Window
 
         var write = await tasks.TransitionAsync(
             state, CoreTaskStatus.Accepted, TransitionOrigin.Human, "報告を受理した", CancellationToken.None);
+
+        // **受理したら書き込み権を返す**（2026-09-09 に実機で踏んだ）。
+        // ここが無いと、**仕事を1つ終えるたびにワークスペースが失効まで塞がる。**
+        // 返してよい理由は「アプリがそう推測した」ではなく、
+        // **人間が報告を読んで受理した**から —— §14-2 が禁じているのは
+        // アプリの推測で外すことであって、人間の確認に従うことではない。
+        if (write is TaskWriteResult.Written && _composer?.Dispatcher is { } releasing
+            && await releasing.ReleaseWriteLeaseIfIdleAsync(
+                _composer.DefinitionOf(tile.Id), CancellationToken.None))
+        {
+            Note($"{tile.Name}: 書き込み権を返した（抱えている仕事が無くなった）");
+        }
 
         Note(write switch
         {

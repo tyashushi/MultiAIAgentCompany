@@ -422,6 +422,61 @@ public sealed class TaskDispatcher
         System.Text.Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
 
     /// <summary>
+    /// その部門にもう動いている仕事が無いなら、書き込み権を返す（設計 §14-2 / §24 の逆側）。
+    /// </summary>
+    /// <remarks>
+    /// <b>取ったものは、終わったら返す。</b> ここが無かったので、
+    /// **仕事を1つ終えるたびに、そのワークスペースが失効まで塞がっていた**
+    /// （2026-09-09 に実機で踏んだ。受理でも失敗でも同じ）。
+    /// 画面は「有効な保持者がいます（待つ）」と出すが、**待っても、その仕事はもう動かない。**
+    /// <para>
+    /// <b>無条件に返さない。</b> 同じ部門が別の仕事を抱えていることがある ——
+    /// <c>Dispatched</c> / <c>InProgress</c> / <c>AwaitingAnswer</c> が1つでも残っていれば返さない。
+    /// </para>
+    /// <para>
+    /// <b>返せたかどうかを返す。</b> 「返した」と「返す必要が無かった」を
+    /// 呼び出し元が区別できないと、人間への案内が書けない（§7）。
+    /// </para>
+    /// </remarks>
+    public async Task<bool> ReleaseWriteLeaseIfIdleAsync(DepartmentDefinition department, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(department);
+
+        // 読むだけの部門は取っていない（§29-1）。
+        if (department.ReadsOnly)
+        {
+            return false;
+        }
+
+        foreach (var slug in await _tasks.ListSlugsAsync(ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (await _tasks.ReadAsync(slug, ct) is not TaskReadResult.Found found) continue;
+
+            var state = found.State;
+            if (!string.Equals(state.DepartmentId, department.Id, StringComparison.Ordinal)) continue;
+
+            // **まだ動いている仕事**（部門の手元にある）。返さない。
+            if (state.Status is TaskStatus.Dispatched or TaskStatus.InProgress or TaskStatus.AwaitingAnswer)
+            {
+                return false;
+            }
+        }
+
+        var read = await _leases.ReadAsync(ct);
+        if (read is not LeaseReadResult.Found current
+            || !current.Leases.Holders.TryGetValue(LeaseKind.Write, out var holder)
+            || holder.Holder != Actor.OfDepartment(department.Id))
+        {
+            // 持っていないなら、返すものが無い。**「返した」と言わない。**
+            return false;
+        }
+
+        await ReleaseWriteLeaseAsync(department, ct);
+        return true;
+    }
+
+    /// <summary>
     /// 部門の turn が失敗して終わったので、その部門が抱えている仕事を
     /// <see cref="TaskStatus.Failed"/> にする（設計 §30-3）。
     /// </summary>
@@ -493,6 +548,29 @@ public sealed class TaskDispatcher
         }
     }
 
+    /// <summary>
+    /// 保持者の仕事がもう終わっているかを見てから <see cref="DispatchResult.Blocked"/> を作る。
+    /// </summary>
+    /// <remarks>
+    /// <b>ここで判定する。</b> 画面側で仕事を読み直すと、UI スレッドで待つ形になる ——
+    /// 判定に必要なものは全部この型が持っている。
+    /// </remarks>
+    private async Task<DispatchResult> BlockedByAsync(string reason, LeaseHolder holder, CancellationToken ct)
+    {
+        if (holder.TaskSlug is { Length: > 0 } slug
+            && await _tasks.ReadAsync(slug, ct) is TaskReadResult.Found found
+            && TaskTransitions.IsTerminal(found.State.Status))
+        {
+            return new DispatchResult.Blocked(
+                $"{reason}。**ただし {slug} は {found.State.Status} で終わっている** —— "
+                + "待っても空きません。その部門の書き込み権を外すか、失効を待つことになります",
+                holder,
+                HolderWorkIsOver: true);
+        }
+
+        return new DispatchResult.Blocked(reason, holder);
+    }
+
     private async Task<DispatchResult?> AcquireOrRenewWriteLeaseAsync(
         TaskState expected, DepartmentDefinition department, TimeSpan leaseDuration, CancellationToken ct)
     {
@@ -518,7 +596,7 @@ public sealed class TaskDispatcher
         return write switch
         {
             LeaseWriteResult.Written => null,
-            LeaseWriteResult.Denied denied => new DispatchResult.Blocked(denied.Reason, denied.Holder),
+            LeaseWriteResult.Denied denied => await BlockedByAsync(denied.Reason, denied.Holder, ct),
 
             // **待っても空かない**（設計 §24-1）。UI に「待つ」と言わせないため型で分ける。
             LeaseWriteResult.DeniedExpired expired =>
@@ -547,8 +625,16 @@ public abstract record DispatchResult
     // 人間の出番は `DepartmentCallToAction.NeedsHuman`（§15-6）が受け持つ ——
     // 同じ名前で意味の違うものを2つ置かない。
 
-    /// <summary>有効な保持者がいて渡せない。<b>待てば空く可能性がある。</b></summary>
-    public sealed record Blocked(string Reason, LeaseHolder Holder) : DispatchResult;
+    /// <summary>
+    /// 有効な保持者がいて渡せない。<b>待てば空く可能性がある。</b>
+    /// </summary>
+    /// <param name="HolderWorkIsOver">
+    /// 保持者が抱えていた仕事が、もう終端か（設計 §14-2、2026-09-09 に実機で踏んだ）。
+    /// <b>true なら「待つ」は嘘になる</b> —— 待っても、その仕事はもう動かない。
+    /// <b>それでもアプリは勝手に外さない</b>（終端は停止の証拠ではない）。言い方だけを変える。
+    /// </param>
+    public sealed record Blocked(string Reason, LeaseHolder Holder, bool HolderWorkIsOver = false)
+        : DispatchResult;
 
     /// <summary>
     /// 失効した保持者がいて渡せない（設計 §24）。<b>待っても空かない。</b>
