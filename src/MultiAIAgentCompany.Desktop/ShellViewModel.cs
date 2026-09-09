@@ -455,19 +455,22 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         }
     }
 
-    private void RaiseAll()
-    {
-        foreach (var name in new[]
-                 {
-                     nameof(Status), nameof(Call), nameof(RuntimeText), nameof(ActivityText),
-                     nameof(WorkText), nameof(Glyph), nameof(BadgeGlyph), nameof(RuntimeGlyph),
-                     nameof(NeedsHuman), nameof(EvidenceText), nameof(ActionLabel), nameof(HasAction),
-                     nameof(SessionRunning), nameof(CanStart), nameof(CanJudgeReport),
-                 })
-        {
-            Raise(name);
-        }
-    }
+    /// <summary>
+    /// 導出プロパティを全部読み直させる。
+    /// </summary>
+    /// <remarks>
+    /// <b>名前の一覧を持たない。</b> <c>PropertyChanged</c> は
+    /// **プロパティ名が空なら「全部変わった」**を意味する（<see cref="INotifyPropertyChanged"/> の約束）。
+    /// <para>
+    /// 以前はここに名前を並べていて、**新しい導出プロパティを足すたびに、
+    /// ここへ足すのを忘れると黙って古い値が残った** ——
+    /// 実際 2026-09-09 に `LifecycleLabel` を足したとき、
+    /// **ボタンは出るのに文字だけ空**になった（実機で人間が見つけた）。
+    /// </para>
+    /// <b>一覧は「覚えていないと壊れる」形</b>なので、持たないことにした。
+    /// タイルは数個で、読み直しも文字列を組み立てるだけである。
+    /// </remarks>
+    private void RaiseAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
 
     private void Raise([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
