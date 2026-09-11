@@ -96,8 +96,12 @@ public sealed class TaskDispatcher
 
                 try
                 {
-                    await session.SendUserMessageAsync(instruction, ct);
-                    return new DispatchResult.Dispatched(written.State);
+                    var sent = await session.SendUserMessageAsync(instruction, ct);
+
+                    // **積んだだけなら「渡した」と言わない**（レビューで発覚、§32-12）。
+                    return sent.Written
+                        ? new DispatchResult.Dispatched(written.State)
+                        : new DispatchResult.QueuedForNextTurn(written.State, sent.Queued);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -289,9 +293,10 @@ public sealed class TaskDispatcher
             迷う場合は新しい question.md を publish し、完了したら report.md を publish してください。
             """;
 
+        SendOutcome sent;
         try
         {
-            await session.SendUserMessageAsync(message, ct);
+            sent = await session.SendUserMessageAsync(message, ct);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -303,6 +308,15 @@ public sealed class TaskDispatcher
             expected,
             new AnswerDelivery(expected.AttemptId, questionDigest, answerDigest, _clock.GetUtcNow()),
             ct);
+
+        // **記録は残す。** §20 は「`delivered: true` にしない —— 観測したのは
+        // 送信 API が例外を返さなかったまで」と決めていて、**積んだ時点でそこは満たされる。**
+        // 記録しないと、次の走査が**同じ回答を二重に積む**（レビューで発覚）。
+        // 変えるのは<b>人間への言い方</b>だけ。
+        if (!sent.Written && transition is TaskWriteResult.Written queued)
+        {
+            return new DispatchResult.QueuedForNextTurn(queued.State, sent.Queued);
+        }
 
         return transition switch
         {
@@ -383,8 +397,10 @@ public sealed class TaskDispatcher
 
         try
         {
-            await session!.SendUserMessageAsync(instruction, ct);
-            return new DispatchResult.Dispatched(written);
+            var sent = await session!.SendUserMessageAsync(instruction, ct);
+            return sent.Written
+                ? new DispatchResult.Dispatched(written)
+                : new DispatchResult.QueuedForNextTurn(written, sent.Queued);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -678,6 +694,21 @@ public abstract record DispatchResult
     public sealed record Conflicted(string Reason) : DispatchResult;
 
     public sealed record SentUncertain(TaskState State, string Reason) : DispatchResult;
+
+    /// <summary>
+    /// <b>まだ書かれていない。</b>部門が前の turn を処理中なので、順番待ちに入れた（設計 §32-12）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="Dispatched"/> と混ぜない。</b> あちらは「送った（かもしれない）」で、
+    /// こちらは<b>まだ送っていないと分かっている。</b>
+    /// 混ぜると、**人間の返事待ちが「届けた」顔で隠れる**（§20）。
+    /// <para>
+    /// <c>TurnGate</c> が FIFO を守るので<b>いずれ書かれる</b> ——
+    /// だから失敗ではない。**言うべきなのは「まだ」だけ。**
+    /// </para>
+    /// </remarks>
+    /// <param name="Ahead">自分を含めて、まだ書かれていない数。</param>
+    public sealed record QueuedForNextTurn(TaskState State, int Ahead) : DispatchResult;
 
     /// <summary>
     /// 状態は書いた。<b>あとは呼び出し元が窓を開ける</b>（設計 §32）。

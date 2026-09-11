@@ -505,6 +505,38 @@ public sealed class TaskDispatcherTests : IDisposable
             "implementation", excludingSlug: "incoming", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task 積んだだけなら渡したと言わない()
+    {
+        // **「送った」と「積んだ」を混ぜない**（設計 §32-12、レビューで発覚）。
+        var draft = await CreateDraftAsync();
+        var session = new FakeSession("implementation") { QueueInsteadOfWriting = true };
+
+        var queued = Assert.IsType<DispatchResult.QueuedForNextTurn>(
+            await DispatchAsync(draft, StructuredDepartment, session));
+
+        Assert.Equal(3, queued.Ahead);
+
+        // **状態は書いてある**（§14-1 は送る前に書く）。積まれたことと状態は別。
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    [Fact]
+    public async Task 積んだだけの回答も記録は残す()
+    {
+        // 記録しないと、次の走査が**同じ回答を二重に積む**（レビューで発覚）。
+        // §20 は「delivered: true にしない —— 観測したのは送信 API が例外を返さなかったまで」
+        // と決めていて、**積んだ時点でそこは満たされる。**
+        var awaiting = await CreateAwaitingAnswerAsync("最初の質問");
+        var session = new FakeSession("implementation") { QueueInsteadOfWriting = true };
+
+        var queued = Assert.IsType<DispatchResult.QueuedForNextTurn>(
+            await _dispatcher.DeliverAnswerAsync(
+                awaiting, StructuredDepartment, session, CancellationToken.None));
+
+        Assert.NotNull(queued.State.AnswerDelivery);
+    }
+
     private async Task<WorkspaceLeases> ReadLeasesAsync() =>
         Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
 
@@ -550,6 +582,9 @@ public sealed class TaskDispatcherTests : IDisposable
         /// <summary>送信の最中に外の世界が動く場合（設計 §20-2 の検証で使う）。</summary>
         public Action? DuringSend { get; init; }
 
+        /// <summary>走っている turn があるふりをする（設計 §32-12）。</summary>
+        public bool QueueInsteadOfWriting { get; init; }
+
         public async Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
         {
             if (whenSending is not null && await whenSending() is TaskReadResult.Found found)
@@ -558,6 +593,7 @@ public sealed class TaskDispatcherTests : IDisposable
             }
             DuringSend?.Invoke();
             if (SendException is not null) throw SendException;
+            if (QueueInsteadOfWriting) return new SendOutcome(false, 3);
             Messages.Add(text);
             return SendOutcome.Sent;
         }

@@ -56,7 +56,10 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
         {
             ObjectDisposedException.ThrowIf(_closed, this);
 
-            if (_inFlight)
+            // **積んであるものがあるなら、走っていなくても積む**（レビューで発覚）。
+            // ここで割り込むと、**先に積まれたものを追い越す** ——
+            // 直列化のためにある型が、順番を壊すことになる。
+            if (_inFlight || _pending.Count > 0)
             {
                 _pending.Enqueue(text);
                 return new SendOutcome(false, _pending.Count);
@@ -79,6 +82,10 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
                 _inFlight = false;
             }
 
+            // **積んであるものを置き去りにしない**（レビューで発覚）。
+            // 失敗した turn は `OnTurnFinishedAsync` を呼ばれないので、
+            // ここで流さないと**待ち行列が永久に動かない。**
+            await DrainAsync(ct).ConfigureAwait(false);
             throw;
         }
     }
@@ -90,7 +97,9 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
     /// <b>セッションの読み取りループから呼ぶ。</b> 呼ばれないと次が永久に出ないので、
     /// <b>失敗した turn でも呼ぶこと</b> —— 「失敗した」も turn の終わりである。
     /// </remarks>
-    public async Task OnTurnFinishedAsync(CancellationToken ct)
+    public Task OnTurnFinishedAsync(CancellationToken ct) => DrainAsync(ct);
+
+    private async Task DrainAsync(CancellationToken ct)
     {
         while (true)
         {

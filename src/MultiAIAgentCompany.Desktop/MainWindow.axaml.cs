@@ -692,6 +692,10 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {slug} を渡した",
+
+            // **積んだだけなら「渡した」と言わない**（設計 §32-12）。いずれ書かれるので失敗ではない。
+            DispatchResult.QueuedForNextTurn queued =>
+                $"{tile.Name} は前の turn を処理中。{slug} を**順番待ちに入れた**（待ち {queued.Ahead} 件）",
             DispatchResult.Blocked blocked => $"{slug}: {BlockedText(blocked)}",
             DispatchResult.BlockedByExpiredLease expired => $"{slug}: {ExpiredLeaseText(expired)}",
             DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
@@ -852,6 +856,8 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{tile.Name} に {state.Slug} を差し戻して送り直した",
+            DispatchResult.QueuedForNextTurn queued =>
+                $"{tile.Name} は前の turn を処理中。{state.Slug} を**順番待ちに入れた**（待ち {queued.Ahead} 件）",
             DispatchResult.Blocked blocked => $"{state.Slug}: {BlockedText(blocked)}",
             DispatchResult.BlockedByExpiredLease expired => $"{state.Slug}: {ExpiredLeaseText(expired)}",
             DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}。**届いたか確かめる**",
@@ -1419,6 +1425,13 @@ public partial class MainWindow : Window
                     Note($"{slug}: 回答を届けた（作業中に戻した）");
                     break;
 
+                // **「届けた」と言わない**（設計 §32-12、レビューで発覚）。
+                // 記録は残っている（二重に積まないため）ので、いずれ書かれる ——
+                // **言うべきなのは「まだ」だけ。**
+                case DispatchResult.QueuedForNextTurn queued:
+                    Note($"{slug}: 部門が前の turn を処理中。回答を**順番待ちに入れた**（待ち {queued.Ahead} 件）");
+                    break;
+
                 case DispatchResult.SentUncertain uncertain:
                     // 届いたかもしれない。同じ回答を何度も送らない。
                     _answerDeliveryUncertain.Add(slug);
@@ -1465,6 +1478,8 @@ public partial class MainWindow : Window
             return result switch
             {
                 DispatchResult.Dispatched => $"{state.Slug}: もう一度送った（二重に実行されたかもしれない）",
+                DispatchResult.QueuedForNextTurn queued =>
+                    $"{state.Slug}: 前の turn を処理中なので**順番待ちに入れた**（待ち {queued.Ahead} 件）",
                 DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}",
                 DispatchResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
                 _ => $"{state.Slug}: 送れなかった",
@@ -1748,6 +1763,8 @@ public partial class MainWindow : Window
         Note(result switch
         {
             DispatchResult.Dispatched => $"{card.TargetText} に {slug} を渡した",
+            DispatchResult.QueuedForNextTurn queued =>
+                $"{card.TargetText} は前の turn を処理中。{slug} を**順番待ちに入れた**（待ち {queued.Ahead} 件）",
             DispatchResult.Blocked blocked => $"{slug}: {BlockedText(blocked)}",
             DispatchResult.BlockedByExpiredLease expired => $"{slug}: {ExpiredLeaseText(expired)}",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}（先に部門を起動する）",

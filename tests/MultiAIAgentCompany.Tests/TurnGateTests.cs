@@ -113,4 +113,44 @@ public sealed class TurnGateTests
         Assert.True(gate.InFlight);
         Assert.Equal(1, gate.Queued);
     }
+
+    [Fact]
+    public async Task 積んであるものを追い越さない()
+    {
+        // **直列化のためにある型が、順番を壊してはいけない**（レビューで発覚）。
+        var written = new List<string>();
+        var gate = new TurnGate((text, _) => { written.Add(text); return Task.CompletedTask; });
+
+        await gate.SendAsync("1通目", CancellationToken.None);
+        await gate.SendAsync("2通目", CancellationToken.None);
+        await gate.OnTurnFinishedAsync(CancellationToken.None);   // 2通目が出る
+
+        // ここで空いているが、まだ何も積まれていない。次は素直に出てよい。
+        Assert.Equal(["1通目", "2通目"], written);
+    }
+
+    [Fact]
+    public async Task 書けなかったあとも積んであるものを流す()
+    {
+        // **失敗した turn は OnTurnFinishedAsync を呼ばれない**ので、
+        // ここで流さないと待ち行列が永久に動かない（レビューで発覚）。
+        var written = new List<string>();
+        var fail = true;
+        var gate = new TurnGate((text, _) =>
+        {
+            if (fail) { fail = false; throw new IOException("pipe failed"); }
+            written.Add(text);
+            return Task.CompletedTask;
+        });
+
+        var first = gate.SendAsync("1通目", CancellationToken.None);
+
+        // 1通目が失敗する前に2通目を積む余地が無いので、順に確かめる。
+        await Assert.ThrowsAsync<IOException>(() => first);
+
+        var second = await gate.SendAsync("2通目", CancellationToken.None);
+
+        Assert.True(second.Written);
+        Assert.Equal(["2通目"], written);
+    }
 }
