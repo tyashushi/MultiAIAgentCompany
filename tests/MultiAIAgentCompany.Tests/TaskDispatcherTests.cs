@@ -461,6 +461,50 @@ public sealed class TaskDispatcherTests : IDisposable
         Assert.False(await _dispatcher.ReleaseWriteLeaseIfIdleAsync(readOnly, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task 抱えている仕事が無ければ窓を開き直してよいと答える()
+    {
+        // **2つ目の仕事はいつも「窓が既にある」状態で来る**（§32-2e）ので、
+        // 「開き直してよいか」を仕事の状態で決める（設計 §32-8）。
+        var done = Assert.IsType<TaskWriteResult.Written>(
+            await _tasks.CreateAsync("done", "implementation", CancellationToken.None)).State;
+        done = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            done, CoreTaskStatus.Dispatched, TransitionOrigin.Human, null, CancellationToken.None)).State;
+        done = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            done, CoreTaskStatus.Reported, TransitionOrigin.Automation, null, CancellationToken.None)).State;
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            done, CoreTaskStatus.Accepted, TransitionOrigin.Human, null, CancellationToken.None));
+
+        Assert.False(await _dispatcher.HasWorkInFlightAsync(
+            "implementation", excludingSlug: null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task まだ動いている仕事があれば窓を開き直さない()
+    {
+        // **動いている部門を殺さない。**
+        var flying = Assert.IsType<TaskWriteResult.Written>(
+            await _tasks.CreateAsync("flying", "implementation", CancellationToken.None)).State;
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            flying, CoreTaskStatus.Dispatched, TransitionOrigin.Human, null, CancellationToken.None));
+
+        Assert.True(await _dispatcher.HasWorkInFlightAsync(
+            "implementation", excludingSlug: null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task いま渡そうとしている仕事は数えない()
+    {
+        // 自分を数えると、**最初の1件ですら開けなくなる。**
+        var incoming = Assert.IsType<TaskWriteResult.Written>(
+            await _tasks.CreateAsync("incoming", "implementation", CancellationToken.None)).State;
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+            incoming, CoreTaskStatus.Dispatched, TransitionOrigin.Human, null, CancellationToken.None));
+
+        Assert.False(await _dispatcher.HasWorkInFlightAsync(
+            "implementation", excludingSlug: "incoming", CancellationToken.None));
+    }
+
     private async Task<WorkspaceLeases> ReadLeasesAsync() =>
         Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
 

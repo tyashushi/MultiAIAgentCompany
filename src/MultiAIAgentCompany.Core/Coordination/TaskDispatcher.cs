@@ -477,6 +477,37 @@ public sealed class TaskDispatcher
     }
 
     /// <summary>
+    /// その部門が、まだ動いている仕事を抱えているか（設計 §32-8）。
+    /// </summary>
+    /// <remarks>
+    /// <b>外部ターミナルの窓を開き直してよいか</b>を決めるのに使う。
+    /// 抱えていなければ、前の窓の CLI は<b>終わった仕事の話をして待っているだけ</b>なので、
+    /// 閉じて開き直してよい。抱えているなら**作業中の部門を殺すことになる。**
+    /// </remarks>
+    /// <param name="excludingSlug">いま渡そうとしている仕事。<b>自分を数えない。</b></param>
+    public async Task<bool> HasWorkInFlightAsync(
+        string departmentId, string? excludingSlug, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
+
+        foreach (var slug in await _tasks.ListSlugsAsync(ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.Equals(slug, excludingSlug, StringComparison.Ordinal)) continue;
+            if (await _tasks.ReadAsync(slug, ct) is not TaskReadResult.Found found) continue;
+
+            var state = found.State;
+            if (!string.Equals(state.DepartmentId, departmentId, StringComparison.Ordinal)) continue;
+            if (state.Status is TaskStatus.Dispatched or TaskStatus.InProgress or TaskStatus.AwaitingAnswer)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 部門の turn が失敗して終わったので、その部門が抱えている仕事を
     /// <see cref="TaskStatus.Failed"/> にする（設計 §30-3）。
     /// </summary>

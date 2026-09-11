@@ -1305,8 +1305,17 @@ public partial class MainWindow : Window
         // **protocol は窓を開く前に置く。** 起動時に渡すのは「これを読んで」だけ。
         await _composer.WriteDepartmentProtocolAsync(CancellationToken.None);
 
+        // **開き直してよいかは、仕事の状態で決める**（設計 §32-8）。
+        // 3つの CLI は turn が終わってもセッションを終了しない（§32-2e）ので、
+        // **2つ目の仕事はいつも「窓が既にある」状態で来る。**
+        // 前の仕事が終わっているなら、その窓の CLI は待っているだけなので開き直してよい。
+        var busy = _composer.Dispatcher is { } dispatcher
+            && await dispatcher.HasWorkInFlightAsync(
+                departmentId, launch.State.Slug, CancellationToken.None);
+
         var started = await _runner.StartTerminalAsync(
-            _composer.DefinitionOf(departmentId), workspace, launch.Request, CancellationToken.None);
+            _composer.DefinitionOf(departmentId), workspace, launch.Request, CancellationToken.None,
+            replaceExisting: !busy);
 
         // **開いたなら、タイルにもそう出す。** ここを忘れると
         // 「ターミナルを前面に出す」が出ないまま窓だけが在る（レビューで発覚）。
@@ -1316,15 +1325,15 @@ public partial class MainWindow : Window
         {
             DepartmentStart.Started => new DispatchResult.Dispatched(launch.State),
 
-            // **「渡した」と言わない**（レビューで発覚、§7）。3つの CLI は turn が
-            // 終わってもセッションを終了しない（§32-2e）ので、**2つ目の仕事はここに来る** ——
-            // そのとき窓は**前の仕事の話をしていて**、新しい指示書を読む合図を受けていない。
-            // 状態は `Dispatched`（§14-1 で送る前に書いてある）のままにして、
-            // **人間に確かめさせる。** 自動で送り直さない。
-            DepartmentStart.AlreadyRunning => new DispatchResult.SentUncertain(
-                launch.State,
-                "その部門のターミナルは既に開いていて、前の仕事の話をしている。"
-                + "**新しい指示は読まれていない** —— その窓で直接伝えるか、閉じてから渡し直す"),
+            // **ここへ来るのは「前の仕事がまだ動いている」ときだけ**（設計 §32-8）。
+            // 終わっていれば上で開き直している。動いている部門を殺さない。
+            // **「渡した」と言わない**（§7）—— 状態は `Dispatched`（§14-1）のまま、
+            // 人間に確かめさせる。自動で送り直さない。
+            DepartmentStart.AlreadyRunning or DepartmentStart.AlreadyStarting =>
+                new DispatchResult.SentUncertain(
+                    launch.State,
+                    "その部門は**まだ前の仕事を抱えている**。新しい指示は読まれていない —— "
+                    + "前の仕事が終わってから渡し直す（その窓で直接伝えてもよい）"),
 
             DepartmentStart.Failed failed =>
                 new DispatchResult.SentUncertain(launch.State, $"{failed.Reason}。窓が開いていないか確かめる"),

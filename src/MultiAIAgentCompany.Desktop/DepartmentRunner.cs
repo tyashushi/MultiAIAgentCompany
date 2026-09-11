@@ -175,9 +175,14 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// <c>DispatchResult.LaunchTerminal</c> を返すので、その要求をここで開く。
     /// <b>プロセスの親はアプリのまま</b>である（§9）。
     /// </remarks>
+    /// <param name="replaceExisting">
+    /// 既に窓があるとき、<b>同じ窓の新しいタブで開き直してよいか</b>（設計 §32-8）。
+    /// <b>ここでは判断しない</b> —— 前の仕事がまだ動いているかは、
+    /// 仕事の状態を見られる呼び出し元しか知らない。
+    /// </param>
     public async Task<DepartmentStart> StartTerminalAsync(
         DepartmentDefinition department, WorkspaceRef workspace,
-        TerminalLaunchRequest request, CancellationToken ct)
+        TerminalLaunchRequest request, CancellationToken ct, bool replaceExisting = false)
     {
         ArgumentNullException.ThrowIfNull(department);
         ArgumentNullException.ThrowIfNull(workspace);
@@ -190,17 +195,47 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         // **待つべき起動が待たれない**まま前のフォルダのロックが返る。
         var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int generation;
+        TerminalDepartmentSession? replacing = null;
         lock (_startGate)
         {
-            if (_sessions.ContainsKey(department.Id) || !_startingIds.Add(department.Id))
+            if (_startingIds.Contains(department.Id))
             {
-                // 既に窓がある。**二重に開かない** —— 同じ部門の窓が2つ並ぶと、
-                // 人間がどちらで答えればよいか分からなくなる。
-                return new DepartmentStart.AlreadyRunning();
+                return new DepartmentStart.AlreadyStarting();
             }
 
+            if (_sessions.TryGetValue(department.Id, out var existing))
+            {
+                // **窓を2つ並べない。** どちらで答えればよいか分からなくなる。
+                // 開き直してよいかは**呼び出し元が決める**（§32-8）——
+                // あちらは仕事の状態を見られるが、ここからは見えない。
+                if (!replaceExisting || existing is not TerminalDepartmentSession terminal)
+                {
+                    return new DepartmentStart.AlreadyRunning();
+                }
+
+                replacing = terminal;
+            }
+
+            _startingIds.Add(department.Id);
             generation = _generation;
             _starting.Add(pending.Task);
+        }
+
+        if (replacing is not null)
+        {
+            // **同じ窓の新しいタブで開く**（設計 §32-8 / §33-5）。
+            // 前の CLI は終わった仕事の話をして待っているだけなので、閉じてよい ——
+            // **記録は `.company/` に残っている**（§6）。
+            request = request with { ReuseWindowId = replacing.Handle.WindowId };
+            await replacing.DisposeAsync();
+
+            lock (_startGate)
+            {
+                if (_sessions.TryGetValue(department.Id, out var current) && ReferenceEquals(current, replacing))
+                {
+                    _sessions.Remove(department.Id);
+                }
+            }
         }
 
         try
