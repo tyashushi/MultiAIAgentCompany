@@ -1365,9 +1365,17 @@ public partial class MainWindow : Window
         }
 
         var result = await composer.ScanAsync(kind, CancellationToken.None);
+        var arrived = new List<AppliedTransition>();
         foreach (var applied in result?.Applied ?? [])
         {
             Note($"{applied.Slug}: {applied.From} → {applied.To}（{applied.Because}）");
+
+            // **報告は、出た瞬間に中央へ出す**（設計 §19-4、2026-09-11 に人間が決めた）。
+            // ボタンを1つ挟むと、**報告が来たこと自体に気付いてから読む**ことになる。
+            if (applied.To is CoreTaskStatus.Reported)
+            {
+                arrived.Add(applied);
+            }
         }
 
         foreach (var blocked in result?.Blocked ?? [])
@@ -1394,7 +1402,113 @@ public partial class MainWindow : Window
             }
         }
 
+        // **走査で状態を書いたあとに出す。** 先に出すと、まだ Reported でない仕事の
+        // 報告を読ませることになる（§7 の「観測してから言う」）。
+        foreach (var applied in arrived)
+        {
+            await ShowArrivedReportAsync(applied.Slug);
+        }
+
+        await AutoAcceptProposalsAsync();
         await DeliverAnswersAsync();
+    }
+
+    /// <summary>
+    /// 出たばかりの報告を、中央ペインへ出す（設計 §19-4）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ボタンを待たない。</b> 人間が「報告を読む」を押すまで中身が出ないと、
+    /// **報告が来たこと自体に気付く工程**が1つ増える。
+    /// <para>
+    /// <b>用件のボタンは残す</b>（§15-6）—— あれは読み直しと、
+    /// 受理・差し戻しへの入口を兼ねている。<b>出すのと、決めるのは別。</b>
+    /// </para>
+    /// </remarks>
+    private async Task ShowArrivedReportAsync(string slug)
+    {
+        if (_composer?.Workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var path = Path.Combine(workspace.Company.TaskDirectory(slug), "report.md");
+        string content;
+        try
+        {
+            content = await File.ReadAllTextAsync(path, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // **読めなかったことを、読んだことにしない**（§7）。
+            Note($"{slug}: 報告が出たが読めなかった（{exception.GetType().Name}）。場所は {path}");
+            return;
+        }
+
+        // **長い報告は切るが、切ったことを黙らない**（§22-2 と同じ理由）。
+        const int limit = 4000;
+        Say(content.Length > limit
+            ? $"【{slug} の報告】\n{content[..limit]}\n\n（長いので残り {content.Length - limit} 文字は省いた。全文は {path}）"
+            : $"【{slug} の報告】\n{content}");
+    }
+
+    /// <summary>
+    /// 秘書の提案を、そのまま仕事にする（設計 §17-8）。
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-09-11 に人間が決めた。</b> §17-6 は
+    /// 「<b>人間が『仕事にする』を押したときだけ</b>タスク化する」だったが、
+    /// **押す手間のほうが邪魔だ**という判断で自動にした。
+    /// <para>
+    /// <b>何を手放したかは書いておく。</b> 秘書が提案した時点で部門が動き出すので、
+    /// **人間が見る前に作業ツリーへの書き込みが始まり得る。**
+    /// §6 の「人間は時々の意思決定者」は、ここでは
+    /// <b>報告を受理するかどうか</b>に寄る（§19）。
+    /// </para>
+    /// <para>
+    /// <b>宛先が分からない提案は自動にしない。</b> 捨てもしない ——
+    /// カードとして残り、理由が出る（§17-6）。**分からないものを勝手に決めない。**
+    /// </para>
+    /// </remarks>
+    private async Task AutoAcceptProposalsAsync()
+    {
+        if (_closing || _switching || _composer is not { } composer
+            || composer.Tasks is not { } tasks || composer.Dispatcher is not { } dispatcher
+            || composer.Workspace is not { } workspace || composer.Outbox is not { } outbox)
+        {
+            return;
+        }
+
+        // **その場の写しで回す。** 受理すると Proposals が作り直されるので、
+        // 元の集合を回したままだと途中で崩れる。
+        foreach (var card in composer.Shell.Proposals.ToArray())
+        {
+            if (!card.CanMakeTask || card.Proposal.DepartmentId is not { } departmentId)
+            {
+                continue;
+            }
+
+            // **二重に作らない**（§17-6）。outbox が未処理の正本なので、
+            // まだそこに在ることを確かめてから作る。
+            if (!_acceptingProposals.Add(card.Id))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (!File.Exists(Path.Combine(workspace.Company.SecretaryOutbox, $"{card.Id}.md")))
+                {
+                    continue;
+                }
+
+                Note($"提案 {card.Id} を**自動で仕事にする**（§17-8）");
+                await AcceptCoreAsync(card, departmentId, tasks, dispatcher, workspace, outbox);
+            }
+            finally
+            {
+                _acceptingProposals.Remove(card.Id);
+            }
+        }
     }
 
     /// <summary>
