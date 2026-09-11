@@ -57,7 +57,7 @@
                                     <TextBlock FontSize="{DynamicResource FontSizeSmall}" FontWeight="Bold">
                                         <Run Text="{Binding KindText}" /><Run Text=" — " /><Run Text="{Binding Slug}" />
                                     </TextBlock>
-                                    <TextBlock Text="{Binding Detail}" FontSize="{DynamicResource FontSizeSmall}" TextWrapping="Wrap" Opacity="0.8" />
+                                    <SelectableTextBlock Text="{Binding Detail}" FontSize="{DynamicResource FontSizeSmall}" TextWrapping="Wrap" Opacity="0.8" />
 
                                     <!-- 人間が決めた結果を記録できるようにする（設計 §16-4）。
                                          「まだ決めない」は選択肢を出さない —— 何もしなければ残る。 -->
@@ -223,8 +223,11 @@
                         BorderThickness="1"
                         BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="{Binding PlanStatus}" TextWrapping="Wrap"
-                                   FontSize="{DynamicResource FontSizeSmall}" VerticalAlignment="Center" />
+                        <!-- **選んでコピーできるようにする**（人間の要望、2026-09-12）——
+                             ここに出るのは**渡せなかった理由**で、人間はそれを人に見せたり
+                             調べたりする。読めるだけでは足りない（作業ログは §34-4 で既にそう）。 -->
+                        <SelectableTextBlock Grid.Column="0" Text="{Binding PlanStatus}" TextWrapping="Wrap"
+                                             FontSize="{DynamicResource FontSizeSmall}" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <Button Content="計画を止める" Margin="8,0,0,0"
                                     IsVisible="{Binding PlanRunning}" Click="OnStopPlan" />
@@ -242,14 +245,14 @@
                         BorderThickness="1"
                         BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="{Binding SecretaryStalledText}" TextWrapping="Wrap"
-                                   FontSize="{DynamicResource FontSizeSmall}" VerticalAlignment="Center" />
+                        <SelectableTextBlock Grid.Column="0" Text="{Binding SecretaryStalledText}" TextWrapping="Wrap"
+                                             FontSize="{DynamicResource FontSizeSmall}" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Content="秘書を立て直す" Margin="8,0,0,0"
                                 VerticalAlignment="Center" Click="OnRestartSecretary" />
                     </Grid>
                 </Border>
-                <TextBlock Text="{Binding SecretaryStatus}" FontSize="{DynamicResource FontSizeSmall}" Opacity="0.75"
-                           TextWrapping="Wrap" Margin="0,0,0,4" />
+                <SelectableTextBlock Text="{Binding SecretaryStatus}" FontSize="{DynamicResource FontSizeSmall}"
+                                     Opacity="0.75" TextWrapping="Wrap" Margin="0,0,0,4" />
                 <Grid ColumnDefinitions="*,Auto">
                     <!-- **素の Enter で送る**（設計 §13-7 の実測）。IME の確定 Enter は
                          KeyDown として届かないので、確定と送信は衝突しない。 -->
@@ -276,7 +279,7 @@
                                 <TextBlock FontWeight="Bold">
                                     <Run Text="秘書からの提案 → " /><Run Text="{Binding TargetText}" />
                                 </TextBlock>
-                                <TextBlock Text="{Binding Body}" TextWrapping="Wrap" FontSize="{DynamicResource FontSizeSmall}"
+                                <SelectableTextBlock Text="{Binding Body}" TextWrapping="Wrap" FontSize="{DynamicResource FontSizeSmall}"
                                            Margin="0,2,0,0" MaxHeight="120" />
                                 <WrapPanel Margin="0,6,0,0">
                                     <!-- 宛先が分からない提案は仕事にできない。**捨てもしない**（§17-6）。 -->
@@ -285,7 +288,7 @@
                                             FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,0" Click="OnProposalAccept" />
                                     <Button Content="やめる" FontSize="{DynamicResource FontSizeSmall}" Click="OnProposalReject" />
                                 </WrapPanel>
-                                <TextBlock Text="{Binding ProblemText}"
+                                <SelectableTextBlock Text="{Binding ProblemText}"
                                            IsVisible="{Binding HasProblem}" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                            TextWrapping="Wrap" />
                             </StackPanel>
@@ -311,7 +314,7 @@
                                     <Run Text="承認まち: " /><Run Text="{Binding DepartmentName}" />
                                 </TextBlock>
                                 <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="0,2,0,0" />
-                                <TextBlock Text="{Binding Details}" TextWrapping="Wrap"
+                                <SelectableTextBlock Text="{Binding Details}" TextWrapping="Wrap"
                                            FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8" />
 
                                 <!-- 「今回だけ / 常に許可」の材料（§13-1）。安全な要約だけで、
@@ -341,9 +344,9 @@
                                 </ItemsControl>
 
                                 <!-- 返事が届かなかったことを、届いたことにしない。 -->
-                                <TextBlock Text="{Binding Error}" IsVisible="{Binding HasError}"
-                                           TextWrapping="Wrap" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
-                                           FontWeight="Bold" />
+                                <SelectableTextBlock Text="{Binding Error}" IsVisible="{Binding HasError}"
+                                                     TextWrapping="Wrap" FontSize="{DynamicResource FontSizeSmall}"
+                                                     Margin="0,4,0,0" FontWeight="Bold" />
                             </StackPanel>
                         </Border>
                     </DataTemplate>
