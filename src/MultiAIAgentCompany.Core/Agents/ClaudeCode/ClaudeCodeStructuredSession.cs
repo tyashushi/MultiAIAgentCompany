@@ -50,6 +50,9 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
     public event EventHandler<LiveAgentMessage>? Spoke;
 
     /// <inheritdoc />
+    public TurnActivity Activity => _turns.Activity;
+
+    /// <inheritdoc />
     /// <remarks><b>書き込み口は <see cref="TurnGate"/> ひとつ</b>（設計 §32-12）。</remarks>
     public Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
     {

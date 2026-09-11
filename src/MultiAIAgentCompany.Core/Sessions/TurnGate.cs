@@ -28,14 +28,17 @@ public sealed record SendOutcome(bool Written, int Queued)
 /// **人間が止めるまで次を流さない。**
 /// </para>
 /// </remarks>
-public sealed class TurnGate(Func<string, CancellationToken, Task> write)
+public sealed class TurnGate(Func<string, CancellationToken, Task> write, TimeProvider? clock = null)
 {
     private readonly Func<string, CancellationToken, Task> _write =
         write ?? throw new ArgumentNullException(nameof(write));
 
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
     private readonly Queue<string> _pending = new();
     private readonly Lock _gate = new();
     private bool _inFlight;
+    private DateTimeOffset _inFlightSince;
     private bool _closed;
 
     /// <summary>いま走っている turn があるか。</summary>
@@ -43,6 +46,24 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
 
     /// <summary>まだ書かれていない数。<b>画面に出す</b> —— 積んだことを黙らない。</summary>
     public int Queued { get { lock (_gate) { return _pending.Count; } } }
+
+    /// <summary>
+    /// いまの turn と待ち行列の様子。<b>「終わりを観測していない時間」の材料</b>（設計 §36）。
+    /// </summary>
+    /// <remarks>
+    /// <b>途中の発話では更新しない。</b> 測っているのは「アプリが turn の終わりを観測していない時間」
+    /// であって、部門が黙っている時間ではない（§31-5 と同じ主語の置き方）。
+    /// </remarks>
+    public TurnActivity Activity
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return new TurnActivity(_inFlight, _inFlight ? _inFlightSince : null, _pending.Count);
+            }
+        }
+    }
 
     /// <summary>
     /// 送る。<b>走っている turn があれば積む。</b>
@@ -66,6 +87,7 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
             }
 
             _inFlight = true;
+            _inFlightSince = _clock.GetUtcNow();
         }
 
         try
@@ -135,6 +157,7 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
 
                 next = _pending.Dequeue();
                 _inFlight = true;
+                _inFlightSince = _clock.GetUtcNow();
                 owning = true;
             }
 

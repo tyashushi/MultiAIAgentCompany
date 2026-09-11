@@ -32,6 +32,18 @@ public partial class MainWindow : Window
     private readonly HashSet<string> _acceptingProposals = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// 沈黙を知らせた turn の起点（設計 §36-4 / §31-6）。<b>一度だけ言う</b> ——
+    /// 走査は5秒ごとに回るので、毎回積むと作業ログが沈黙で埋まる。
+    /// </summary>
+    /// <remarks>
+    /// <b>覚えているのは時刻そのもの</b>なので、turn が変わればひとりでに忘れる ——
+    /// 立て直しでもフォルダの切り替えでもセッションが入れ替わり、走っている turn は消える。
+    /// 「切り替えで消えるべきものが、消える場所に置かれていない」（§31-6）を、
+    /// <b>消す場所を要らなくすることで</b>避けている。
+    /// </remarks>
+    private DateTimeOffset? _secretaryStalledNoticed;
+
+    /// <summary>
     /// 回答の送信で例外が出た仕事。<b>自動で送り直さない</b>（設計 §16-5 / §14-1）——
     /// 届いたかもしれないので、5秒ごとに送り直すと同じ回答が何度も届く。
     /// </summary>
@@ -1104,6 +1116,99 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 秘書へ送った turn の終わりを、期限までに観測しているか（設計 §36）。
+    /// </summary>
+    /// <remarks>
+    /// <b>秘書についての主張はしない。</b> 出すのは「アプリが turn の終わりを観測していない」
+    /// という、アプリ自身についての事実だけで、状態は何も動かさない（§31-5）。
+    /// </remarks>
+    private void UpdateSecretaryTurnWatch()
+    {
+        if (DataContext is not ShellViewModel shell || _secretary is null)
+        {
+            return;
+        }
+
+        // **承認を出したまま押されていないなら、待たせているのはこちら**（§31-2 と同じ）。
+        // ここを見ないと、人間が承認を放置しているだけで「立て直せ」と言うことになる。
+        // **写しではなく正本を見る**（レビュー2周目で発覚）—— 画面の一覧は post 越しに
+        // 追いかけているので、並ぶ前・消える前の隙間がある。
+        var awaitingHuman = shell.Approvals.HasPending(ApprovalSource.Secretary);
+
+        var now = TimeProvider.System.GetUtcNow();
+        var activity = _secretary.Activity;
+
+        var silence = TurnWatch.Of(
+            activity, awaitingHuman, TurnWatch.DefaultDeadline, now);
+
+        if (silence is null)
+        {
+            shell.SecretaryStalledText = null;
+            _secretaryStalledNoticed = null;
+            return;
+        }
+
+        var waiting = silence.Queued > 0
+            ? $"。次の {silence.Queued} 件は送られないまま待っている"
+            : string.Empty;
+        var line = $"秘書に送ってから {Math.Round(silence.Elapsed.TotalMinutes)} 分、turn の終わりを観測していない{waiting}";
+
+        shell.SecretaryStalledText = $"{line}。**秘書が生きているかは分からない** —— 立て直すと、いまの turn は捨てられる";
+
+        // **一度だけ言う**（§31-6）。turn が変わったら、そのときまた言う。
+        if (_secretaryStalledNoticed != silence.Since)
+        {
+            _secretaryStalledNoticed = silence.Since;
+            Note($"{line}。**失敗とは書かない** —— 観測していないだけである");
+        }
+    }
+
+    /// <summary>
+    /// 秘書を立て直す（設計 §36-3）。<b>終わらせてから、いつもの起動経路で起こす。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b>待ち行列を人間のボタンで開けるのではない。</b> 開けても観測は増えておらず、
+    /// 前の turn が生きていれば割り込みが起きる（§32-12）。**観測できる終端**を作る ——
+    /// プロセスを終わらせる。
+    /// <para>
+    /// <b>積んであったものは送り直さない</b>（§14-1）。仕事の指示書なら
+    /// <c>.company/tasks/</c> に残っていて、状態は <c>Dispatched</c>（送ったかもしれない）のまま
+    /// §16-3 の復旧走査が拾う。人間の相談なら、もう一度打てばよい。
+    /// </para>
+    /// </remarks>
+    private async void OnRestartSecretary(object? sender, RoutedEventArgs e)
+    {
+        if (_secretary is null || _composer?.Workspace is not { } workspace || Busy("秘書を立て直す操作"))
+        {
+            return;
+        }
+
+        Note("秘書を立て直す（いまの turn は捨てる。積んだ依頼は送り直さない）");
+        // **会話に残さない。** `SayAndRecord` は役を「人間か秘書か」でしか書けないので、
+        // ここで使うと**アプリの断りを秘書の発言として記録する**ことになる（§17-3）。
+        Say("（秘書を立て直しました。前の依頼は送り直していません）");
+
+        await _secretary.StopAsync();
+
+        // **印はここで降ろす。** 新しいセッションには走っている turn が無いので
+        // 次の走査でも消えるが、押した手応えを5秒待たせない。
+        if (DataContext is ShellViewModel shell)
+        {
+            shell.SecretaryStalledText = null;
+        }
+
+        _secretaryStalledNoticed = null;
+
+        // **起動の経路は1つ**（§17-4）—— README を置く → 起動する → 1通目に読ませる。
+        if (!await EnsureSecretaryAsync(workspace))
+        {
+            Note("秘書を起こし直せなかった。観測を見る");
+        }
+
+        UpdateSecretaryStatus();
+    }
+
+    /// <summary>
     /// 秘書が動いていなければ起動して、protocol を読ませる（設計 §17-4 / §17-6）。
     /// </summary>
     /// <remarks>
@@ -1397,6 +1502,10 @@ public partial class MainWindow : Window
         {
             Note(line);
         }
+
+        // **秘書にも同じ問いを立てる**（設計 §36）。部門は §31 が仕事の期限で拾うが、
+        // 秘書には仕事もタイルも無い（§17-2）ので、**どこからも拾われない**。
+        UpdateSecretaryTurnWatch();
 
         // **相談スレッドはフォルダごと**（設計 §32-6）。フォルダを開く経路が複数あるので、
         // ここ1箇所で読み直す —— 起動時走査は、どの経路からも必ず通る。

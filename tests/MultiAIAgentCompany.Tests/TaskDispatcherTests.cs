@@ -585,6 +585,9 @@ public sealed class TaskDispatcherTests : IDisposable
         /// <summary>走っている turn があるふりをする（設計 §32-12）。</summary>
         public bool QueueInsteadOfWriting { get; init; }
 
+        /// <summary>この偽物は turn の時間を測らない（設計 §36 は TurnWatchTests で固定する）。</summary>
+        public TurnActivity Activity => new(QueueInsteadOfWriting, null, 0);
+
         public async Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
         {
             if (whenSending is not null && await whenSending() is TaskReadResult.Found found)

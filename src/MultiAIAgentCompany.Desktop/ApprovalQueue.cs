@@ -36,13 +36,55 @@ public sealed class ApprovalQueue
     /// </summary>
     public const string DenyReason = "人間が拒否しました。同じ操作を試し直さないでください。";
 
+    /// <summary>
+    /// 画面に出ている待ち行列。<b>これは写しであって正本ではない</b>（レビュー2周目で発覚）。
+    /// </summary>
+    /// <remarks>
+    /// <c>ObservableCollection</c> は UI スレッドでしか触れないので、
+    /// 追加も削除も post になる。**post の間は、並んでいるはずのものがここに居ない** ——
+    /// その隙に「取り下げる」が走ると<b>取りこぼし、あとから死んだカードが現れる</b>。
+    /// 正本は <see cref="_live"/> に置く。
+    /// </remarks>
     public ObservableCollection<PendingApproval> Pending { get; } = [];
+
+    /// <summary>いま人間の返事を待っているもの（正本）。</summary>
+    private readonly HashSet<PendingApproval> _live = [];
+
+    private readonly Lock _gate = new();
+
+    /// <summary>
+    /// その出どころの要求が並んでいるか。<b>写しではなく正本を見る</b>（設計 §36-1）。
+    /// </summary>
+    public bool HasPending(ApprovalSource source)
+    {
+        lock (_gate)
+        {
+            return _live.Any(pending => pending.Source == source);
+        }
+    }
 
     public void Add(PendingApproval approval)
     {
         ArgumentNullException.ThrowIfNull(approval);
         approval.Resolved += OnResolved;
-        Dispatcher.UIThread.Post(() => Pending.Add(approval));
+
+        lock (_gate)
+        {
+            _live.Add(approval);
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            // **並べる前に、まだ生きているか確かめる。** post を待っている間に
+            // 取り下げ（相手のプロセスが終わった）が走っていることがある ——
+            // 確かめないと**誰も消さないカード**が画面に残る。
+            lock (_gate)
+            {
+                if (!_live.Contains(approval)) return;
+            }
+
+            Pending.Add(approval);
+        });
 
         // **背面でも気付けるようにする**（設計 §28-4）。承認は人間の出番なので、
         // 気付かれないと部門が止まったまま待ち続ける。
@@ -50,9 +92,62 @@ public sealed class ApprovalQueue
         DesktopNotifier.Notify("承認まち", $"{approval.DepartmentName} が承認を求めています");
     }
 
+    /// <summary>
+    /// もう答えられなくなった要求を取り下げる（設計 §36-3b）。
+    /// </summary>
+    /// <remarks>
+    /// <b>相手のプロセスが終わったら、その承認カードは嘘になる。</b> 押しても届かないし、
+    /// 残っていると<b>「人間の番だ」と言い続ける</b> —— §36 の沈黙の判定がそれを見るので、
+    /// <b>次の turn が本当に返ってこなくても帯が出なくなる</b>（レビューで発覚）。
+    /// <para>
+    /// <b>黙って消さない</b>（§25-2）。何件取り下げたかを呼び出し元が人間に出す。
+    /// </para>
+    /// </remarks>
+    /// <param name="withdrawn">
+    /// 何件取り下げたか。<b>UI スレッドで呼ばれる。</b>
+    /// 0 件でも呼ぶ —— 呼ばない分岐を作ると、呼び出し側が「言う／言わない」を2箇所で判断する。
+    /// </param>
+    public void Withdraw(ApprovalSource source, Action<int> withdrawn)
+    {
+        ArgumentNullException.ThrowIfNull(withdrawn);
+
+        // **正本から先に外す。** ここを先にやるので、まだ並べられていない要求
+        // （<see cref="Add"/> の post が走る前のもの）も確実に取りこぼさない。
+        PendingApproval[] targets;
+        lock (_gate)
+        {
+            targets = _live.Where(pending => pending.Source == source).ToArray();
+            foreach (var approval in targets)
+            {
+                _live.Remove(approval);
+            }
+        }
+
+        foreach (var approval in targets)
+        {
+            approval.Resolved -= OnResolved;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var approval in targets)
+            {
+                Pending.Remove(approval);
+            }
+
+            withdrawn(targets.Length);
+        });
+    }
+
     private void OnResolved(object? sender, PendingApproval approval)
     {
         approval.Resolved -= OnResolved;
+
+        lock (_gate)
+        {
+            _live.Remove(approval);
+        }
+
         Dispatcher.UIThread.Post(() => Pending.Remove(approval));
     }
 }

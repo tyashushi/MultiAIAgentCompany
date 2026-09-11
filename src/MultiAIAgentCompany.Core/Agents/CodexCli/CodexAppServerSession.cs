@@ -71,6 +71,9 @@ public sealed class CodexAppServerSession : IStructuredSession
     private TurnGate Turns => _turnGate ??= new TurnGate(SendCoreAsync);
 
     /// <inheritdoc />
+    public TurnActivity Activity => Turns.Activity;
+
+    /// <inheritdoc />
     /// <remarks><b>書き込み口は <see cref="TurnGate"/> ひとつ</b>（設計 §32-12）。</remarks>
     public Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
     {

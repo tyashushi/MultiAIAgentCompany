@@ -83,6 +83,29 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         }
     } = "（ワークスペース未選択）";
 
+    /// <summary>
+    /// 秘書へ送った turn の終わりを、期限までに観測していない（設計 §36）。
+    /// </summary>
+    /// <remarks>
+    /// <b>これは秘書についての主張ではない。</b> 言っているのは
+    /// 「アプリが turn の終わりを観測していない」だけで、状態は何も動かしていない（§31-5）。
+    /// null なら出さない。
+    /// </remarks>
+    public string? SecretaryStalledText
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SecretaryStalledText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SecretaryStalled)));
+        }
+    }
+
+    public bool SecretaryStalled => SecretaryStalledText is not null;
+
+
     public bool HasRecovery => Recovery.Count > 0;
 
     public ShellViewModel() =>

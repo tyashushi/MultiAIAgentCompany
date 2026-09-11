@@ -97,6 +97,15 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     public bool IsRunning => _session is not null;
 
     /// <summary>
+    /// いま走っている turn と待ち行列（設計 §36）。
+    /// </summary>
+    /// <remarks>
+    /// <b>判定はここでしない。</b> 期限を過ぎたかは <see cref="TurnWatch.Of"/> が
+    /// 時刻と期限を引数で受けて計算する —— ここで時計を読むと、テストで固定できない。
+    /// </remarks>
+    public TurnActivity Activity => _session?.Activity ?? default;
+
+    /// <summary>
     /// 起動する。<b>最初の送信で呼ばれる</b>（設計 §17-4）——
     /// ワークスペース選択に起動という副作用を隠さない。
     /// </summary>
@@ -172,6 +181,48 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     public Task<SendOutcome> SendAsync(string text, CancellationToken ct) =>
         _session?.SendUserMessageAsync(text, ct) ?? Task.FromResult(SendOutcome.Sent);
 
+    /// <summary>
+    /// いまの秘書を終わらせる（設計 §36-3）。<b>立て直しは「終わらせて、また起こす」</b>。
+    /// </summary>
+    /// <remarks>
+    /// <b>「止める」は turn を終わりにすることではない。</b> 待ち行列を人間のボタンで
+    /// 開けても観測は1つも増えておらず、前の turn が生きていれば割り込みが起きる ——
+    /// <see cref="TurnGate"/> が潰したばかりの形に戻る（§32-12）。
+    /// 終端と認めてよいのは<b>観測できる終端</b>で、プロセスの終了はその1つである。
+    /// <para>
+    /// <b>起こし直すのはここではない。</b> 起動の順序（README を置く → 起動する →
+    /// 1通目に「これを読んで」）は <c>EnsureSecretaryAsync</c> が持っている ——
+    /// ここで起こすと、その順序が2箇所になる。
+    /// </para>
+    /// <para>
+    /// <b>積み残しは自動で送り直さない</b>（§14-1 と同じ姿勢）——
+    /// 届いたかどうか分からないものを黙って再送しない。捨てたことは診断に出る（§25-2）。
+    /// </para>
+    /// </remarks>
+    public Task StopAsync() => ShutdownAsync();
+
+    /// <summary>
+    /// 秘書が終わったら、その承認カードを取り下げる（設計 §36-3、レビューで発覚）。
+    /// </summary>
+    /// <remarks>
+    /// <b>残すと二重に嘘になる。</b> 押しても届かないうえ、
+    /// <b>「人間の番だ」と言い続ける</b> —— §36 の沈黙の判定がそれを見るので、
+    /// **新しい秘書の turn が本当に返ってこなくても帯が出なくなる。**
+    /// <para>
+    /// <b>黙って消さない</b>（§25-2）。取り下げたことは診断に出す ——
+    /// 押そうとしていた人間には、カードが消えた理由が要る。
+    /// </para>
+    /// </remarks>
+    private void WithdrawApprovals() => approvals.Withdraw(ApprovalSource.Secretary, count =>
+    {
+        if (count > 0)
+        {
+            Diagnosed?.Invoke(this, new LiveDiagnostic(
+                DiagnosticStream.Protocol,
+                $"秘書が終わったので、答えられなくなった承認の要求を {count} 件取り下げた"));
+        }
+    });
+
     private void Wire(IStructuredSession session)
     {
         // **発言はライブ経路から**（設計 §17-5）。Observed が運ぶのは観測の要約であって、
@@ -183,6 +234,9 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
             WorkspaceRoot = null;
             SetState(exitCode == 0 ? SecretaryState.NotStarted : SecretaryState.Failed,
                 exitCode == 0 ? null : $"終了コード {exitCode}");
+
+            // **答えられなくなった承認を残さない**（設計 §36-3、レビューで発覚）。
+            WithdrawApprovals();
         };
 
         // **診断（stderr の生の行）を捨てない**（設計 §22、2026-09-09 に実機で踏んだ）。
@@ -242,7 +296,13 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     /// ウィンドウを閉じたら終了する。<b>秘書も対象</b>（設計 §9、2026-09-06 に訂正）——
     /// 「全部門」と書いていたので、部門ではない秘書が責務から漏れていた。
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new(ShutdownAsync());
+
+    /// <summary>
+    /// いまの秘書を終わらせる。<b>破棄と立て直しで同じ手順を使う</b>（設計 §36-3）——
+    /// 分けて書くと、片方だけ世代を進め忘れる。
+    /// </summary>
+    private async Task ShutdownAsync()
     {
         // **起動中でも「もう要らない」と伝わるようにする**（設計 §17-7）。
         // 世代を進めておけば、走っている StartAsync が自分で閉じる。
@@ -263,6 +323,9 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
                 // 起動の失敗はもう関係ない。破棄はここで止まらない。
             }
         }
+
+        // **起動中に終わらせた場合もここを通る**（`_session` が無くても要求は残り得る）。
+        WithdrawApprovals();
 
         if (_session is { } session)
         {

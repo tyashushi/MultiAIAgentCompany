@@ -214,6 +214,20 @@
                  同じ入力欄が秘書・部門・仕事作成という複数の文脈を背負うと §0 / §1 と衝突する。
                  部門への操作は右ペインへ移した。 -->
             <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                <!-- turn の終わりを期限までに観測していない（設計 §36）。
+                     **状態は動かしていない** —— 出しているのは「観測していない」という
+                     アプリ自身についての事実で、秘書が止まったとは言っていない（§31-5）。
+                     用件は1つだけ: **観測できる終端を作る**（= プロセスを終わらせる）。 -->
+                <Border IsVisible="{Binding SecretaryStalled}" Margin="0,0,0,6" Padding="8" CornerRadius="4"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding SecretaryStalledText}" TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontSizeSmall}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="秘書を立て直す" Margin="8,0,0,0"
+                                VerticalAlignment="Center" Click="OnRestartSecretary" />
+                    </Grid>
+                </Border>
                 <TextBlock Text="{Binding SecretaryStatus}" FontSize="{DynamicResource FontSizeSmall}" Opacity="0.75"
                            TextWrapping="Wrap" Margin="0,0,0,4" />
                 <Grid ColumnDefinitions="*,Auto">

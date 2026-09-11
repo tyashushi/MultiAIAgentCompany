@@ -94,6 +94,16 @@ public interface IStructuredSession : IAgentSession
     Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct);
 
     /// <summary>
+    /// いま走っている turn と待ち行列の様子（設計 §36）。
+    /// </summary>
+    /// <remarks>
+    /// <b>判定はここに置かない。</b> 「期限を過ぎたか」は
+    /// <see cref="TurnWatch.Of"/> が時刻と期限を引数で受けて計算する ——
+    /// セッションが時計を持って自分で判定すると、テストで固定できなくなる（§31-2）。
+    /// </remarks>
+    TurnActivity Activity { get; }
+
+    /// <summary>
     /// 承認に答える。<paramref name="decision"/> は
     /// <paramref name="request"/> が提示したものでなければならない（設計 §5）。
     /// </summary>
