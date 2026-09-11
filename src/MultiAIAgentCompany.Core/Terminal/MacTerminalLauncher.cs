@@ -51,18 +51,42 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
         }
 
         // **窓を共有するなら `in window id <id>`**（設計 §33-5）。
-        var target = request.ReuseWindowId is { Length: > 0 } window
-            ? $" in window id {window}"
-            : string.Empty;
-        var applescript =
-            $"""
-             tell application "Terminal"
-                 activate
-                 do script "{MacTerminalScript.EscapeForAppleScriptString(scriptPath)}"{target}
-             end tell
-             """;
+        string Compose(bool reuseWindow)
+        {
+            var target = reuseWindow && request.ReuseWindowId is { Length: > 0 } window
+                ? $" in window id {window}"
+                : string.Empty;
+            return $"""
+                tell application "Terminal"
+                    activate
+                    do script "{MacTerminalScript.EscapeForAppleScriptString(scriptPath)}"{target}
+                end tell
+                """;
+        }
 
-        var run = await RunAsync("osascript", ["-e", applescript], ct);
+        var run = await RunAsync("osascript", ["-e", Compose(reuseWindow: true)], ct);
+
+        // **Terminal.app が動いていないと -600 で落ちる**（2026-09-12 に実機で踏んだ）。
+        // <c>tell application</c> は**起動していないアプリを自動では起こさない** ——
+        // 人間が窓を全部閉じると Terminal.app 自体が終了するので、これはふつうに起きる。
+        //
+        // **毎回 `open` しない。** 起こすのは落ちたときだけで、
+        // 平常時に余計なプロセスを1つ増やさない。
+        if (run.ExitCode != 0 && IsNotRunning(run))
+        {
+            await RunAsync("open", ["-a", "Terminal"], ct);
+
+            // **起動を待つ。** `open` は Terminal が Apple Event を受け取れるようになる前に返る。
+            // 1回だけ待って1回だけ試す —— **開かないものを何度も叩かない**（§7）。
+            await Task.Delay(TimeSpan.FromMilliseconds(800), ct);
+
+            // **覚えている窓 id は捨てる**（レビューで発覚）。Terminal.app が
+            // 動いていなかったのだから、**前の窓はもう無い** ——
+            // `in window id <古い id>` のまま試すと、
+            // **起こし直しても同じ理由で失敗する。**
+            run = await RunAsync("osascript", ["-e", Compose(reuseWindow: false)], ct);
+        }
+
         if (run.ExitCode != 0)
         {
             return new TerminalLaunchResult.Failed(
@@ -74,6 +98,17 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
             ? new TerminalLaunchResult.Launched(handle)
             : new TerminalLaunchResult.Failed($"窓の id を読み取れません: {run.Stdout.Trim()}");
     }
+
+    /// <summary>
+    /// 「アプリケーションは実行されていません」か（AppleScript の <c>-600</c>）。
+    /// </summary>
+    /// <remarks>
+    /// <b>番号で見る。</b> 文言は OS の言語で変わるので、そちらで判定すると
+    /// **日本語環境でだけ直り、英語環境で黙って戻る**（§27-2 と同じ姿勢）。
+    /// </remarks>
+    private static bool IsNotRunning((int ExitCode, string Stdout, string Stderr) run) =>
+        run.Stderr.Contains("-600", StringComparison.Ordinal)
+        || run.Stdout.Contains("-600", StringComparison.Ordinal);
 
     public async Task<bool> FocusAsync(TerminalHandle handle, CancellationToken ct)
     {

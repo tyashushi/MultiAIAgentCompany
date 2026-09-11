@@ -172,6 +172,7 @@ public sealed class TaskDispatcher
         TaskState expected,
         DepartmentDefinition department,
         Sessions.IStructuredSession? session,
+        TimeSpan leaseDuration,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(expected);
@@ -187,20 +188,45 @@ public sealed class TaskDispatcher
             return new DispatchResult.Rejected("送り先の部門がタスクの担当部門と一致しません");
         }
 
-        if (session is null)
+        if (department.Mode is DriveMode.Structured && session is null)
         {
             return new DispatchResult.Rejected("Structured 部門には構造化セッションが必要です");
         }
 
+        // **指示書の検査は、モードで分かれる前に済ませる**（レビューで発覚）。
+        // ここを分岐の後ろに置くと、**外部ターミナルだけ検査を素通りして**、
+        // 権利を取ったうえで**存在しない指示書の在り処だけを渡して窓を開く。**
         var instruction = await ReadInstructionAsync(expected.Slug, ct);
         if (string.IsNullOrWhiteSpace(instruction))
         {
             return new DispatchResult.Rejected("instruction.md が無いか空です");
         }
 
+        // **窓を開き直すのも「もう一度送る」である**（設計 §32、2026-09-12 に実機で踏んだ）。
+        //
+        // ここが Structured しか知らないままだったので、**既定が全部ターミナルになった
+        // 時点で（§32-3）、§14-1 が用意した唯一の人間の逃げ道が塞がっていた** ——
+        // 自動再送しないと決めた代わりの手が、どの部門でも押せなかった。
+        // **§30 と同じ形**（機械はあるが、そこへ入る道が無い）。
+        if (department.Mode is DriveMode.ExternalTerminal)
+        {
+            // **書き込み権を取り直す。** 窓が開けば CLI はまた書く ——
+            // 失効したまま開くと、**誰も権利を持っていない状態で書かせる**ことになる。
+            var retryLease = department.ReadsOnly
+                ? await BlockWhileWritingAsync(ct)
+                : await AcquireOrRenewWriteLeaseAsync(expected, department, leaseDuration, ct);
+            if (retryLease is DispatchResult retryFailure)
+            {
+                return retryFailure;
+            }
+
+            // 状態は動かさない（`Dispatched` のまま）——「送ったかもしれない」は変わらない。
+            return new DispatchResult.LaunchTerminal(expected, TerminalRequestFor(department, expected.Slug));
+        }
+
         try
         {
-            await session.SendUserMessageAsync(instruction, ct);
+            await session!.SendUserMessageAsync(instruction, ct);
 
             // 状態は Dispatched のまま。再送しても「送ったかもしれない」は変わらない。
             return new DispatchResult.Dispatched(expected);
@@ -491,6 +517,48 @@ public sealed class TaskDispatcher
 
         await ReleaseWriteLeaseAsync(department, ct);
         return true;
+    }
+
+    /// <summary>
+    /// 動いている仕事を抱えている部門の書き込み権を、期限が来る前に更新する（設計 §24-4）。
+    /// </summary>
+    /// <remarks>
+    /// <b>権利が切れるのは「仕事が終わった」か「アプリが落ちた」ときだけにする。</b>
+    /// これが無いと、30分より長くかかる仕事の途中で権利が失効し、
+    /// **人間が外すまで、その部門は自分の仕事を続けられない**（2026-09-12 に実機で踏んだ）。
+    /// <para>
+    /// <b>失効したものは蘇らせない。</b> <see cref="LeaseStore.RenewAsync"/> は
+    /// 期限内に保持していなければ <c>NotHeld</c> を返す —— そこに乗ることで
+    /// §24-2 の「失効した権利を外すのは人間。根拠は時間ではない」を壊さずに済む。
+    /// <b>アプリが落ちている間に切れた権利は、切れたままである。</b>
+    /// </para>
+    /// <para>
+    /// <b>部門が生きているかは、ここでは問わない。</b> それは §31 の報告の期限が見る ——
+    /// 権利の失効に二重に見張らせると、**同じことを2つの仕組みが別々の閾値で言う。**
+    /// </para>
+    /// </remarks>
+    /// <returns>更新した部門。<b>何もしなかったときは空</b>。</returns>
+    public async Task<string?> RenewWriteLeaseForInFlightAsync(TimeSpan leaseDuration, CancellationToken ct)
+    {
+        // 書き込み権はワークスペースに1つ（§14-2）。持ち主を見れば足りる。
+        if (await _leases.ReadAsync(ct) is not LeaseReadResult.Found found
+            || !found.Leases.Holders.TryGetValue(LeaseKind.Write, out var holder)
+            || holder.Holder.Kind is not ActorKind.Department
+            || holder.Holder.Id is not { Length: > 0 } departmentId)
+        {
+            return null;
+        }
+
+        if (!await HasWorkInFlightAsync(departmentId, excludingSlug: null, ct))
+        {
+            return null;
+        }
+
+        var actor = Actor.OfDepartment(departmentId);
+        return await _leases.RenewAsync(found.Leases, LeaseKind.Write, actor, leaseDuration, ct)
+            is LeaseWriteResult.Written
+            ? departmentId
+            : null;
     }
 
     /// <summary>

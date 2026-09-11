@@ -44,6 +44,11 @@ public partial class MainWindow : Window
     private DateTimeOffset? _secretaryStalledNoticed;
 
     /// <summary>
+    /// 権利を持ち続けていることを知らせた部門（設計 §24-4）。<b>1度だけ言う</b>。
+    /// </summary>
+    private readonly HashSet<string> _renewedLease = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// 回答の送信で例外が出た仕事。<b>自動で送り直さない</b>（設計 §16-5 / §14-1）——
     /// 届いたかもしれないので、5秒ごとに送り直すと同じ回答が何度も届く。
     /// </summary>
@@ -1624,6 +1629,16 @@ public partial class MainWindow : Window
             Note(line);
         }
 
+        // **動いている仕事の書き込み権を、切れる前に更新する**（設計 §24-4）。
+        // **渡すより先にやる** —— 先に渡そうとすると、切れかけの権利で弾かれる。
+        if (composer.Dispatcher is { } leases
+            && await leases.RenewWriteLeaseForInFlightAsync(TimeSpan.FromMinutes(30), CancellationToken.None)
+                is { } renewed && _renewedLease.Add(renewed))
+        {
+            // **1度だけ言う**（§31-6 と同じ）。5秒ごとに積むと作業ログが埋まる。
+            Note($"{renewed}: 仕事が動いている間は書き込み権を持ち続ける");
+        }
+
         // **計画を1つだけ進める**（設計 §37）。走査のたびに1回 ——
         // まとめて進めると、途中で失敗したときに計画とディスクがずれる。
         await AdvancePlansAsync();
@@ -1839,9 +1854,12 @@ public partial class MainWindow : Window
                 return "ワークスペースが選ばれていない";
             }
 
-            var result = await dispatcher.RetryDeliveryAsync(
-                state, _composer.DefinitionOf(state.DepartmentId),
-                SessionOf(state.DepartmentId), CancellationToken.None);
+            // **外部ターミナルなら窓を開き直す**（設計 §32、2026-09-12 に実機で踏んだ）。
+            var result = await LaunchIfTerminalAsync(
+                await dispatcher.RetryDeliveryAsync(
+                    state, _composer.DefinitionOf(state.DepartmentId),
+                    SessionOf(state.DepartmentId), TimeSpan.FromMinutes(30), CancellationToken.None),
+                state.DepartmentId);
 
             return result switch
             {
@@ -1850,7 +1868,14 @@ public partial class MainWindow : Window
                     $"{state.Slug}: 前の turn を処理中なので**順番待ちに入れた**（待ち {queued.Ahead} 件）",
                 DispatchResult.SentUncertain uncertain => $"{state.Slug}: {uncertain.Reason}",
                 DispatchResult.Rejected rejected => $"{state.Slug}: {rejected.Reason}",
-                _ => $"{state.Slug}: 送れなかった",
+
+                // **理由を握りつぶさない**（設計 §23-3、2026-09-12 に実機で踏んだ）。
+                // ここが「送れなかった」の1行だけだったので、**書き込み権が失効している**
+                // という、人間が直せるはずの理由が画面から消えていた。
+                DispatchResult.BlockedByExpiredLease expired => $"{state.Slug}: {expired.Reason}",
+                DispatchResult.Blocked blocked => $"{state.Slug}: {blocked.Reason}",
+                DispatchResult.Conflicted conflicted => $"{state.Slug}: {conflicted.Reason}",
+                _ => $"{state.Slug}: 送れなかった（{result.GetType().Name}）",
             };
         }, keepItem: true);
 

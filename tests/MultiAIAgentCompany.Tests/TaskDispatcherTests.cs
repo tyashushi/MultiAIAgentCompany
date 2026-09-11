@@ -553,6 +553,128 @@ public sealed class TaskDispatcherTests : IDisposable
     private Task<DispatchResult> DispatchAsync(TaskState expected, DepartmentDefinition department, IStructuredSession? session) =>
         _dispatcher.DispatchAsync(expected, department, session, TimeSpan.FromMinutes(10), CancellationToken.None);
 
+    [Fact]
+    public async Task 外部ターミナルの部門は_窓を開き直すことで再送する()
+    {
+        // **§14-1 が用意した唯一の人間の逃げ道**（自動再送しない代わりの手）。
+        // ここが Structured しか知らないと、既定が全部ターミナルになった時点で
+        // **どの部門でも押せなくなる**（2026-09-12 に実機で踏んだ）。
+        var draft = await CreateDraftAsync();
+        var dispatched = Assert.IsType<DispatchResult.LaunchTerminal>(
+            await DispatchAsync(draft, TerminalDepartment, session: null));
+
+        var result = Assert.IsType<DispatchResult.LaunchTerminal>(
+            await _dispatcher.RetryDeliveryAsync(
+                dispatched.State, TerminalDepartment, session: null,
+                TimeSpan.FromMinutes(30), CancellationToken.None));
+
+        Assert.Equal(dispatched.State.Slug, result.State.Slug);
+
+        // **状態は動かさない。** 再送しても「送ったかもしれない」は変わらない（§16-4）。
+        Assert.Equal(CoreTaskStatus.Dispatched, (await ReadStateAsync()).Status);
+    }
+
+    [Fact]
+    public async Task 外部ターミナルの再送は_他の部門が書いている間は通さない()
+    {
+        var draft = await CreateDraftAsync();
+        var dispatched = Assert.IsType<DispatchResult.LaunchTerminal>(
+            await DispatchAsync(draft, TerminalDepartment, session: null));
+
+        // **窓が開けば CLI はまた書く。** 権利を持っていない状態で開かせない。
+        var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
+        await _leases.ReleaseAsync(leases, LeaseKind.Write, Actor.OfDepartment("implementation"), CancellationToken.None);
+        var after = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
+        await _leases.AcquireAsync(after, LeaseKind.Write, Actor.OfDepartment("review"), "other",
+            TimeSpan.FromMinutes(10), LeaseTakeover.Deny, CancellationToken.None);
+
+        Assert.IsType<DispatchResult.Blocked>(
+            await _dispatcher.RetryDeliveryAsync(
+                dispatched.State, TerminalDepartment, session: null,
+                TimeSpan.FromMinutes(30), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 外部ターミナルの再送も_指示書が無ければ断る()
+    {
+        // **検査をモードの後ろに置くと、ターミナルだけ素通りして**
+        // 権利を取ったうえで**存在しない指示書の在り処を渡して窓を開く**（レビューで発覚）。
+        var draft = await CreateDraftAsync();
+        var dispatched = Assert.IsType<DispatchResult.LaunchTerminal>(
+            await DispatchAsync(draft, TerminalDepartment, session: null));
+
+        File.Delete(_workspace.Paths.Instruction(dispatched.State.Slug));
+
+        Assert.IsType<DispatchResult.Rejected>(
+            await _dispatcher.RetryDeliveryAsync(
+                dispatched.State, TerminalDepartment, session: null,
+                TimeSpan.FromMinutes(30), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 構造化部門の再送は_セッションが無ければ断る()
+    {
+        var draft = await CreateDraftAsync();
+        var dispatched = Assert.IsType<DispatchResult.Dispatched>(
+            await DispatchAsync(draft, StructuredDepartment, new FakeSession("implementation")));
+
+        Assert.IsType<DispatchResult.Rejected>(
+            await _dispatcher.RetryDeliveryAsync(
+                dispatched.State, StructuredDepartment, session: null,
+                TimeSpan.FromMinutes(30), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 動いている仕事の権利は_切れる前に更新する()
+    {
+        // **30分より長い仕事の途中で権利が切れると、人間が外すまで先へ進めない**
+        // （2026-09-12 に実機で踏んだ）。
+        var draft = await CreateDraftAsync();
+        await DispatchAsync(draft, TerminalDepartment, session: null);
+
+        var before = await Holder();
+
+        // ヘルパの dispatch は 10 分で借りる。**切れる前に**更新する。
+        _clock.Advance(TimeSpan.FromMinutes(5));
+
+        Assert.Equal("implementation",
+            await _dispatcher.RenewWriteLeaseForInFlightAsync(TimeSpan.FromMinutes(30), CancellationToken.None));
+        Assert.True(await Holder() > before);
+    }
+
+    [Fact]
+    public async Task 仕事が終わっていれば_権利は更新しない()
+    {
+        var draft = await CreateDraftAsync();
+        await DispatchAsync(draft, TerminalDepartment, session: null);
+        await _tasks.TransitionAsync(
+            await ReadStateAsync(), CoreTaskStatus.Reported, TransitionOrigin.Automation, null, CancellationToken.None);
+
+        Assert.Null(await _dispatcher.RenewWriteLeaseForInFlightAsync(
+            TimeSpan.FromMinutes(30), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 失効した権利は蘇らせない()
+    {
+        // **§24-2 を壊さない** —— 失効した権利を外すのは人間で、根拠は時間ではない。
+        // アプリが落ちている間に切れた権利は、切れたままである。
+        var draft = await CreateDraftAsync();
+        await DispatchAsync(draft, TerminalDepartment, session: null);
+
+        // ヘルパの dispatch は 10 分で借りるので、ここでは既に失効している。
+        _clock.Advance(TimeSpan.FromMinutes(11));
+
+        Assert.Null(await _dispatcher.RenewWriteLeaseForInFlightAsync(
+            TimeSpan.FromMinutes(30), CancellationToken.None));
+    }
+
+    private async Task<DateTimeOffset> Holder()
+    {
+        var leases = Assert.IsType<LeaseReadResult.Found>(await _leases.ReadAsync(CancellationToken.None)).Leases;
+        return leases.Holders[LeaseKind.Write].ExpiresAt;
+    }
+
     private static readonly DepartmentDefinition TerminalDepartment =
         new("implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.ExternalTerminal);
 
