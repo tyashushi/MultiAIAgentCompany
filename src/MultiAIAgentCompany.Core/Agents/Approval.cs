@@ -38,8 +38,18 @@ public sealed record ApprovalRequest(
     string Title,
     string Details,
     IReadOnlyList<ApprovalDecision> AvailableDecisions,
-    IReadOnlyList<string> SuggestedRules)
+    IReadOnlyList<string> SuggestedRules,
+    string? ToolName = null,
+    string? TargetPath = null)
 {
+    /// <summary>
+    /// 何のツールか（設計 §35）。<b>自動承認の判定に使う。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b>表示用の <c>Title</c> と分ける。</b> あちらは CLI が人間向けに作った文字列で、
+    /// **版で変わる**。判定に使うと、文言が変わった日から黙って通らなくなる（§7）。
+    /// <b>返してこない CLI では null</b> —— そのときは自動承認しない。
+    /// </remarks>
     /// <summary>提示された決定かどうか。提示されていない決定は送らない。</summary>
     public bool Offers(string decisionId) =>
         AvailableDecisions.Any(d => string.Equals(d.Id, decisionId, StringComparison.Ordinal));

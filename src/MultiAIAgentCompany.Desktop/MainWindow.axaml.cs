@@ -121,6 +121,10 @@ public partial class MainWindow : Window
         _secretary.StateChanged += (_, _) => Dispatcher.UIThread.Post(UpdateSecretaryStatus);
         _secretary.Said += (_, line) => Dispatcher.UIThread.Post(() => SayAndRecord("secretary", line));
 
+        // **聞かずに通したことを黙らない**（設計 §35 / §7）。
+        _secretary.AutoApproved += (_, reason) =>
+            Dispatcher.UIThread.Post(() => Note($"秘書: {reason} を聞かずに通した"));
+
         // **秘書の stderr を捨てない**（設計 §22、2026-09-09 に実機で踏んだ）。
         // 「API Error: 400 status code (no body)」の**後ろにある理由**は、ここにしか出ない。
         _secretary.Diagnosed += (_, diagnostic) => Dispatcher.UIThread.Post(() =>
@@ -1365,6 +1369,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        // **走査より前に拾う**（2026-09-11、実機で人間が見つけた）。
+        // 走査の中でカードを作り直すので、あとから受理すると
+        // **「仕事にする」が一瞬出てから消える。**
+        await AutoAcceptProposalsAsync();
+
         var result = await composer.ScanAsync(kind, CancellationToken.None);
         var arrived = new List<AppliedTransition>();
         foreach (var applied in result?.Applied ?? [])
@@ -1410,7 +1419,6 @@ public partial class MainWindow : Window
             await ShowArrivedReportAsync(applied.Slug);
         }
 
-        await AutoAcceptProposalsAsync();
         await DeliverAnswersAsync();
     }
 
@@ -1479,14 +1487,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        // **その場の写しで回す。** 受理すると Proposals が作り直されるので、
-        // 元の集合を回したままだと途中で崩れる。
-        foreach (var card in composer.Shell.Proposals.ToArray())
+        // **画面のカードではなく outbox を直接読む**（2026-09-11）。
+        // カードは走査が作るので、それを待つと**一瞬出てから消える**ことになる。
+        foreach (var proposal in outbox.Read())
         {
-            if (!card.CanMakeTask || card.Proposal.DepartmentId is not { } departmentId)
+            // 宛先が分からない・本文が空のものは自動にしない。**捨てもしない**（§17-6）——
+            // カードとして残り、理由が出る。
+            if (proposal.DepartmentId is not { } departmentId
+                || !composer.KnowsDepartment(departmentId)
+                || string.IsNullOrWhiteSpace(proposal.Body))
             {
                 continue;
             }
+
+            var card = new ProposalCard(proposal, composer.DefinitionOf(departmentId).DisplayName, true);
 
             // **二重に作らない**（§17-6）。outbox が未処理の正本なので、
             // まだそこに在ることを確かめてから作る。

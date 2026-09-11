@@ -79,6 +79,10 @@ public sealed class ShellComposer
 
     public DepartmentDefinition DefinitionOf(string departmentId) => _definitions[departmentId];
 
+    /// <summary>その部門をこのワークスペースが持っているか（設計 §17-6）。</summary>
+    /// <remarks><b>知らない部門の提案を捨てない</b>ので、呼び出し元が見分けられるようにする。</remarks>
+    public bool KnowsDepartment(string departmentId) => _definitions.ContainsKey(departmentId);
+
     /// <summary>選ばれたワークスペース。まだ選ばれていなければ null。</summary>
     public WorkspaceRef? Workspace { get; private set; }
 

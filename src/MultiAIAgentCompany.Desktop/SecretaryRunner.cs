@@ -1,4 +1,5 @@
 using MultiAIAgentCompany.Core.Agents;
+using MultiAIAgentCompany.Core.Coordination;
 using MultiAIAgentCompany.Core.Agents.ClaudeCode;
 using MultiAIAgentCompany.Core.Sessions;
 using MultiAIAgentCompany.Core.Status;
@@ -87,6 +88,11 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     /// アプリ全体の診断（§28-9）へ流す。
     /// </remarks>
     public event EventHandler<LiveDiagnostic>? Diagnosed;
+
+    /// <summary>
+    /// 聞かずに通した承認（設計 §35）。<b>黙って通さない</b>ので、画面へ出すために出す。
+    /// </summary>
+    public event EventHandler<string>? AutoApproved;
 
     public bool IsRunning => _session is not null;
 
@@ -197,10 +203,24 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
         }
 
         // 承認の仕組みは部門と共通。**出す場所だけが違う**（§1 / §17-2）。
-        session.ApprovalRequested += (_, request) => approvals.Add(new PendingApproval(
-            DepartmentLabel, request, tracker: null,
-            (decision, reason, token) => session.RespondAsync(request, decision, reason, token),
-            ApprovalSource.Secretary));
+        session.ApprovalRequested += (_, request) =>
+        {
+            // **秘書の持ち場でやることは、聞かずに通す**（設計 §35）。
+            // ただし**通したことは言う** —— 黙って強い権限で動くものを作らない（§7）。
+            if (WorkspaceRoot is { } root
+                && SecretaryApprovalPolicy.Decide(request, new CompanyPaths(root)) is { AutoApprove: true } verdict)
+            {
+                AutoApproved?.Invoke(this, verdict.Reason);
+                _ = session.RespondAsync(request, request.AvailableDecisions.First(d => d.Id is "allow"),
+                    reason: null, CancellationToken.None);
+                return;
+            }
+
+            approvals.Add(new PendingApproval(
+                DepartmentLabel, request, tracker: null,
+                (decision, reason, token) => session.RespondAsync(request, decision, reason, token),
+                ApprovalSource.Secretary));
+        };
 
         session.TurnFinished += (_, verdict) =>
         {

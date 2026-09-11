@@ -97,6 +97,41 @@ public sealed record ClaudeApprovalRequest(
     IReadOnlyList<PermissionSuggestion> PermissionSuggestions,
     string RawInputJson)
 {
+    /// <summary>
+    /// ツールが触ろうとしている場所（設計 §35）。<b>読めなければ null。</b>
+    /// </summary>
+    /// <remarks>
+    /// <c>BlockedPath</c> が無いツール（<c>Write</c> など）でも、
+    /// 入力の <c>file_path</c> から分かる。<b>分からないなら自動承認しない</b>ので、
+    /// ここで無理に埋めない。
+    /// </remarks>
+    private string? PathFromInput()
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(RawInputJson);
+            if (document.RootElement.ValueKind is not System.Text.Json.JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var name in (string[])["file_path", "path", "notebook_path"])
+            {
+                if (document.RootElement.TryGetProperty(name, out var value)
+                    && value.ValueKind is System.Text.Json.JsonValueKind.String)
+                {
+                    return value.GetString();
+                }
+            }
+
+            return null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>共通の承認 UI に渡す。提案は安全な表示用要約だけを渡す。</summary>
     public ApprovalRequest ToApprovalRequest() => new(
         RequestId,
@@ -111,7 +146,11 @@ public sealed record ClaudeApprovalRequest(
             new ApprovalDecision("allow", "許可"),
             new ApprovalDecision("deny", "拒否"),
         ],
-        SuggestedRules: PermissionSuggestions.Select(suggestion => suggestion.SafeSummary()).ToArray());
+        SuggestedRules: PermissionSuggestions.Select(suggestion => suggestion.SafeSummary()).ToArray(),
+
+        // **判定に使うものは、表示用と分けて渡す**（設計 §35）。
+        ToolName: ToolName,
+        TargetPath: BlockedPath ?? PathFromInput());
 }
 
 public static class ClaudeStreamReader
