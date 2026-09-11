@@ -80,8 +80,18 @@ public interface IAgentSession : IAsyncDisposable
 /// </remarks>
 public interface IStructuredSession : IAgentSession
 {
-    /// <summary>人間・秘書からの1メッセージを送る。</summary>
-    Task SendUserMessageAsync(string text, CancellationToken ct);
+    /// <summary>
+    /// 人間・秘書からの1メッセージを送る。
+    /// </summary>
+    /// <remarks>
+    /// <b>「書いた」と「turn が処理された」を分ける</b>（設計 §32-12）。
+    /// 走っている turn があれば<b>書かずに積む</b> —— 割り込むと会話の並びが壊れる。
+    /// <para>
+    /// <b>戻り値で、積んだことを呼び出し元に伝える。</b> 返さないと
+    /// 「送ったのに何も起きない」になる（§7）。
+    /// </para>
+    /// </remarks>
+    Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct);
 
     /// <summary>
     /// 承認に答える。<paramref name="decision"/> は

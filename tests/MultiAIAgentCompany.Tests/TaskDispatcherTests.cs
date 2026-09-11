@@ -506,7 +506,7 @@ public sealed class TaskDispatcherTests : IDisposable
         /// <summary>送信の最中に外の世界が動く場合（設計 §20-2 の検証で使う）。</summary>
         public Action? DuringSend { get; init; }
 
-        public async Task SendUserMessageAsync(string text, CancellationToken ct)
+        public async Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
         {
             if (whenSending is not null && await whenSending() is TaskReadResult.Found found)
             {
@@ -515,6 +515,7 @@ public sealed class TaskDispatcherTests : IDisposable
             DuringSend?.Invoke();
             if (SendException is not null) throw SendException;
             Messages.Add(text);
+            return SendOutcome.Sent;
         }
 
         public Task StopAsync(CancellationToken ct) => Task.CompletedTask;

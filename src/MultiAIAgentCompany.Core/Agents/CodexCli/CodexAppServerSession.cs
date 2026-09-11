@@ -65,9 +65,21 @@ public sealed class CodexAppServerSession : IStructuredSession
         await _threadStarted.Task.WaitAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task SendUserMessageAsync(string text, CancellationToken ct)
+    private TurnGate? _turnGate;
+
+    /// <summary>走っている turn が終わるまで、次を書かない（設計 §32-12）。</summary>
+    private TurnGate Turns => _turnGate ??= new TurnGate(SendCoreAsync);
+
+    /// <inheritdoc />
+    /// <remarks><b>書き込み口は <see cref="TurnGate"/> ひとつ</b>（設計 §32-12）。</remarks>
+    public Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(text);
+        return Turns.SendAsync(text, ct);
+    }
+
+    private async Task SendCoreAsync(string text, CancellationToken ct)
+    {
         await CompleteHandshakeAsync(ct).ConfigureAwait(false);
         await WriteRequestAsync("turn/start", new
         {
@@ -178,6 +190,9 @@ public sealed class CodexAppServerSession : IStructuredSession
                         var verdict = CodexTurnOutcome.ToSignals(turn.Status, commandStatus)
                             .Judge(OutcomeRequirement.For(AgentKind.CodexCli));
                         SafeInvoke(() => TurnFinished?.Invoke(this, verdict), "TurnFinished");
+
+                        // **失敗した turn でも開ける**（§32-12）。開けないと以後が永久に積まれる。
+                        await Turns.OnTurnFinishedAsync(CancellationToken.None).ConfigureAwait(false);
                         break;
                     case CodexMessage.McpServerStatus mcp:
                         Observe($"Codex MCP サーバー: {mcp.Name ?? "名前不明"} ({mcp.Status ?? "状態不明"})");

@@ -1077,7 +1077,15 @@ public partial class MainWindow : Window
             ? SecretaryReadme.StartupMessage(workspace.Company, text)
             : text;
 
-        await _secretary.SendAsync(toSend, CancellationToken.None);
+        var outcome = await _secretary.SendAsync(toSend, CancellationToken.None);
+
+        // **積まれたことを黙らない**（設計 §32-12）。走っている turn があると
+        // その場では書かれない —— 言わないと「送ったのに何も起きない」になる（§7）。
+        if (!outcome.Written)
+        {
+            Note($"秘書はまだ前の依頼を処理中。**順番待ちに入れた**（待ち {outcome.Queued} 件）");
+            Say($"（前の依頼を処理中なので、順番待ちに入れました。待ち {outcome.Queued} 件）");
+        }
 
         // **送れてから降ろす。** 先に降ろすと、送信で落ちたとき
         // protocol を読ませないまま次へ進む（§7 の「していないことをしたことにしない」）。

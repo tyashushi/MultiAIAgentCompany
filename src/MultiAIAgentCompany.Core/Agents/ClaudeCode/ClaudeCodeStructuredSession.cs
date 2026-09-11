@@ -20,6 +20,10 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         DepartmentId = departmentId ?? throw new ArgumentNullException(nameof(departmentId));
+
+        // **stdin に書く口をここ1つに閉じる**（設計 §32-12）。
+        _turns = new TurnGate((line, token) => WriteAsync(
+            JsonSerializer.Serialize(new { type = "user", message = new { role = "user", content = line } }), token));
         _channel.Exited += ChannelExited;
         _channel.StandardErrorLine += StandardErrorLine;
         _readLoop = ReadLoopAsync();
@@ -45,11 +49,16 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
     /// <inheritdoc />
     public event EventHandler<LiveAgentMessage>? Spoke;
 
-    public Task SendUserMessageAsync(string text, CancellationToken ct)
+    /// <inheritdoc />
+    /// <remarks><b>書き込み口は <see cref="TurnGate"/> ひとつ</b>（設計 §32-12）。</remarks>
+    public Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(text);
-        return WriteAsync(JsonSerializer.Serialize(new { type = "user", message = new { role = "user", content = text } }), ct);
+        return _turns.SendAsync(text, ct);
     }
+
+
+    private readonly TurnGate _turns;
 
     public async Task RespondAsync(ApprovalRequest request, ApprovalDecision decision, string? reason, CancellationToken ct)
     {
@@ -111,6 +120,10 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
                         }
 
                         SafeInvoke(() => TurnFinished?.Invoke(this, verdict), "TurnFinished");
+
+                        // **失敗した turn でも開ける**（設計 §32-12）——
+                        // 「失敗した」も turn の終わりである。開けないと以後が永久に積まれる。
+                        await _turns.OnTurnFinishedAsync(CancellationToken.None).ConfigureAwait(false);
                         break;
                     case ClaudeEvent.AssistantSpoke spoke:
                         // **ライブ表示専用**（設計 §17-5）。Observed には出さない ——
@@ -217,6 +230,12 @@ public sealed class ClaudeCodeStructuredSession : IStructuredSession
 
     public async ValueTask DisposeAsync()
     {
+        // **積み残しを黙って捨てない**（設計 §32-12 / §25-2）。
+        foreach (var dropped in _turns.Close())
+        {
+            Diagnose(DiagnosticStream.Protocol, $"送られないまま終わった依頼がある: {dropped[..Math.Min(60, dropped.Length)]}");
+        }
+
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
             await StopAsync(CancellationToken.None).ConfigureAwait(false);

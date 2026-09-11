@@ -22,6 +22,10 @@ public sealed class AntigravitySession : IStructuredSession
         DepartmentId = departmentId ?? throw new ArgumentNullException(nameof(departmentId));
         _channel.Exited += ChannelExited;
         _channel.StandardErrorLine += StandardErrorLine;
+
+        // **stdin に書く口をここ1つに閉じる**（設計 §32-12）。
+        _turns = new TurnGate((line, token) => WriteAsync(
+            JsonSerializer.Serialize(new { @event = "user", message = new { role = "user", content = line } }), token));
         _readLoop = ReadLoopAsync();
     }
 
@@ -50,10 +54,14 @@ public sealed class AntigravitySession : IStructuredSession
     /// <inheritdoc />
     public event EventHandler<LiveAgentMessage>? Spoke;
 
-    public Task SendUserMessageAsync(string text, CancellationToken ct)
+    private readonly TurnGate _turns;
+
+    /// <inheritdoc />
+    /// <remarks><b>書き込み口は <see cref="TurnGate"/> ひとつ</b>（設計 §32-12）。</remarks>
+    public Task<SendOutcome> SendUserMessageAsync(string text, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(text);
-        return WriteAsync(JsonSerializer.Serialize(new { @event = "user", message = new { role = "user", content = text } }), ct);
+        return _turns.SendAsync(text, ct);
     }
 
     public Task RespondAsync(ApprovalRequest request, ApprovalDecision decision, string? reason, CancellationToken ct) =>
@@ -100,6 +108,9 @@ public sealed class AntigravitySession : IStructuredSession
                         var verdict = AntigravityTurnOutcome.ToSignals(finished, sawStepError)
                             .Judge(OutcomeRequirement.For(AgentKind.AntigravityCli));
                         SafeInvoke(() => TurnFinished?.Invoke(this, verdict), "TurnFinished");
+
+                        // **失敗した turn でも開ける**（§32-12）。開けないと以後が永久に積まれる。
+                        await _turns.OnTurnFinishedAsync(CancellationToken.None).ConfigureAwait(false);
                         break;
                     case AntigravityEvent.Unknown unknown:
                         Observe($"Antigravity イベントを解釈できない: {unknown.Reason}");

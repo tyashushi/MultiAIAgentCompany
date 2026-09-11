@@ -159,8 +159,12 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
         }
     }
 
-    public Task SendAsync(string text, CancellationToken ct) =>
-        _session?.SendUserMessageAsync(text, ct) ?? Task.CompletedTask;
+    /// <summary>
+    /// 秘書へ1通送る。<b>走っている turn があれば積まれる</b>（設計 §32-12）。
+    /// </summary>
+    /// <returns>その場で書いたか、積んだか。<b>呼び出し元が人間に伝える。</b></returns>
+    public Task<SendOutcome> SendAsync(string text, CancellationToken ct) =>
+        _session?.SendUserMessageAsync(text, ct) ?? Task.FromResult(SendOutcome.Sent);
 
     private void Wire(IStructuredSession session)
     {
