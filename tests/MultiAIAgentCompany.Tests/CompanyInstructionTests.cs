@@ -75,4 +75,24 @@ public sealed class CompanyInstructionTests
         Assert.Contains(paths.SecretaryReadme, alone);
         Assert.DoesNotContain("人間からの依頼", alone);
     }
+
+    [Fact]
+    public async Task 秘書のprotocolは押すのを待てと言わない()
+    {
+        // **提案は自動で仕事になる**（設計 §34-1）。ここが古いままだと、
+        // 秘書が「押されるまで待ちます」と言い続ける（実機で人間が見つけた）。
+        using var workspace = new TemporaryWorkspace();
+        await SecretaryReadme.WriteAsync(workspace.Paths, ["- `research` … 調査"], CancellationToken.None);
+
+        var text = await File.ReadAllTextAsync(workspace.Paths.SecretaryReadme);
+
+        Assert.DoesNotContain("押されるまで待って", text);
+        Assert.DoesNotContain("「仕事にする」を押すまで", text);
+
+        // 何が起きるかは書いてある。
+        Assert.Contains("すぐ仕事になり", text);
+
+        // **自動にならない場合も書いてある**（宛先が分からない提案）。
+        Assert.Contains("自動になりません", text);
+    }
 }

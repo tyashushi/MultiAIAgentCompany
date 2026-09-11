@@ -1453,7 +1453,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 秘書の提案を、そのまま仕事にする（設計 §17-8）。
+    /// 秘書の提案を、そのまま仕事にする（設計 §34-1）。
     /// </summary>
     /// <remarks>
     /// <b>2026-09-11 に人間が決めた。</b> §17-6 は
@@ -1502,7 +1502,7 @@ public partial class MainWindow : Window
                     continue;
                 }
 
-                Note($"提案 {card.Id} を**自動で仕事にする**（§17-8）");
+                Note($"提案 {card.Id} を**自動で仕事にする**（§34-1）");
                 await AcceptCoreAsync(card, departmentId, tasks, dispatcher, workspace, outbox);
             }
             finally

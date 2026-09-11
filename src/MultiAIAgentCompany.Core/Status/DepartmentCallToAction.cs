@@ -77,7 +77,17 @@ public enum DepartmentAction
     /// </summary>
     AnswerQuestion,
 
-    /// <summary><c>report.md</c> を開く。受理か差し戻しを決めるのは人間（§6）。</summary>
+    /// <summary>
+    /// <c>report.md</c> を<b>もう一度</b>開く（設計 §34-2）。
+    /// </summary>
+    /// <remarks>
+    /// <b>報告は出た瞬間に中央へ出る</b>ようになったので、これは<b>読み直し</b>である。
+    /// <para>
+    /// <b>それでも残す。</b> 消すと、<c>NeedsAcceptance</c> のバッジが出ているのに
+    /// 押すものが無くなり、§15-6 の <c>NeedsHuman == Action != None</c> が壊れる。
+    /// <b>出すのと、決めるのは別</b> —— 決めるのは受理／差し戻しのボタン（§19-3）。
+    /// </para>
+    /// </remarks>
     ReadReport,
 
     /// <summary>送られたか確かめる。<b>自動再送しない</b>（§14-1）。</summary>

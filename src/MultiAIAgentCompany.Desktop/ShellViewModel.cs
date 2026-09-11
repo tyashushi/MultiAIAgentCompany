@@ -266,7 +266,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         DepartmentAction.Investigate => "原因を見る",
         DepartmentAction.ShowApproval => "承認を見る",
         DepartmentAction.AnswerQuestion => "質問に答える",
-        DepartmentAction.ReadReport => "報告を読む",
+        DepartmentAction.ReadReport => "報告をもう一度読む",
         DepartmentAction.CheckDelivery => "送信を確認する",
         DepartmentAction.CheckMissingReport => "報告を確かめる",
         DepartmentAction.DispatchTask => "この仕事を渡す",

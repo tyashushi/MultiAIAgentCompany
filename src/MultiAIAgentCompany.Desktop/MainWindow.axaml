@@ -227,8 +227,10 @@
                 </Grid>
             </StackPanel>
 
-            <!-- 秘書の提案（設計 §17-6）。**「仕事にする」は自由入力欄ではなく、
-                 この具体的な提案に出す**（§17-4）。 -->
+            <!-- 秘書の提案（設計 §17-6 / §34-1）。
+                 **提案は publish されると自動で仕事になる**（§34-1）ので、
+                 ここに並ぶのは**自動にできなかったもの**（宛先が分からない等）か、
+                 走査が拾うまでの短い間だけ。**捨てないので、理由と一緒に出す。** -->
             <!-- 提案も同じ（§25-1）。増えたら会話が見えなくなるので高さを区切る。 -->
             <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" MaxHeight="260">
             <ItemsControl ItemsSource="{Binding Proposals}" Margin="0,0,0,6">
@@ -244,6 +246,7 @@
                                            Margin="0,2,0,0" MaxHeight="120" />
                                 <WrapPanel Margin="0,6,0,0">
                                     <!-- 宛先が分からない提案は仕事にできない。**捨てもしない**（§17-6）。 -->
+                                    <!-- 自動で拾えなかったときの手動の口（§34-1）。 -->
                                     <Button Content="仕事にする" IsEnabled="{Binding CanMakeTask}"
                                             FontSize="{DynamicResource FontSizeSmall}" Margin="0,0,4,0" Click="OnProposalAccept" />
                                     <Button Content="やめる" FontSize="{DynamicResource FontSizeSmall}" Click="OnProposalReject" />
