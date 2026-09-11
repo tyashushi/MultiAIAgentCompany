@@ -85,7 +85,10 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
             // **積んであるものを置き去りにしない**（レビューで発覚）。
             // 失敗した turn は `OnTurnFinishedAsync` を呼ばれないので、
             // ここで流さないと**待ち行列が永久に動かない。**
-            await DrainAsync(ct).ConfigureAwait(false);
+            // **他の送信が既に走っているなら触らない**（レビュー2周目で発覚）。
+            // `_inFlight` を降ろしてからここへ来るまでの隙間で別の送信が走り出せるので、
+            // 無条件に流すと**走っている turn の印を消してしまう。**
+            await DrainAsync(owning: false, ct).ConfigureAwait(false);
             throw;
         }
     }
@@ -97,23 +100,42 @@ public sealed class TurnGate(Func<string, CancellationToken, Task> write)
     /// <b>セッションの読み取りループから呼ぶ。</b> 呼ばれないと次が永久に出ないので、
     /// <b>失敗した turn でも呼ぶこと</b> —— 「失敗した」も turn の終わりである。
     /// </remarks>
-    public Task OnTurnFinishedAsync(CancellationToken ct) => DrainAsync(ct);
+    public Task OnTurnFinishedAsync(CancellationToken ct) => DrainAsync(owning: true, ct);
 
-    private async Task DrainAsync(CancellationToken ct)
+    /// <param name="owning">
+    /// <b>いま走っている turn を自分が持っているか。</b>
+    /// turn の終わりから呼ぶときは true（空にしてよい）。
+    /// 書き込みが失敗したあとの復旧から呼ぶときは false ——
+    /// **その間に別の送信が走り出していることがある**ので、印を消してはいけない。
+    /// </param>
+    private async Task DrainAsync(bool owning, CancellationToken ct)
     {
         while (true)
         {
             string next;
             lock (_gate)
             {
-                if (_closed || _pending.Count is 0)
+                if (_closed)
                 {
-                    _inFlight = false;
+                    if (owning) _inFlight = false;
+                    return;
+                }
+
+                // 自分が持っていないのに走っているなら、それは別の送信。触らない。
+                if (!owning && _inFlight)
+                {
+                    return;
+                }
+
+                if (_pending.Count is 0)
+                {
+                    if (owning) _inFlight = false;
                     return;
                 }
 
                 next = _pending.Dequeue();
                 _inFlight = true;
+                owning = true;
             }
 
             try

@@ -1222,6 +1222,11 @@ public partial class MainWindow : Window
             DispatchResult.SentUncertain uncertain => $"{slug}: {uncertain.Reason}。**届いたか確かめる**",
             DispatchResult.Rejected rejected => $"{slug}: {rejected.Reason}",
             DispatchResult.Conflicted conflicted => $"{slug}: {conflicted.Reason}",
+
+            // **積んだだけなら「渡した」と言わない**（設計 §32-12、レビュー2周目で発覚）。
+            // ここを足し忘れていたので「不明な結果」に落ちていた。
+            DispatchResult.QueuedForNextTurn pending =>
+                $"{tile.Name} は前の turn を処理中。{slug} を**順番待ちに入れた**（待ち {pending.Ahead} 件）",
             _ => $"{slug}: 不明な結果",
         });
 

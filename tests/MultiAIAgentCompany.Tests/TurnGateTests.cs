@@ -153,4 +153,48 @@ public sealed class TurnGateTests
         Assert.True(second.Written);
         Assert.Equal(["2通目"], written);
     }
+
+    [Fact]
+    public async Task 失敗の復旧が別の送信の印を消さない()
+    {
+        // **レビュー2周目で発覚。** 書き込みが失敗して `_inFlight` を降ろしてから
+        // 復旧が走るまでの隙間で、別の送信が走り出せる。そこで無条件に流すと
+        // **走っている turn の印を消してしまい、次の送信が割り込む。**
+        var started = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var written = new List<string>();
+        var calls = 0;
+
+        var gate = new TurnGate(async (text, _) =>
+        {
+            var n = Interlocked.Increment(ref calls);
+            if (n is 1)
+            {
+                // 1通目: 失敗するが、2通目が走り出すまで待つ。
+                await started.Task;
+                throw new IOException("pipe failed");
+            }
+
+            written.Add(text);
+            await release.Task;
+        });
+
+        var first = gate.SendAsync("1通目", CancellationToken.None);
+
+        // 1通目が「走っている」ことにしたまま失敗する直前に、別の送信を用意する。
+        started.SetResult();
+        await Assert.ThrowsAsync<IOException>(() => first);
+
+        // 失敗のあと、別の送信が走り出す。
+        var second = gate.SendAsync("2通目", CancellationToken.None);
+        await Task.Delay(20);
+
+        // **2通目が走っている間は、3通目が割り込めないこと。**
+        var third = await gate.SendAsync("3通目", CancellationToken.None);
+        Assert.False(third.Written);
+
+        release.SetResult();
+        await second;
+        Assert.Equal(["2通目"], written);
+    }
 }
