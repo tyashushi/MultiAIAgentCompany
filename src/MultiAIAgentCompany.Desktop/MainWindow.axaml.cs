@@ -1116,6 +1116,127 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 秘書が publish した計画を取り込み、走っている計画を1つ進める（設計 §37）。
+    /// </summary>
+    /// <remarks>
+    /// <b>人間の受理を挟まない</b>（§37-3）。人間の出番は<b>割り込みだけ</b>で、
+    /// 報告は出た瞬間に中央へ出る（§34-2）ので、流れてくるのを読んでいて止められる。
+    /// </remarks>
+    private async Task AdvancePlansAsync()
+    {
+        if (_composer is not { Plans: { } store, PlanRunner: { } runner, Outbox: { } outbox }
+            || DataContext is not ShellViewModel shell)
+        {
+            return;
+        }
+
+        // **走査より前に取り込む**（§34-1 と同じ理由）—— あとから拾うと
+        // 「計画を始めた」が一瞬見えてから消える。
+        foreach (var published in outbox.ReadPlans())
+        {
+            // **outbox のファイル名を計画の ID にしない**（レビューで発覚）。
+            // 秘書が付ける名前は日本語や空白を含み得る —— そのまま渡すと
+            // `CompanyPaths.RequireSlug` が投げて、**走査そのものが落ちる。**
+            // 仕事と同じく、こちらで名前を決める。取り込みの重複は
+            // **outbox から移すこと**で防ぐ（§17-6 の提案と同じ形）。
+            var id = $"plan-{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4]}";
+            var created = await store.CreateAsync(
+                id, published.Goal, published.Steps, CancellationToken.None);
+            Note(created is PlanWriteResult.Written
+                ? $"計画を受け取った: {published.Goal}（{published.Steps.Count} 工程）"
+                : $"計画を作れなかった: {published.Id}");
+
+            if (created is PlanWriteResult.Written)
+            {
+                // ここまで済んでから移す（§17-6 と同じ順序）。
+                outbox.Accept(published.Id, id, DateTimeOffset.Now);
+            }
+        }
+
+        var hands = new PlanHands(
+            id => _composer.KnowsDepartment(id) ? _composer.DefinitionOf(id) : null,
+            SessionOf,
+            async (result, departmentId, ct) => await LaunchIfTerminalAsync(result, departmentId));
+
+        foreach (var id in await store.ListIdsAsync(CancellationToken.None))
+        {
+            if (await store.ReadAsync(id, CancellationToken.None) is not PlanReadResult.Found found)
+            {
+                continue;
+            }
+
+            var tick = await runner.StepAsync(found.Plan, hands, CancellationToken.None);
+            ShowPlan(shell, found.Plan, tick);
+
+            if (tick is PlanTick.Acted acted)
+            {
+                Note($"計画「{found.Plan.Goal}」: {acted.Note}");
+            }
+
+            // **1周に1つの計画だけ動かす。** 複数を同時に進めると、
+            // 書き込み権を取り合って**どちらも進まない**（§14-2）。
+            if (tick is not PlanTick.Done)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>計画の帯に出す1行（設計 §37-3）。<b>状態は動かさない。</b></summary>
+    private void ShowPlan(ShellViewModel shell, Plan plan, PlanTick tick)
+    {
+        shell.PlanStopped = plan.StoppedByHuman;
+        shell.PlanStatus = tick switch
+        {
+            PlanTick.Done => null,
+            PlanTick.Stopped stopped when plan.StoppedByHuman =>
+                $"計画「{plan.Goal}」を止めている（{stopped.Reason}）",
+            PlanTick.Stopped stopped => $"計画「{plan.Goal}」が止まった: {stopped.Reason}",
+            PlanTick.Idle idle => $"計画「{plan.Goal}」を進めている（{idle.Reason}）",
+            PlanTick.Acted acted => $"計画「{plan.Goal}」: {acted.Note}",
+            _ => null,
+        };
+    }
+
+    /// <summary>計画を止める・続ける（設計 §37-3）。</summary>
+    /// <remarks>
+    /// <b>止めるのは「次を渡さない」こと。</b> 走っている窓は閉じない ——
+    /// 動いている部門を殺さない（§32-8 と同じ姿勢）。その窓は人間が直接止められる。
+    /// <para>
+    /// <b>「続ける」が無いと、一度止めた計画を進める手段が画面から消える</b>
+    /// （§19-1 / §30-2 で3度踏んだ形）。
+    /// </para>
+    /// </remarks>
+    private async Task SetPlanStoppedAsync(bool stopped)
+    {
+        if (_composer?.Plans is not { } store || Busy("計画の操作"))
+        {
+            return;
+        }
+
+        foreach (var id in await store.ListIdsAsync(CancellationToken.None))
+        {
+            if (await store.ReadAsync(id, CancellationToken.None) is not PlanReadResult.Found found
+                || found.Plan.StoppedByHuman == stopped)
+            {
+                continue;
+            }
+
+            var write = await store.WriteAsync(
+                found.Plan, found.Plan with { StoppedByHuman = stopped }, CancellationToken.None);
+            Note(write is PlanWriteResult.Written
+                ? $"計画「{found.Plan.Goal}」を{(stopped ? "止めた（走っている窓は閉じない）" : "続ける")}"
+                : $"計画を書き換えられなかった: {id}");
+        }
+
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    private async void OnStopPlan(object? sender, RoutedEventArgs e) => await SetPlanStoppedAsync(true);
+
+    private async void OnResumePlan(object? sender, RoutedEventArgs e) => await SetPlanStoppedAsync(false);
+
+    /// <summary>
     /// 秘書へ送った turn の終わりを、期限までに観測しているか（設計 §36）。
     /// </summary>
     /// <remarks>
@@ -1502,6 +1623,10 @@ public partial class MainWindow : Window
         {
             Note(line);
         }
+
+        // **計画を1つだけ進める**（設計 §37）。走査のたびに1回 ——
+        // まとめて進めると、途中で失敗したときに計画とディスクがずれる。
+        await AdvancePlansAsync();
 
         // **秘書にも同じ問いを立てる**（設計 §36）。部門は §31 が仕事の期限で拾うが、
         // 秘書には仕事もタイルも無い（§17-2）ので、**どこからも拾われない**。

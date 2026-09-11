@@ -100,6 +100,31 @@ public static class SecretaryReadme
             <指示の本文。部門が読んで作業できるように書く>
             ```
 
+            ### 複数の工程を計画として publish する（設計 §37）
+
+            計画も同じ outbox に、上の tmp → rename の手順で `.md` を publish します。
+            先頭行を `plan:` にすると計画、`department:` なら従来どおり1件の仕事です。
+
+            ```
+            plan: ログイン画面を作る
+            step: research / 現状の認証まわりを調べる
+            step: design / 調査結果をもとに設計する
+            step: review reviews=design / 設計を外から見る
+            step: implementation / 設計どおりに実装する
+            ```
+
+            `plan:` は人間の目的を言い換えずに書きます。
+            各 `step:` は `<部門ID> [reviews=<部門ID>] / <次の工程への一言>` です。
+            `reviews=<部門ID>` は、それより前にある同じ部門の最後の工程を指します。
+            解決できない計画は自動にせず、人間に見えるところへ残します。
+            前の工程の報告はそのまま渡します。秘書が要約せず、足すのは次の工程への一言だけです。
+
+            レビュー工程の報告には `{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}` か
+            `{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}` の行が要ります。
+            **これはアプリがその工程の `instruction.md` に書くので、あなたは書かなくて構いません。**
+            判定が無い・読めないときは推測で進めず、人間を呼びます。
+            計画を進めるのはアプリです。秘書は `{paths.PlansRoot}` や `plan.json` を直接作りません。
+
             ## あなたがやらないこと
 
             - **`{paths.TasksRoot}` の下に何も作らない。** 仕事にするのはアプリの役目です

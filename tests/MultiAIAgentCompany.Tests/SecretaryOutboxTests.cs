@@ -19,6 +19,123 @@ public sealed class SecretaryOutboxTests : IDisposable
     }
 
     [Fact]
+    public void 計画の目的と工程とレビュー先を読む()
+    {
+        Publish("login", """
+            plan: ログイン画面を作る
+            step: research / 現状の認証まわりを調べる
+            step: design / 調査結果をもとに設計する
+            step: review reviews=design / 設計を外から見る
+            step: implementation / 設計どおりに実装する
+            """);
+
+        var plan = Assert.Single(Outbox.ReadPlans());
+
+        Assert.Equal("login", plan.Id);
+        Assert.Equal("ログイン画面を作る", plan.Goal);
+        Assert.Equal(new PlanStep[]
+        {
+            new("research", "現状の認証まわりを調べる"),
+            new("design", "調査結果をもとに設計する"),
+            new("review", "設計を外から見る", 1),
+            new("implementation", "設計どおりに実装する"),
+        }, plan.Steps);
+        Assert.Empty(Outbox.Read());
+    }
+
+    [Fact]
+    public void レビュー先は前にある同じ部門の最後の工程になる()
+    {
+        Publish("p1", "plan: 目的\nstep: design / 最初\nstep: design / 次\nstep: research / 調査\nstep: review reviews=design / 確認\n");
+
+        Assert.Equal(1, Assert.Single(Outbox.ReadPlans()).Steps[3].ReviewsStep);
+    }
+
+    [Theory]
+    [InlineData("step: review reviews=missing / 確認")]
+    [InlineData("step: review reviews=review / 自分自身")]
+    [InlineData("step: review reviews=design / 確認\nstep: design / 後続")]
+    public void レビュー先を解決できなければ本文を人間へ残す(string steps)
+    {
+        var content = $"plan: 目的\n{steps}";
+        Publish("p1", content);
+
+        Assert.Empty(Outbox.ReadPlans());
+        var proposal = Assert.Single(Outbox.Read());
+        Assert.Null(proposal.DepartmentId);
+        Assert.Equal(content, proposal.Body);
+        Assert.True(File.Exists(Path.Combine(_workspace.Paths.SecretaryOutbox, "p1.md")));
+    }
+
+    [Fact]
+    public void 計画と従来の提案は先頭行で分け部門の実在は調べない()
+    {
+        Publish("p1", "plan: 目的\nstep: unknown / 一言");
+        Publish("p2", "department: implementation\n\nplan: これは指示の本文");
+
+        Assert.Equal("unknown", Assert.Single(Assert.Single(Outbox.ReadPlans()).Steps).DepartmentId);
+        var proposal = Assert.Single(Outbox.Read());
+        Assert.Equal("p2", proposal.Id);
+        Assert.Equal("implementation", proposal.DepartmentId);
+        Assert.Equal("plan: これは指示の本文", proposal.Body);
+    }
+
+    [Fact]
+    public void 空行があっても計画として読む()
+    {
+        // **秘書は人間が読む文書を書く。** ここで厳しくすると、
+        // 正しい計画が「宛先不明の提案」に化けて自動にならない。
+        Publish("p1", "plan: 目的\n\nstep: research / 調べる\n\n  step: design / 設計する\n");
+
+        var plan = Assert.Single(Outbox.ReadPlans());
+        Assert.Equal(2, plan.Steps.Count);
+        Assert.Empty(Outbox.Read());
+    }
+
+    [Fact]
+    public void 知らない行があれば計画にせず人間へ返す()
+    {
+        Publish("p1", "plan: 目的\nstep: research / 調べる\nよろしくお願いします");
+
+        Assert.Empty(Outbox.ReadPlans());
+        Assert.Single(Outbox.Read());
+    }
+
+    [Fact]
+    public void 工程が1つも無い計画は計画ではない()
+    {
+        Publish("p1", "plan: 目的\n");
+
+        Assert.Empty(Outbox.ReadPlans());
+        Assert.Single(Outbox.Read());
+    }
+
+    [Fact]
+    public void 計画もpublish途中のファイルは読まない()
+    {
+        Assert.Empty(Outbox.ReadPlans());
+        Publish("p1.md.tmp.abc", "plan: 目的\nstep: design / 一言");
+
+        Assert.Empty(Outbox.ReadPlans());
+        Assert.Empty(Outbox.Read());
+    }
+
+    [Fact]
+    public async Task protocolに計画と共通のレビュー判定を書く()
+    {
+        await SecretaryReadme.WriteAsync(_workspace.Paths, [], CancellationToken.None);
+        var content = await File.ReadAllTextAsync(_workspace.Paths.SecretaryReadme);
+
+        Assert.Contains("plan: ログイン画面を作る", content);
+        Assert.Contains("step: review reviews=design /", content);
+        Assert.Contains($"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}", content);
+        Assert.Contains($"{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}", content);
+
+        // **判定行を書くのは秘書ではない**（§37-5）—— 頼む先は部門の instruction.md。
+        Assert.Contains("あなたは書かなくて構いません", content);
+    }
+
+    [Fact]
     public void 宛先と本文に分ける()
     {
         Publish("p1", "department: implementation\n\nREADME を読んで報告して");

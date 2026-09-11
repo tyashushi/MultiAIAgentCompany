@@ -14,6 +14,7 @@ namespace MultiAIAgentCompany.Core.Coordination;
 ///     question.md      (b) 判断の相談
 ///     answer.md        人間の回答
 ///     state.json       状態、revision、lease、観測記録
+///   plans/&lt;plan-id&gt;/plan.json   計画
 ///   archive/
 ///   lease.json       書き込み権と Unity 権（ワークスペースに1つ。§14-2）
 /// </code>
@@ -31,6 +32,8 @@ public sealed class CompanyPaths
     public string Root => Path.Combine(WorkspaceRoot, ".company");
 
     public string TasksRoot => Path.Combine(Root, "tasks");
+
+    public string PlansRoot => Path.Combine(Root, "plans");
 
     public string ArchiveRoot => Path.Combine(Root, "archive");
 
@@ -76,6 +79,10 @@ public sealed class CompanyPaths
     public string Departments => Path.Combine(Root, "departments.json");
 
     public string TaskDirectory(string slug) => Path.Combine(TasksRoot, RequireSlug(slug));
+
+    public string PlanDirectory(string id) => Path.Combine(PlansRoot, RequireSlug(id));
+
+    public string PlanFile(string id) => Path.Combine(PlanDirectory(id), "plan.json");
 
     public string Instruction(string slug) => Path.Combine(TaskDirectory(slug), "instruction.md");
 

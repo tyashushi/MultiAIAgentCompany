@@ -10,6 +10,9 @@ namespace MultiAIAgentCompany.Core.Coordination;
 /// <param name="Body">指示の本文。</param>
 public sealed record SecretaryProposal(string Id, string? DepartmentId, string Body);
 
+/// <summary>秘書が publish した計画。仕事1件の提案と混ぜず、工程の列として渡す（§37）。</summary>
+public sealed record SecretaryPlanProposal(string Id, string Goal, IReadOnlyList<PlanStep> Steps);
+
 /// <summary>
 /// 秘書の outbox を読む。<b>ここが未処理の提案の正本</b>（設計 §17-6）。
 /// </summary>
@@ -37,7 +40,12 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
 
             try
             {
-                proposals.Add(Parse(name, File.ReadAllText(file)));
+                var content = File.ReadAllText(file);
+                if (ParsePlan(name, content) is null)
+                {
+                    // 解決できない計画は、宛先不明の提案として本文を人間に残す（§34-1）。
+                    proposals.Add(Parse(name, content));
+                }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
@@ -47,6 +55,114 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
         }
 
         return proposals;
+    }
+
+    /// <summary>
+    /// 工程を解決できた計画を読む。解決できなかったものは <see cref="Read"/> で人間へ返す。
+    /// </summary>
+    public IReadOnlyList<SecretaryPlanProposal> ReadPlans()
+    {
+        if (!Directory.Exists(paths.SecretaryOutbox))
+        {
+            return [];
+        }
+
+        var plans = new List<SecretaryPlanProposal>();
+        foreach (var file in Directory.EnumerateFiles(paths.SecretaryOutbox, "*.md").OrderBy(f => f, StringComparer.Ordinal))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            if (name.Contains(".tmp.", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (ParsePlan(name, File.ReadAllText(file)) is { } plan)
+                {
+                    plans.Add(plan);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // 読めなかったものは Read() が人間へ返す。計画として自動には渡さない。
+            }
+        }
+
+        return plans;
+    }
+
+    internal static SecretaryPlanProposal? ParsePlan(string id, string content)
+    {
+        var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n').Split('\n');
+        if (!lines[0].StartsWith("plan:", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var goal = lines[0]["plan:".Length..].Trim();
+        if (goal.Length is 0)
+        {
+            return null;
+        }
+
+        var steps = new List<PlanStep>();
+        foreach (var raw in lines.Skip(1))
+        {
+            // **空行で計画を落とさない。** 秘書は人間が読む文書を書くので、
+            // 見出しや箇条書きの間に空行が入る。ここで厳しくすると、
+            // **正しい計画が「宛先不明の提案」に化けて自動にならない。**
+            var line = raw.Trim();
+            if (line.Length is 0)
+            {
+                continue;
+            }
+
+            if (!line.StartsWith("step:", StringComparison.Ordinal))
+            {
+                // **知らない行は半端に読まない。** 計画として受け取らず、人間へ返す。
+                return null;
+            }
+
+            var step = line["step:".Length..];
+            var separator = step.IndexOf('/');
+            if (separator < 0)
+            {
+                return null;
+            }
+
+            var destination = step[..separator].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var handover = step[(separator + 1)..].Trim();
+            if (destination.Length is < 1 or > 2 || handover.Length is 0)
+            {
+                return null;
+            }
+
+            int? reviewsStep = null;
+            if (destination.Length is 2)
+            {
+                if (!destination[1].StartsWith("reviews=", StringComparison.Ordinal))
+                {
+                    return null;
+                }
+
+                var reviewedDepartment = destination[1]["reviews=".Length..];
+                var index = steps.FindLastIndex(s => string.Equals(s.DepartmentId, reviewedDepartment, StringComparison.Ordinal));
+                if (index < 0)
+                {
+                    // 戻り先を推測しない。自分自身や後続工程も、まだ列に無いので解決されない。
+                    return null;
+                }
+
+                reviewsStep = index;
+            }
+
+            steps.Add(new PlanStep(destination[0], handover, reviewsStep));
+        }
+
+        // **工程が1つも無い計画は計画ではない。** 空のまま受け取ると、
+        // `PlanAdvance` が「工程が1つも無い」で止めることになり、**理由が1段遠くなる。**
+        return steps.Count is 0 ? null : new SecretaryPlanProposal(id, goal, steps);
     }
 
     /// <summary>

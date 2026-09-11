@@ -67,6 +67,8 @@ public static class TaskTransitions
         if (IsTerminal(from))
         {
             // 終端から動かせるのは人間だけ。「復帰」であることを明示的に記録する。
+            // **計画も動かせない**（設計 §37）—— 計画は「先に承認された順序」であって、
+            // その場の判断ではない。終わったものを蒸し返すのは人間の仕事。
             if (origin is not TransitionOrigin.Human)
             {
                 return new TransitionCheck(false, $"自動化は終端状態 {from} から遷移できない");
@@ -84,10 +86,18 @@ public static class TaskTransitions
             return new TransitionCheck(false, $"{from} → {to} は許可された遷移ではない");
         }
 
-        // Reported → Accepted / Rejected は人間の判断。自動化に受理させない。
+        // Reported → Accepted / Rejected は人間の判断。**走査に受理させない。**
+        //
+        // **計画（§37）は通す。** 人間は計画を作る時点で
+        // 「途中の受け渡しは自分で見ない」と決めている —— それが完全自動の意味である。
+        // ここを塞いだままにすると、計画の途中の仕事が **`Reported` のまま永久に残り**、
+        // §37-4 の「書き込み権を返す」も受理に紐づいているので**2歩目で止まる。**
+        //
+        // **走査と計画を同じ `Automation` に畳まない**（§7 の「軸を潰さない」）——
+        // 畳むと、観測から書いているだけの走査にも受理を許すことになる。
         if (from is TaskStatus.Reported && origin is TransitionOrigin.Automation)
         {
-            return new TransitionCheck(false, "報告の受理・差し戻しは人間の判断");
+            return new TransitionCheck(false, "報告の受理・差し戻しは人間か計画の判断");
         }
 
         return new TransitionCheck(true, $"{from} → {to}");

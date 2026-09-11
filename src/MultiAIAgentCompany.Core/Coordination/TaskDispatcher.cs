@@ -343,7 +343,8 @@ public sealed class TaskDispatcher
         DepartmentDefinition department,
         IStructuredSession? session,
         TimeSpan leaseDuration,
-        CancellationToken ct)
+        CancellationToken ct,
+        TransitionOrigin origin = TransitionOrigin.Human)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(department);
@@ -368,7 +369,7 @@ public sealed class TaskDispatcher
         }
 
         // 封じる → 昇格する → 状態を書く、までを TaskStore が1つの操作でやる（§19-1 / §14-1）。
-        var transition = await _tasks.RedispatchAsync(expected, ct);
+        var transition = await _tasks.RedispatchAsync(expected, ct, origin);
         switch (transition)
         {
             case TaskWriteResult.Rejected rejected:

@@ -237,7 +237,13 @@ public sealed class TaskStore
     /// <c>Dispatched</c> は、部門が受け取れないまま「送ったかもしれない」に見える。
     /// </para>
     /// </remarks>
-    public async Task<TaskWriteResult> RedispatchAsync(TaskState expected, CancellationToken ct)
+    /// <param name="origin">
+    /// 送り直したのは誰か。<b>既定は人間</b>（§19 の差し戻しは人間の判断）。
+    /// <see cref="TransitionOrigin.Plan"/> を渡すと、計画が送り直したこととして残る（§37-2b）——
+    /// <b>ここを固定にすると、自動で送り直したものが人間の判断として残る。</b>
+    /// </param>
+    public async Task<TaskWriteResult> RedispatchAsync(
+        TaskState expected, CancellationToken ct, TransitionOrigin origin = TransitionOrigin.Human)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ct.ThrowIfCancellationRequested();
@@ -265,7 +271,7 @@ public sealed class TaskStore
             return new TaskWriteResult.Rejected($"差し戻された仕事ではありません（現在: {current.Status}）");
         }
 
-        var check = TaskTransitions.Check(current.Status, TaskStatus.Dispatched, TransitionOrigin.Human);
+        var check = TaskTransitions.Check(current.Status, TaskStatus.Dispatched, origin);
         if (!check.Allowed)
         {
             return new TaskWriteResult.Rejected(check.Reason);
@@ -291,7 +297,7 @@ public sealed class TaskStore
             // 残すと、新しい試行で部門が同じ内容の質問を出したときに回答済みに見える。
             AnswerDelivery = null,
             Revision = checked(current.Revision + 1),
-            LastTransitionOrigin = TransitionOrigin.Human,
+            LastTransitionOrigin = origin,
             UpdatedAt = _clock.GetUtcNow(),
             Note = "差し戻しから次の試行を送った",
         };

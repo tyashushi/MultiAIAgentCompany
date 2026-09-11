@@ -106,6 +106,43 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool SecretaryStalled => SecretaryStalledText is not null;
 
 
+    /// <summary>
+    /// 走っている計画の1行（設計 §37-3）。<b>無ければ null</b>。
+    /// </summary>
+    /// <remarks>
+    /// <b>人間の出番は割り込みだけ。</b> 報告は出た瞬間に中央へ出る（§34-2）ので、
+    /// 流れてくるのを読んでいて、まずいと思ったら止める。
+    /// </remarks>
+    public string? PlanStatus
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PlanStatus)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPlan)));
+        }
+    }
+
+    public bool HasPlan => PlanStatus is not null;
+
+    /// <summary>人間が止めているか（設計 §37-3）。<b>止めたら「続ける」を出す。</b></summary>
+    public bool PlanStopped
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PlanStopped)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PlanRunning)));
+        }
+    }
+
+    /// <summary>止めていない＝走っている。<b>「続ける」と「止める」は同時に出さない。</b></summary>
+    public bool PlanRunning => !PlanStopped;
+
     public bool HasRecovery => Recovery.Count > 0;
 
     public ShellViewModel() =>

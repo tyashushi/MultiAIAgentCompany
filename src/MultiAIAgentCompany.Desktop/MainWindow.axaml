@@ -214,6 +214,26 @@
                  同じ入力欄が秘書・部門・仕事作成という複数の文脈を背負うと §0 / §1 と衝突する。
                  部門への操作は右ペインへ移した。 -->
             <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                <!-- 走っている計画（設計 §37）。**人間の出番は割り込みだけ** ——
+                     報告は出た瞬間に中央へ出るので、読んでいてまずいと思ったら止める。
+                     **止めるのは「次を渡さない」こと。走っている窓は閉じない**（§32-8）。
+                     **「続ける」を一緒に出す** —— 無いと、一度止めた計画を
+                     進める手段が画面から消える（§19-1 / §30-2 で3度踏んだ形）。 -->
+                <Border IsVisible="{Binding HasPlan}" Margin="0,0,0,6" Padding="8" CornerRadius="4"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding PlanStatus}" TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontSizeSmall}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="計画を止める" Margin="8,0,0,0"
+                                    IsVisible="{Binding PlanRunning}" Click="OnStopPlan" />
+                            <Button Content="計画を続ける" Margin="8,0,0,0"
+                                    IsVisible="{Binding PlanStopped}" Click="OnResumePlan" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- turn の終わりを期限までに観測していない（設計 §36）。
                      **状態は動かしていない** —— 出しているのは「観測していない」という
                      アプリ自身についての事実で、秘書が止まったとは言っていない（§31-5）。

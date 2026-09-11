@@ -99,6 +99,12 @@ public sealed class ShellComposer
 
     public SecretaryOutbox? Outbox { get; private set; }
 
+    /// <summary>計画の保存口（設計 §37-2）。</summary>
+    public PlanStore? Plans { get; private set; }
+
+    /// <summary>計画を1回に1つ進める（設計 §37）。</summary>
+    public PlanRunner? PlanRunner { get; private set; }
+
     /// <summary>
     /// 起動時の走査で「送ったかもしれない」と分かった仕事（設計 §14-1）。
     /// <b>通常の <c>Dispatched</c> と区別する</b> —— ボタンが出るのはこちらだけ。
@@ -155,6 +161,8 @@ public sealed class ShellComposer
         Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
         Scanner = new CompanyScanner(paths, Tasks, Leases, _clock);
         Outbox = new SecretaryOutbox(paths);
+        Plans = new PlanStore(paths, _clock);
+        PlanRunner = new PlanRunner(paths, Plans, Tasks, Dispatcher, _clock);
 
         Shell.WorkspaceLabel = root;
 

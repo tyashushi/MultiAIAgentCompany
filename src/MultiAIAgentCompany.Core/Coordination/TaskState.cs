@@ -45,8 +45,26 @@ public enum TaskStatus
 /// </summary>
 public enum TransitionOrigin
 {
+    /// <summary>走査が観測から書いた。<b>報告の受理・差し戻しはできない。</b></summary>
     Automation,
+
+    /// <summary>人間がその場で押した。<b>終端から戻せるのはこれだけ。</b></summary>
     Human,
+
+    /// <summary>
+    /// <b>人間が先に承認した計画</b>が進めた（設計 §37）。
+    /// </summary>
+    /// <remarks>
+    /// <b>3つ目を足したのは、軸を潰さないため</b>（§7 と同じ姿勢）。
+    /// <see cref="Automation"/> に混ぜると「走査が観測から書いた」と
+    /// 「人間が先に承認した順序どおりに進めた」が同じ顔になり、
+    /// **報告の自動受理を、走査にも許すことになる。**
+    /// <para>
+    /// <b>終端からの復帰はできない。</b> そこは人間だけ ——
+    /// 計画は「先に承認された順序」であって、その場の判断ではない。
+    /// </para>
+    /// </remarks>
+    Plan,
 }
 
 /// <summary>
