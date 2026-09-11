@@ -106,7 +106,32 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public DiagnosticsLog Diagnostics { get; } = new();
 
     /// <summary>中央ペイン: 秘書との会話。</summary>
-    public required ObservableCollection<string> SecretaryTranscript { get; init; }
+    public required ObservableCollection<string> SecretaryTranscript
+    {
+        get;
+        init
+        {
+            field = value;
+
+            // 計算プロパティなので、集合が変わったことを自分で知らせないと画面に出ない。
+            value.CollectionChanged += (_, _) =>
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TranscriptText)));
+        }
+    }
+
+    /// <summary>
+    /// 会話を1つの文字列にしたもの（2026-09-11、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>発言ごとに別の部品にすると、またいで選べない。</b>
+    /// 1つにまとめると、**ドラッグで複数の発言を選べる**し、
+    /// <c>Cmd+A</c> で全部選べる。
+    /// <para>
+    /// 会話は正本ではない（§17-3）ので、**まとめて持っても失うものが無い** ——
+    /// 上限は <c>SecretaryTranscript</c> 側（500 行）で効いている。
+    /// </para>
+    /// </remarks>
+    public string TranscriptText => string.Join("\n\n", SecretaryTranscript);
 
     /// <summary>
     /// 過去の相談スレッド（設計 §32-6）。

@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
@@ -2065,6 +2066,32 @@ public partial class MainWindow : Window
         NoteBlock(
             $"—— 直近のエラーの詳細（{shell.Diagnostics.Summary}）——",
             recent.Count is 0 ? ["まだ記録がない"] : recent.Select(d => d.Text));
+    }
+
+    /// <summary>
+    /// 会話を全部クリップボードへ（2026-09-11、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>まとめて1つの部品にしたので、ドラッグでも選べる</b>（§34-4）——
+    /// これは「全部」を1手で取るための口。
+    /// </remarks>
+    private async void OnCopyTranscript(object? sender, EventArgs e)
+    {
+        if (DataContext is not ShellViewModel shell)
+        {
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            // **できなかったことを、できたことにしない**（§7）。
+            Note("クリップボードを使えない");
+            return;
+        }
+
+        await clipboard.SetTextAsync(shell.TranscriptText);
+        Note($"会話を全部コピーした（{shell.SecretaryTranscript.Count} 行）");
     }
 
     private void OnFocusMessage(object? sender, EventArgs e) =>

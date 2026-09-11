@@ -30,6 +30,7 @@
                         <NativeMenuItem Header="もう一度走査する" Gesture="Cmd+R" Click="OnRescanFromMenu" />
                         <NativeMenuItem Header="作業ログを消す" Click="OnClearWorkLog" />
                         <NativeMenuItem Header="直近のエラーの詳細を出す" Click="OnShowLastErrors" />
+                        <NativeMenuItem Header="会話を全部コピーする" Gesture="Cmd+Shift+C" Click="OnCopyTranscript" />
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="入力欄へ移動" Gesture="Cmd+L" Click="OnFocusMessage" />
                     </NativeMenu>
@@ -338,13 +339,10 @@
                 <!-- 会話は下に伸びるので、新しい発言が来たら最下部へ追う（§25-1）。 -->
                 <ScrollViewer x:Name="TranscriptScroll"
                               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl ItemsSource="{Binding SecretaryTranscript}" Margin="8">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <!-- **1つの部品にまとめる**（2026-09-11、人間の要望）。
+                         発言ごとに分けると、またいで選べない ——
+                         まとめるとドラッグで複数選べるし、Cmd+A で全部選べる。 -->
+                    <SelectableTextBlock Text="{Binding TranscriptText}" TextWrapping="Wrap" Margin="8" />
                 </ScrollViewer>
             </Border>
         </DockPanel>
