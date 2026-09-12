@@ -115,6 +115,9 @@ public sealed class ShellComposer
     /// <summary>もう作業ログに書いた沈黙（設計 §31）。<b>毎回の走査で書き直さない。</b></summary>
     private readonly HashSet<string> _noticedSilence = new(StringComparer.Ordinal);
 
+    /// <summary>仕事の件名（設計 §44-4）。<b>slug ごとに1回だけ読む。</b></summary>
+    private readonly Dictionary<string, string?> _subjects = new(StringComparer.Ordinal);
+
     /// <summary>まだ人間に見せていない沈黙の1行。<see cref="DrainSilenceNotices"/> で取り出す。</summary>
     private readonly List<string> _pendingSilenceNotices = [];
 
@@ -156,6 +159,9 @@ public sealed class ShellComposer
         // 「もう知らせた」と覚えたままになる（1回目の実装で指摘された）。
         _noticedSilence.Clear();
         _pendingSilenceNotices.Clear();
+
+        // **件名も捨てる**（§31-6 と同じ理由）。別のフォルダの slug を覚えたままにしない。
+        _subjects.Clear();
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
         Threads = new ThreadStore(paths, _clock);
@@ -318,6 +324,19 @@ public sealed class ShellComposer
             }
 
             var state = found.State;
+
+            // **終わった仕事はタイルに残さない**（設計 §44-5、人間の要望）。
+            // タイルは「人間が何をすべきか」を出す場所（§15-0）で、
+            // 終端の仕事は**何も求めていない** —— 残すと、要らなくなった仕事が
+            // 永久に居座り、**その部門が空いていることが読めなくなる。**
+            //
+            // **記録が消えるわけではない。** `state.json` も文書も `.company/` に残り、
+            // 作業ログにも経緯が残る（§16-4）。消えるのは人間の目の前からだけである。
+            if (TaskTransitions.IsTerminal(state.Status))
+            {
+                continue;
+            }
+
             if (!chosen.TryGetValue(state.DepartmentId, out var current)
                 || UrgencyOf(state) > UrgencyOf(current))
             {
@@ -377,12 +396,56 @@ public sealed class ShellComposer
                     $"{silence.Slug}: 期限（{deadline.GetValueOrDefault().TotalMinutes}分）までに報告を観測していない（{Math.Round(silence.Elapsed.TotalMinutes)}分）。**部門は生きているかもしれない** —— 失敗とは書かない");
             }
 
+            var subject = SubjectOf(state.Slug);
             foreach (var tile in Shell.Departments.Where(t => t.Id == departmentId))
             {
                 tile.CurrentTaskSlug = state.Slug;
+                tile.TaskSubject = subject;
                 tile.ReportNotObservedSince = silence?.Since;
             }
         }
+    }
+
+    /// <summary>
+    /// 仕事の件名（設計 §44-4）。<b>指示書の1行目</b>を人間の言葉として使う。
+    /// </summary>
+    /// <remarks>
+    /// <b>slug ごとに1回だけ読む。</b> 走査は数秒おきに回るので、毎回読むと
+    /// 部門の数 × 走査の回数だけファイルを開くことになる。
+    /// <para>
+    /// <b>読めなければ null。</b> 件名が無いことでタイルを壊さない ——
+    /// これは人間が見分けるための飾りであって、状態の正本ではない（§7）。
+    /// </para>
+    /// </remarks>
+    private string? SubjectOf(string slug)
+    {
+        if (_subjects.TryGetValue(slug, out var cached))
+        {
+            return cached;
+        }
+
+        string? subject = null;
+        try
+        {
+            foreach (var raw in File.ReadLines(Workspace!.Company.Instruction(slug)))
+            {
+                var line = raw.Trim().TrimStart('#', '*', '-', ' ');
+                if (line.Length is 0)
+                {
+                    continue;
+                }
+
+                subject = line.Length > 60 ? line[..60] + "…" : line;
+                break;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // 読めないものは件名なしで出す。**推測で埋めない**（§7）。
+        }
+
+        _subjects[slug] = subject;
+        return subject;
     }
 
     /// <summary>

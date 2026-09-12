@@ -472,6 +472,15 @@
                                     <TextBlock Classes="caption-1line" Text="{Binding EvidenceText}"
                                                ToolTip.Tip="{Binding EvidenceText}" />
 
+                                    <!-- **どの仕事なのかを出す**（設計 §44-4、人間が実機で見つけた）。
+                                         「この仕事を渡す」だけでは、何を渡すのか分からなかった。
+                                         slug はツールチップへ —— `.company/` と突き合わせるときに要る。 -->
+                                    <TextBlock Classes="meta" IsVisible="{Binding HasTaskSubject}"
+                                               Text="{Binding TaskSubject}"
+                                               ToolTip.Tip="{Binding CurrentTaskSlug}"
+                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                               Margin="0,4,0,0" />
+
                                     <!-- 人間の出番があることを、絵文字だけに頼らず言葉でも出す
                                          （設計 §15-5: 色や記号だけで区別しない）。 -->
                                     <TextBlock Text="◀ 選択中（直接送信の宛先）" Classes="meta"
@@ -491,6 +500,13 @@
                                          窓は仕事を渡したときに開くので、起動ボタンは出さない。 -->
                                     <Button Content="{Binding LifecycleLabel}" IsVisible="{Binding CanStart}"
                                             Click="OnDepartmentStart" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
+
+                                    <!-- **要らなくなった仕事を、目の前から外す**（設計 §44-5、人間の要望）。
+                                         **消すのではない** —— 仕事も記録も `.company/` に残る（§16-4）。
+                                         部門が動いていれば、それが止まる保証も無い（§14-2 と同じ姿勢）。 -->
+                                    <Button Content="この仕事を取り消す" IsVisible="{Binding CanCancelTask}"
+                                            Click="OnCancelTask" Classes="quiet"
+                                            HorizontalAlignment="Left" Margin="0,4,0,0" />
 
                                     <!-- 診断は**読むだけ**（設計 §22）。v1 はターミナルを持たない。
                                          用件のボタンとは別枠 —— 人間が自分の判断で覗くもの。 -->

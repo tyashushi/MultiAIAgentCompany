@@ -443,6 +443,42 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// いま抱えている仕事の件名（設計 §44-4）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「この仕事を渡す」が、どの仕事なのか分からなかった</b>（人間が実機で見つけた）。
+    /// slug（<c>task-20260912-193527-c55c</c>）は人間の言葉ではないので、
+    /// **指示書の1行目**を出す。slug はツールチップに置く ——
+    /// あちらは `.company/` のフォルダや作業ログと突き合わせるときに要る。
+    /// </remarks>
+    public string? TaskSubject
+    {
+        get;
+        set
+        {
+            field = value;
+            Raise();
+            Raise(nameof(HasTaskSubject));
+        }
+    }
+
+    public bool HasTaskSubject => !string.IsNullOrWhiteSpace(TaskSubject);
+
+    /// <summary>
+    /// その仕事を取り消せるか（設計 §44-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>終端は取り消せない</b>（<see cref="TaskTransitions.IsTerminal"/>）——
+    /// 終わったものを「取り消す」と言うと、**何が起きたのかが後から読めなくなる。**
+    /// <para>
+    /// <b>「消す」ではない。</b> 仕事も記録も <c>.company/</c> に残る（§16-4）——
+    /// 消えるのは<b>人間の目の前から</b>である。
+    /// </para>
+    /// </remarks>
+    public bool CanCancelTask =>
+        Status.Work?.Value is { } work && !TaskTransitions.IsTerminal(work);
+
+    /// <summary>
     /// この部門への指示の下書き。<b>中央の入力欄とは別</b>（設計 §17-4）——
     /// 中央は秘書のもので、同じ欄が複数の文脈を背負うと §0 / §1 と衝突する。
     /// </summary>

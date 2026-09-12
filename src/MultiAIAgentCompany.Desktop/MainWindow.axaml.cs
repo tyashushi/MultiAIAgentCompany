@@ -773,6 +773,63 @@ public partial class MainWindow : Window
     /// <summary>
     /// 報告を受理して仕事を終える（設計 §6 / §19-3）。<b>終端なので自動化は戻せない。</b>
     /// </summary>
+    /// <summary>
+    /// その仕事を取り消す（設計 §44-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「消す」ではない。</b> <c>state.json</c> も文書も残り、状態が
+    /// <c>Cancelled</c> になるだけ（§16-4 の「消さずに移す」と同じ姿勢）——
+    /// 消えるのは<b>タイルの上から</b>である。
+    /// <para>
+    /// <b>実行の停止は保証しない。</b> 部門が動いていれば、それは動き続ける ——
+    /// 窓を閉じるのは人間の仕事（§14-2 の「失効は停止の証拠ではない」と同じ）。
+    /// </para>
+    /// </remarks>
+    private async void OnCancelTask(object? sender, RoutedEventArgs e)
+    {
+        if (Busy("仕事の取り消し"))
+        {
+            return;
+        }
+
+        if (_composer?.Tasks is not { } tasks || (sender as Control)?.DataContext is not DepartmentTile tile
+            || tile.CurrentTaskSlug is not { } slug)
+        {
+            return;
+        }
+
+        Select(tile);
+        if (await tasks.ReadAsync(slug, CancellationToken.None) is not TaskReadResult.Found found)
+        {
+            Note($"{slug}: 状態を読めないので取り消せない");
+            return;
+        }
+
+        var write = await tasks.TransitionAsync(
+            found.State, CoreTaskStatus.Cancelled, TransitionOrigin.Human,
+            "人間が取り消した（実行の停止は保証しない）", CancellationToken.None);
+
+        // **取り消したら書き込み権を返す。** 受理と同じ理由（人間がそう決めたから）——
+        // 返さないと、要らなくなった仕事のためにワークスペースが失効まで塞がる。
+        if (write is TaskWriteResult.Written && _composer?.Dispatcher is { } releasing
+            && await releasing.ReleaseWriteLeaseIfIdleAsync(
+                _composer.DefinitionOf(tile.Id), CancellationToken.None))
+        {
+            Note($"{tile.Name}: 書き込み権を返した（抱えている仕事が無くなった）");
+        }
+
+        Note(write switch
+        {
+            TaskWriteResult.Written =>
+                $"{tile.Name}: {slug} を取り消した（部門が動いていれば止まっていない）",
+            TaskWriteResult.Conflicted conflicted => $"{slug}: {conflicted.Reason}",
+            TaskWriteResult.Rejected rejected => $"{slug}: {rejected.Reason}",
+            _ => $"{slug}: 取り消せなかった（{write.GetType().Name}）",
+        });
+
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
     private async void OnAcceptReport(object? sender, RoutedEventArgs e)
     {
         if (Busy("報告の受理"))
