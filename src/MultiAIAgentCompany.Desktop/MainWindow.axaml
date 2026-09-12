@@ -9,11 +9,10 @@
         Width="1280" Height="800"
         Title="MultiAIAgentCompany"
         Background="{DynamicResource AppBackgroundBrush}"
-        Foreground="{DynamicResource TextPrimaryBrush}"
-        FontFamily="Inter, Hiragino Sans">
+        Foreground="{DynamicResource TextPrimaryBrush}">
 
-    <!-- **日本語を明示する**（設計 §44）。Inter だけだと日本語が中国語向けのフォントへ
-         落ちて、漢字の形が変わる。ラテンは Inter、日本語は Hiragino に拾わせる。 -->
+    <!-- フォントは `Themes/Typography.axaml` の `Window` セレクタで**全部の窓に**当てる
+         （§44-6）。ここに書くと、書き忘れた窓だけが化ける。 -->
 
     <!-- 3ペイン（設計 §1）。左＝作業ログ、中央＝秘書との会話、右＝部門ステータス。 -->
     <!-- macOS の標準メニュー（設計 §28-7）。ショートカットの所在をここで示す ——

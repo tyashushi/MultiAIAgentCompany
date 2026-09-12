@@ -5,6 +5,15 @@
          直す前は、部門名と状態行がほぼ同じ濃さで並んでいて、目が迷っていた。
          **クラスで分ける** —— TextBlock 全体を上書きすると、メニューやダイアログまで動く。 -->
 
+    <!-- **日本語を明示する**（設計 §44-6、実機で踏んだ）。
+         アプリの既定は Inter（`.WithInterFont()`）で、**Inter に日本語の字が無い** ——
+         指定しない窓では、日本語が □ になる（太字だけは Inter に無いので別のフォントに落ち、
+         **読める行と読めない行が混ざる**という形で出た）。
+         **窓ごとに書かない。** 書き忘れた窓が化ける（閉じる確認のダイアログで踏んだ）。 -->
+    <Style Selector="Window">
+        <Setter Property="FontFamily" Value="Inter, Hiragino Sans" />
+    </Style>
+
     <Style Selector="TextBlock.title">
         <Setter Property="FontSize" Value="{StaticResource FontSizeNormal}" />
         <Setter Property="FontWeight" Value="SemiBold" />
