@@ -45,6 +45,19 @@ public abstract record TerminalLaunchResult
 {
     public sealed record Launched(TerminalHandle Handle) : TerminalLaunchResult;
 
+    /// <summary>
+    /// 開き直そうとした窓が、まだ塞がっていた（設計 §41-2b）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="Failed"/> と分ける。</b> こちらは
+    /// <b>その窓で何かが走っていることを観測している</b> ——
+    /// つまり<b>窓は生きている</b>ので、呼び出し側は handle を捨ててはいけない。
+    /// <para>
+    /// 文言で見分けない（§27-2 と同じ姿勢）。
+    /// </para>
+    /// </remarks>
+    public sealed record WindowBusy(string Reason) : TerminalLaunchResult;
+
     /// <summary>起動できなかった。<b>理由を人間に見せる</b>（§28-1）。</summary>
     public sealed record Failed(string Reason) : TerminalLaunchResult;
 }

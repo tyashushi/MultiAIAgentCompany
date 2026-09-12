@@ -190,6 +190,27 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
 
         var tracker = composer.TrackerOf(department.Id);
 
+        // **終了コードを観測できないので、専用の経路で伝える**（§32-2e）。
+        // **付け直した窓にも同じ見張りを付ける**（§41-2b、レビューで発覚）——
+        // 片方だけにすると、そちらでは**死んだセッションが残り、次の dispatch が
+        // 「もう開いている」と判断して窓を開き直せなくなる。**
+        void WatchDisappearance(TerminalDepartmentSession watched) =>
+            watched.Disappeared += (_, _) =>
+            {
+                tracker.OnDisappeared();
+
+                lock (_startGate)
+                {
+                    if (_sessions.TryGetValue(department.Id, out var current) && ReferenceEquals(current, watched))
+                    {
+                        _sessions.Remove(department.Id);
+                    }
+                }
+
+                SessionsChanged?.Invoke(this, department.Id);
+            };
+
+
         // **「走っている」印を、起動を始める前に立てる**（§26-1、構造化の側と同じ理由）。
         // ここを飛ばすと、Terminal.app を起こしている最中に切り替え／終了が走ったとき、
         // **待つべき起動が待たれない**まま前のフォルダのロックが返る。
@@ -244,13 +265,53 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             var started = await TerminalDepartmentSession.StartAsync(
                 department.Id, department.Agent, request, _terminals, TimeProvider.System, ct);
 
+            // **窓が塞がっていたときだけ、窓を指す手を付け直す**（設計 §41-2b、レビューで発覚）。
+            // ここへ来る前に前のセッションを捨てているので、そのまま返すと
+            // **まだ生きている窓に、二度と手が届かない** ——
+            // 前面化も終了もできず、次の dispatch が2つ目の窓を開く（§32-8）。
+            //
+            // **それ以外の失敗では付け直さない**（レビュー3周目で発覚）——
+            // 窓が閉じられていた場合まで付け直すと、**死んだ窓を指したまま**になり、
+            // 次の dispatch が新しい窓を開けなくなる。**生きていると観測できたものだけ。**
+            if (started is TerminalStartResult.WindowBusy stillBusy)
+            {
+                if (replacing is not null && generation == _generation)
+                {
+                    var reattached = await TerminalDepartmentSession.ReattachAsync(
+                        department.Id, department.Agent, replacing.Handle, _terminals, TimeProvider.System, ct);
+
+                    lock (_startGate)
+                    {
+                        _sessions[department.Id] = reattached;
+                    }
+
+                    Wire(department, workspace, reattached, tracker);
+                    reattached.ReplayObservations();
+                    WatchDisappearance(reattached);
+
+                    // **「終わった」と書かない**（§7）。付け直した窓は生きているので、
+                    // 本当に居なくなったなら、そのセッションの見張りが `Disappeared` を出す。
+                    return new DepartmentStart.Failed(
+                        $"{department.DisplayName} のターミナルを開き直せなかった: {stillBusy.Reason}");
+                }
+
+                tracker.OnExited(-1);
+                return new DepartmentStart.Failed(
+                    $"{department.DisplayName} のターミナルを開き直せなかった: {stillBusy.Reason}");
+            }
+
             if (started is TerminalStartResult.Failed failed)
             {
                 tracker.OnExited(-1);
                 return new DepartmentStart.Failed($"{department.DisplayName} のターミナルを開けなかった: {failed.Reason}");
             }
 
-            var session = ((TerminalStartResult.Started)started).Session;
+            var (session, unverified) = started switch
+            {
+                TerminalStartResult.Started ok => (ok.Session, (string?)null),
+                TerminalStartResult.StartedUnverified uncertain => (uncertain.Session, uncertain.Reason),
+                _ => throw new InvalidOperationException("未知の TerminalStartResult です"),
+            };
 
             // 起動中に切り替えられていたら、これは前のフォルダの部門（§26-1）。
             if (generation != _generation)
@@ -272,25 +333,11 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             // 聞き逃すと、検出器は `Starting` のまま止まる。
             session.ReplayObservations();
 
-            // **終了コードを観測できないので、専用の経路で伝える**（§32-2e）。
-            session.Disappeared += (_, _) =>
-            {
-                tracker.OnDisappeared();
+            WatchDisappearance(session);
 
-                // **死んだセッションを持ち続けない。** 残すと、次の dispatch が
-                // 「もう開いている」と判断して**窓を開き直せなくなる**（レビューで発覚）。
-                lock (_startGate)
-                {
-                    if (_sessions.TryGetValue(department.Id, out var current) && ReferenceEquals(current, session))
-                    {
-                        _sessions.Remove(department.Id);
-                    }
-                }
-
-                SessionsChanged?.Invoke(this, department.Id);
-            };
-
-            return new DepartmentStart.Started();
+            return unverified is { } reason
+                ? new DepartmentStart.StartedUnverified(reason)
+                : new DepartmentStart.Started();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -605,6 +652,12 @@ public abstract record DepartmentStart
     public sealed record Started : DepartmentStart;
 
     public sealed record Failed(string Reason) : DepartmentStart;
+
+    /// <summary>
+    /// 窓は開いたが、<b>起動を確かめられていない</b>（設計 §41）。
+    /// <b>「起動した」と言わない</b> —— 呼び出し側は人間に確かめさせる。
+    /// </summary>
+    public sealed record StartedUnverified(string Reason) : DepartmentStart;
 
     /// <summary>もう動いている。<b>「起動した」と言わない</b>（設計 §27-4）。</summary>
     public sealed record AlreadyRunning : DepartmentStart;

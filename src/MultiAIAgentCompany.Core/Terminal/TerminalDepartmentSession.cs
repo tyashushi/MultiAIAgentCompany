@@ -68,6 +68,13 @@ public sealed class TerminalDepartmentSession : IAgentSession
             return new TerminalStartResult.Failed(failed.Reason);
         }
 
+        // **窓が生きているときの失敗は、別の名前で返す**（設計 §41-2b）——
+        // 呼び出し側は、その窓の handle を捨てずに付け直す。
+        if (launched is TerminalLaunchResult.WindowBusy busy)
+        {
+            return new TerminalStartResult.WindowBusy(busy.Reason);
+        }
+
         var handle = ((TerminalLaunchResult.Launched)launched).Handle;
         var pid = await WaitForPidAsync(handle.PidFilePath, ct);
         var identity = new ProcessIdentity(pid, 0, pid, clock.GetUtcNow());
@@ -82,13 +89,59 @@ public sealed class TerminalDepartmentSession : IAgentSession
             new AgentRef(departmentId, agent), null, null,
             $"外部ターミナルで起動した（窓 {handle.WindowId}）"));
 
+        session.StartWatching();
+
+        // **PID が現れないのは「起動を確かめられていない」ということ**（設計 §41）。
+        // スクリプトは1行目で PID を書くので、**書かれていないなら走っていない。**
+        //
+        // **それでもセッションは返す** —— 窓は開いているかもしれないので、
+        // 捨てると**アプリが知らない窓**が残り、次の dispatch が2つ目の窓を開く（§32-8）。
+        // 渡ったことにしないのは、呼び出し側の仕事である。
         if (pid <= 0)
         {
-            session.Note("PID を記録できなかったので、窓が閉じられたことに気付けない");
+            session.Note("PID が現れないので、起動を確かめられない（窓が閉じられたことにも気付けない）");
+            return new TerminalStartResult.StartedUnverified(
+                session, "起動用スクリプトが走った跡（PID）が現れなかった");
         }
 
-        session.StartWatching();
         return new TerminalStartResult.Started(session);
+    }
+
+    /// <summary>
+    /// 既にある窓に、セッションを付け直す（設計 §41-2b、レビューで発覚）。
+    /// </summary>
+    /// <remarks>
+    /// <b>開き直しに失敗したときの受け皿。</b> 開き直しは「前のを終わらせてから打ち込む」
+    /// 順なので、**打ち込めなかったときには、もう前のセッションを捨てている** ——
+    /// そのまま失敗を返すと、**まだ生きているかもしれない窓の handle をアプリが失う**
+    /// （前面化も終了もできず、次の dispatch が2つ目の窓を開く。§32-8）。
+    /// <para>
+    /// <b>「起動した」とは言わない。</b> ここは何も起こしていない ——
+    /// 付け直しているのは<b>窓を指す手</b>だけである。
+    /// </para>
+    /// </remarks>
+    public static async Task<TerminalDepartmentSession> ReattachAsync(
+        string departmentId, AgentKind agent, TerminalHandle handle,
+        ITerminalLauncher launcher, TimeProvider clock, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(launcher);
+        ArgumentNullException.ThrowIfNull(clock);
+
+        var pid = await WaitForPidAsync(handle.PidFilePath, ct);
+        var session = new TerminalDepartmentSession(
+            departmentId, agent, handle, launcher, new ProcessIdentity(pid, 0, pid, clock.GetUtcNow()), clock);
+
+        // **付け直したことも観測として出す**（§22-2 と同じ取り置き）。
+        // 出さないと、呼び出し側が立てた「起動中」の印を**誰も降ろさない。**
+        session._pending.Add(new Evidence(
+            EvidenceSource.Dispatch, clock.GetUtcNow(), null, null,
+            new AgentRef(departmentId, agent), null, null,
+            $"窓 {handle.WindowId} にセッションを付け直した（開き直せなかったので、前の窓のまま）"));
+
+        session.StartWatching();
+        return session;
     }
 
     public string DepartmentId { get; }
@@ -287,6 +340,21 @@ public sealed class TerminalDepartmentSession : IAgentSession
 public abstract record TerminalStartResult
 {
     public sealed record Started(TerminalDepartmentSession Session) : TerminalStartResult;
+
+    /// <summary>
+    /// 窓は開いたが、<b>起動を確かめられていない</b>（設計 §41）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="Started"/> と混ぜない。</b> 混ぜると、届いていない指示が
+    /// 「渡した」として記録される —— **実機で1度、そのまま止まった**（§41-1）。
+    /// </remarks>
+    public sealed record StartedUnverified(TerminalDepartmentSession Session, string Reason) : TerminalStartResult;
+
+    /// <summary>
+    /// 開き直そうとした窓が、まだ塞がっていた（設計 §41-2b）。
+    /// <b>窓は生きている</b>ので、呼び出し側は handle を捨てない。
+    /// </summary>
+    public sealed record WindowBusy(string Reason) : TerminalStartResult;
 
     public sealed record Failed(string Reason) : TerminalStartResult;
 }

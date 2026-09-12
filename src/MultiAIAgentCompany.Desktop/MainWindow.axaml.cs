@@ -1572,6 +1572,12 @@ public partial class MainWindow : Window
         {
             DepartmentStart.Started => new DispatchResult.Dispatched(launch.State),
 
+            // **確かめられていないものを「渡した」と言わない**（設計 §41）。
+            // 状態は `Dispatched` のままで、人間が窓を見て確かめる（§14-1）。
+            DepartmentStart.StartedUnverified uncertain =>
+                new DispatchResult.SentUncertain(
+                    launch.State, $"{uncertain.Reason}。**その窓で受け取れたか確かめる**"),
+
             // **ここへ来るのは「前の仕事がまだ動いている」ときだけ**（設計 §32-8）。
             // 終わっていれば上で開き直している。動いている部門を殺さない。
             // **「渡した」と言わない**（§7）—— 状態は `Dispatched`（§14-1）のまま、

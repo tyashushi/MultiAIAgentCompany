@@ -64,6 +64,18 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
                 """;
         }
 
+        // **打ち込む前に、そのタブが空いていることを観測する**（設計 §41、実機で踏んだ）。
+        // `do script ... in window id N` は**そのタブのシェルに打ち込む**ので、
+        // 前の CLI がまだ前面に居ると、**文字はその CLI に吸われて消える。**
+        // `osascript` は成功を返すので、**こちらからは「渡した」に見える。**
+        if (request.ReuseWindowId is { Length: > 0 } reusing
+            && await WaitUntilIdleAsync(reusing, ct) is { } stillBusy)
+        {
+            // **窓が生きていることは観測できている。** 呼び出し側が handle を
+            // 捨てないように、ふつうの失敗と型で分ける（§41-2b）。
+            return new TerminalLaunchResult.WindowBusy(stillBusy);
+        }
+
         var run = await RunAsync("osascript", ["-e", Compose(reuseWindow: true)], ct);
 
         // **Terminal.app が動いていないと -600 で落ちる**（2026-09-12 に実機で踏んだ）。
@@ -162,10 +174,73 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
 
         // **プロセスグループへ送る**（§32-2d）。個別に送ると子が生き残る。
         var kill = await RunAsync("kill", ["-TERM", $"-{pgid}"], ct);
-        return kill.ExitCode == 0
-            ? new TerminalTerminateResult.Signalled(pgid)
-            : new TerminalTerminateResult.Failed(
+        if (kill.ExitCode != 0)
+        {
+            return new TerminalTerminateResult.Failed(
                 $"終了させられません: {(kill.Stderr.Length > 0 ? kill.Stderr : kill.Stdout)}");
+        }
+
+        // **送っただけで返らない**（設計 §41）。開き直しは「終わらせてから打ち込む」ので、
+        // ここで待たないと**シェルがプロンプトへ戻る前に打ち込む**ことになる。
+        // **待っても死ななければ、それはそれで観測**であって、ここでは握りつぶさない ——
+        // 呼び出し側は次に「タブが空くか」を見る（そこで止まる）。
+        await WaitForExitAsync(pid, ct);
+        return new TerminalTerminateResult.Signalled(pgid);
+    }
+
+    /// <summary>そのプロセスが居なくなるまで待つ（上限つき）。</summary>
+    private async Task WaitForExitAsync(int pid, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 30; attempt++)
+        {
+            var alive = await RunAsync("ps", ["-o", "pid=", "-p", pid.ToString()], ct);
+            if (alive.ExitCode != 0 || alive.Stdout.Trim().Length is 0)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), ct);
+        }
+    }
+
+    /// <summary>
+    /// その窓の手前のタブが空くまで待つ（設計 §41）。
+    /// </summary>
+    /// <remarks>
+    /// <b>Terminal 自身に聞く。</b> <c>busy of selected tab</c> は
+    /// 「前面のプロセスが走っているか」で、**打ち込んでよいかの直接の観測**である ——
+    /// 「TERM を送ったからもう空いているはず」は推測にすぎない（§7）。
+    /// </remarks>
+    /// <returns>空いたら null。空かなければ、人間に見せる理由。</returns>
+    private async Task<string?> WaitUntilIdleAsync(string windowId, CancellationToken ct)
+    {
+        var applescript =
+            $"""
+             tell application "Terminal" to get busy of selected tab of window id {windowId}
+             """;
+
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            var run = await RunAsync("osascript", ["-e", applescript], ct);
+
+            // **窓が無い・Terminal が居ないなら、待つ相手が居ない。**
+            // ここで止めずに通し、いつもの経路（新しい窓／-600 の起こし直し）に任せる。
+            if (run.ExitCode != 0)
+            {
+                return null;
+            }
+
+            if (!run.Stdout.Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), ct);
+        }
+
+        // **空かないまま打ち込まない。** 打つと前の CLI に吸われて、
+        // **こちらは「渡した」と思い込む**（実機で踏んだ形）。
+        return "その窓では前の CLI がまだ動いている（5秒待っても空かなかった）ので、打ち込まなかった";
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunAsync(
