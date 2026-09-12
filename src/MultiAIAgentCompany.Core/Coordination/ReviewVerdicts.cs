@@ -22,6 +22,24 @@ public static class ReviewVerdicts
     /// <summary>直しが要るときの値。</summary>
     public const string ReviseValue = "revise";
 
+    /// <summary>
+    /// レビュー工程へ頼む文面（設計 §37-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>読む側と頼む側を同じ場所に置く。</b> 文面を <c>PlanRunner</c> に、
+    /// 読み方をここに置くと、**片方だけ直したときに気付けない** ——
+    /// 実機での確かめ（<c>ReviewVerdictLiveTests</c>）も、この文面をそのまま使う。
+    /// </remarks>
+    public static string RequestText =>
+        $"""
+        ## 判定を1行で書くこと
+
+        `report.md` に **`{Key}: {OkValue}`**
+        （このまま次へ進んでよい）か
+        **`{Key}: {ReviseValue}`**（直しが要る）の行を
+        **必ず1行**入れてください。**この行が無いと、人間が呼ばれて計画が止まります。**
+        """;
+
     public static ReviewVerdict Parse(string? report)
     {
         if (string.IsNullOrWhiteSpace(report))

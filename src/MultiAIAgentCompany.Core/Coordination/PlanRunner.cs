@@ -404,14 +404,8 @@ public sealed class PlanRunner(
             // **判定行を頼むのはここ**（§37-5）。部門共通の protocol には置かない ——
             // これが要るのは計画のレビュー工程だけで、全部門に配ると
             // 「自分に関係のある約束か」を読み手が判断することになる（§32-5）。
-            parts.Add($"""
-                ## 判定を1行で書くこと
-
-                `report.md` に **`{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}`**
-                （このまま次へ進んでよい）か
-                **`{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}`**（直しが要る）の行を
-                **必ず1行**入れてください。**この行が無いと、人間が呼ばれて計画が止まります。**
-                """);
+            // 文面の正本は `ReviewVerdicts` —— **読む側と同じ場所に置く**（§37-5）。
+            parts.Add(ReviewVerdicts.RequestText);
         }
 
         return string.Join("\n\n", parts);
