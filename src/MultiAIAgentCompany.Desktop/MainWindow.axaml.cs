@@ -341,6 +341,48 @@ public partial class MainWindow : Window
         Say("新しい相談を始めます。下の入力欄から話しかけてください");
     }
 
+    /// <summary>
+    /// その相談を片付ける（設計 §45）。
+    /// </summary>
+    /// <remarks>
+    /// <b>消さない。</b> <c>archive/threads/</c> へ移すだけである（§16-4）——
+    /// 消えるのは<b>一覧からだけ</b>で、何を相談したかはフォルダに残る。
+    /// <para>
+    /// <b>開いている相談を片付けたら、新しい相談に戻す</b> ——
+    /// 中身の無い id を掴んだままにすると、次の発言がどこにも書けない。
+    /// </para>
+    /// </remarks>
+    private async void OnArchiveThread(object? sender, RoutedEventArgs e)
+    {
+        // **行のクリックに伝えない。** `Click` は上へ流れるので、そのままだと
+        // 片付けた直後に**同じ相談を開こうとして「もう無い」**と言うことになる。
+        e.Handled = true;
+
+        if ((sender as Control)?.DataContext is not ThreadItem item
+            || _composer?.Threads is not { } threads)
+        {
+            return;
+        }
+
+        var result = await threads.ArchiveAsync(item.Id, CancellationToken.None);
+        Note(result switch
+        {
+            ThreadWriteResult.Written => $"相談を片付けた: {item.Title}（.company/archive/threads/ に残っている）",
+            ThreadWriteResult.Missing missing => $"{item.Title}: {missing.Reason}",
+            ThreadWriteResult.Failed failed => $"{item.Title}: {failed.Reason}",
+            _ => $"{item.Title}: 片付けられなかった（{result.GetType().Name}）",
+        });
+
+        if (result is ThreadWriteResult.Written
+            && string.Equals(_composer.Shell.CurrentThreadId, item.Id, StringComparison.Ordinal))
+        {
+            _composer.Shell.CurrentThreadId = null;
+            ShowTranscript([]);
+        }
+
+        await _composer.RefreshThreadsAsync(CancellationToken.None);
+    }
+
     /// <summary>左ペインで相談を選んだ（設計 §32-6）。</summary>
     private async void OnThreadSelected(object? sender, RoutedEventArgs e)
     {

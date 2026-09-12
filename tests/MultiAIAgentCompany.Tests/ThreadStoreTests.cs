@@ -254,6 +254,37 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.False(Directory.Exists(_workspace.Paths.SecretaryThreads));
     }
 
+    [Fact]
+    public async Task 片付けても消えない_archive_へ移る()
+    {
+        var meta = await CreateAsync("要らなくなった相談");
+        await _store.AppendAsync(meta.Id, new ThreadEntry("human", "こんにちは", _clock.Now), CancellationToken.None);
+
+        Assert.IsType<ThreadWriteResult.Written>(await _store.ArchiveAsync(meta.Id, CancellationToken.None));
+
+        // 一覧からは消える。
+        Assert.Empty((await _store.ListAsync(CancellationToken.None)).Threads);
+        Assert.IsType<ThreadReadResult.Missing>(await _store.ReadAsync(meta.Id, CancellationToken.None));
+
+        // **中身は残っている**（§16-4）。消えるのは人間の目の前からだけ。
+        var moved = Directory.GetDirectories(_workspace.Paths.ArchivedThreads).Single();
+        Assert.Contains(meta.Id, Path.GetFileName(moved), StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(moved, "transcript.jsonl")));
+    }
+
+    [Fact]
+    public async Task 無い相談は片付けられない()
+    {
+        Assert.IsType<ThreadWriteResult.Missing>(await _store.ArchiveAsync("missing", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 不正な_id_は片付けの入口で弾く()
+    {
+        // **パスに使う前に弾く**（`RequireSlug` が投げる）。
+        Assert.IsType<ThreadWriteResult.Failed>(await _store.ArchiveAsync("../外", CancellationToken.None));
+    }
+
     private async Task<ThreadMeta> CreateAsync(string title) =>
         Assert.IsType<ThreadCreateResult.Created>(await _store.CreateAsync(title, CancellationToken.None)).Meta;
 

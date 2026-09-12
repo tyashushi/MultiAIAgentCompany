@@ -174,7 +174,17 @@
                                                    TextTrimming="CharacterEllipsis"
                                                    Foreground="{DynamicResource TextPrimaryBrush}" />
                                     </DockPanel>
-                                    <TextBlock Text="{Binding UpdatedText}" Classes="meta" />
+                                    <DockPanel>
+                                        <!-- **片付けるのは、選んでいる相談だけ**（設計 §45）。
+                                             全部の行に出すと、一覧が操作だらけになる。
+                                             **消すのではない** —— `.company/archive/threads/` へ移る。 -->
+                                        <Button DockPanel.Dock="Right" Content="片付ける"
+                                                IsVisible="{Binding IsSelected}"
+                                                Click="OnArchiveThread" Classes="quiet"
+                                                VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding UpdatedText}" Classes="meta"
+                                                   VerticalAlignment="Center" />
+                                    </DockPanel>
                                 </StackPanel>
                             </Button>
                         </DataTemplate>

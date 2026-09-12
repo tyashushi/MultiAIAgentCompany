@@ -118,6 +118,54 @@ public sealed class ThreadStore
         }
     }
 
+    /// <summary>
+    /// その相談を片付ける（設計 §45）。
+    /// </summary>
+    /// <remarks>
+    /// <b>消さない。</b> <c>archive/threads/</c> へ移すだけである（§16-4）——
+    /// 会話は正本ではない（§17-3）が、**何を相談したかは人間の記録**であって、
+    /// アプリが勝手に失ってよいものではない。
+    /// <para>
+    /// <b>移し先の名前に時刻を付ける。</b> 同じ id が二度現れることは無いが、
+    /// **人間が後から並べて読む**ときに、いつ片付けたかが要る。
+    /// </para>
+    /// </remarks>
+    public Task<ThreadWriteResult> ArchiveAsync(string id, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        string source;
+        try
+        {
+            source = _paths.ThreadDirectory(id);
+        }
+        catch (ArgumentException exception)
+        {
+            return Task.FromResult<ThreadWriteResult>(new ThreadWriteResult.Failed($"id が不正です: {exception.Message}"));
+        }
+
+        if (!Directory.Exists(source))
+        {
+            return Task.FromResult<ThreadWriteResult>(new ThreadWriteResult.Missing($"{id} はもうありません"));
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_paths.ArchivedThreads);
+            var destination = Path.Combine(
+                _paths.ArchivedThreads,
+                FormattableString.Invariant($"{id}-{_clock.GetUtcNow():yyyyMMdd-HHmmss}"));
+
+            Directory.Move(source, destination);
+            return Task.FromResult<ThreadWriteResult>(
+                new ThreadWriteResult.Written(new ThreadMeta(id, destination, _clock.GetUtcNow(), _clock.GetUtcNow())));
+        }
+        catch (Exception exception) when (IsStorageFailure(exception))
+        {
+            return Task.FromResult<ThreadWriteResult>(new ThreadWriteResult.Failed($"片付けられません: {exception.Message}"));
+        }
+    }
+
     public async Task<ThreadReadResult> ReadAsync(string id, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();

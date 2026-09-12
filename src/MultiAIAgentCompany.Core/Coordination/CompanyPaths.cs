@@ -57,6 +57,15 @@ public sealed class CompanyPaths
 
     public string ThreadDirectory(string slug) => Path.Combine(SecretaryThreads, RequireSlug(slug));
 
+    /// <summary>
+    /// 片付けた相談の置き場所（設計 §45）。
+    /// </summary>
+    /// <remarks>
+    /// <b>消さずに移す</b>（§16-4）—— 走査が読めない仕事を <c>unreadable/</c> へ移すのと同じ形。
+    /// 会話は正本ではない（§17-3）が、<b>何を相談したかは人間の記録</b>である。
+    /// </remarks>
+    public string ArchivedThreads => Path.Combine(ArchiveRoot, "threads");
+
     public string ThreadMeta(string slug) => Path.Combine(ThreadDirectory(slug), "meta.json");
 
     public string ThreadTranscript(string slug) => Path.Combine(ThreadDirectory(slug), "transcript.jsonl");
