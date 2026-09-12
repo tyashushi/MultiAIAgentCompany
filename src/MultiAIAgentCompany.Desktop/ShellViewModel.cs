@@ -153,7 +153,32 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>左ペイン: 作業ログ一覧。</summary>
-    public required ObservableCollection<string> WorkLog { get; init; }
+    public required ObservableCollection<string> WorkLog
+    {
+        get;
+        init
+        {
+            field = value;
+
+            // 計算プロパティなので、集合が変わったことを自分で知らせないと画面に出ない。
+            value.CollectionChanged += (_, _) =>
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(WorkLogText)));
+        }
+    }
+
+    /// <summary>
+    /// 作業ログを1つの文字列にしたもの（2026-09-12、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>1行ずつ別の部品にすると、またいで選べない。</b>
+    /// <b>会話では §34-4 で既に解いていた問題を、こちらで解いていなかった</b> ——
+    /// **同じ形が2箇所にあるなら、片方を直した日に両方見る。**
+    /// <para>
+    /// 読み返すのは<b>起きた順に並んだ全体</b>なので、手で拾わせると
+    /// **拾い落としたところが「起きなかったこと」になる。**
+    /// </para>
+    /// </remarks>
+    public string WorkLogText => string.Join(Environment.NewLine, WorkLog);
 
     /// <summary>
     /// アプリ全体の診断（設計 §28-9）。<b>部門に紐づかない失敗はここへ。</b>

@@ -31,6 +31,7 @@
                         <NativeMenuItem Header="作業ログを消す" Click="OnClearWorkLog" />
                         <NativeMenuItem Header="直近のエラーの詳細を出す" Click="OnShowLastErrors" />
                         <NativeMenuItem Header="会話を全部コピーする" Gesture="Cmd+Shift+C" Click="OnCopyTranscript" />
+                        <NativeMenuItem Header="作業ログを全部コピーする" Gesture="Cmd+Shift+L" Click="OnCopyWorkLog" />
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="入力欄へ移動" Gesture="Cmd+L" Click="OnFocusMessage" />
                     </NativeMenu>
@@ -127,13 +128,10 @@
                       FontSize="{DynamicResource FontSizeSmall}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                               MaxHeight="220">
-                    <ItemsControl ItemsSource="{Binding WorkLog}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <SelectableTextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <!-- **1つの部品にまとめる**（人間の要望、2026-09-12）——
+                         1行ずつ別の部品にすると、**ドラッグで行をまたいで選べない。**
+                         会話では §34-4 で既に解いていた問題（§37-10）。 -->
+                    <SelectableTextBlock Text="{Binding WorkLogText}" TextWrapping="Wrap" Margin="0,2" />
                 </ScrollViewer>
             </Expander>
 

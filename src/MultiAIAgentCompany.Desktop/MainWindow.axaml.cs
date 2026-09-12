@@ -2367,6 +2367,35 @@ public partial class MainWindow : Window
         Note($"会話を全部コピーした（{shell.SecretaryTranscript.Count} 行）");
     }
 
+    /// <summary>
+    /// 作業ログを全部コピーする（人間の要望、2026-09-12）。
+    /// </summary>
+    /// <remarks>
+    /// <b>1行ずつ選べるだけでは足りない</b>（§37-10）——
+    /// 人に見せたり調べたりするのは**起きた順に並んだ全体**で、
+    /// そこを手で拾わせると、**拾い落としたところが「起きなかったこと」になる。**
+    /// </remarks>
+    private async void OnCopyWorkLog(object? sender, EventArgs e)
+    {
+        if (DataContext is not ShellViewModel shell)
+        {
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            // **できなかったことを、できたことにしない**（§7）。
+            Note("クリップボードを使えない");
+            return;
+        }
+
+        // **画面に出ている順のまま渡す。** 並べ替えると、読み返したときに
+        // 作業ログと食い違う。
+        await clipboard.SetTextAsync(string.Join(Environment.NewLine, shell.WorkLog));
+        Note($"作業ログを全部コピーした（{shell.WorkLog.Count} 行）");
+    }
+
     private void OnFocusMessage(object? sender, EventArgs e) =>
         this.FindControl<TextBox>("MessageBox")?.Focus();
 
