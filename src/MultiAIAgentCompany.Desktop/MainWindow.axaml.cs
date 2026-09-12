@@ -90,6 +90,9 @@ public partial class MainWindow : Window
     /// <summary>確認を出している最中（設計 §28-3）。<b>二枚目を出さない。</b></summary>
     private bool _askingClose;
 
+    /// <summary>アイコンの一覧の窓（設計 §15-5）。<b>1つだけ開く。</b></summary>
+    private IconGalleryWindow? _iconGallery;
+
     /// <summary>前回のワークスペース。<b>覚えるのはパスだけ</b>（設計 §21-3）。</summary>
     private readonly WorkspaceMemory _memory = WorkspaceMemory.CreateDefault();
 
@@ -516,6 +519,42 @@ public partial class MainWindow : Window
     /// 人間が自分の判断で覗くもの。段に足すと「人間の出番」の意味が濁る。
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// アイコンを実寸で並べて見る（設計 §15-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ふだんの画面には6つとも出ない</b> —— ポーズは活動状態と1対1なので、
+    /// その状態にならないと見えない。**絵を直したかどうかは、ここで見る。**
+    /// </remarks>
+    private void OnShowIconGallery(object? sender, EventArgs e)
+    {
+        // **押すたびに窓を増やさない。** 既に開いているなら、それを前に出す。
+        if (_iconGallery is { } open)
+        {
+            // **最小化されていると `Activate()` だけでは戻らない**（レビューで指摘）——
+            // 人間には「押しても何も起きない」に見える。
+            if (open.WindowState is WindowState.Minimized)
+            {
+                open.WindowState = WindowState.Normal;
+            }
+
+            open.Activate();
+            return;
+        }
+
+        var gallery = new IconGalleryWindow();
+        _iconGallery = gallery;
+        gallery.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_iconGallery, gallery))
+            {
+                _iconGallery = null;
+            }
+        };
+
+        gallery.Show(this);
+    }
+
     private void OnShowDiagnostics(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not DepartmentTile tile)

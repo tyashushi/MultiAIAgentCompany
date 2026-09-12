@@ -33,6 +33,8 @@
                         <NativeMenuItem Header="会話を全部コピーする" Gesture="Cmd+Shift+C" Click="OnCopyTranscript" />
                         <NativeMenuItem Header="作業ログを全部コピーする" Gesture="Cmd+Shift+L" Click="OnCopyWorkLog" />
                         <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="アイコンの一覧を見る" Click="OnShowIconGallery" />
+                        <NativeMenuItemSeparator />
                         <NativeMenuItem Header="入力欄へ移動" Gesture="Cmd+L" Click="OnFocusMessage" />
                     </NativeMenu>
                 </NativeMenuItem.Menu>
@@ -403,8 +405,9 @@
                             <Grid ColumnDefinitions="Auto,*">
                                 <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
                                 <Grid Grid.Column="0" Width="40" Height="40" Margin="0,0,8,0">
-                                    <TextBlock Text="{Binding Glyph}" FontSize="{DynamicResource FontSizeHuge}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <!-- ポーズ＝活動状態（設計 §15-2）。24px でも見分けが付くことを確かめてある。 -->
+                                    <Image Source="{Binding PoseImage}" Width="40" Height="40"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     <TextBlock Text="{Binding BadgeGlyph}" FontSize="{DynamicResource FontSizeNormal}"
                                                HorizontalAlignment="Right" VerticalAlignment="Top" />
                                     <TextBlock Text="{Binding RuntimeGlyph}" FontSize="{DynamicResource FontSizeNormal}"

@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
@@ -486,18 +488,15 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     public string WorkText => Status.Work is null ? "—" : Status.Work.Value.ToString();
 
     /// <summary>
-    /// ポーズ。<b>(a) 承認まちと (b) 相談中を同じ絵にしない</b>（設計 §3）——
-    /// 人間の行き先が違う。ここは絵ができるまでの仮置き。
+    /// ポーズの絵（設計 §15-2）。<b>(a) 承認まちと (b) 相談中を同じ絵にしない</b>（§3）——
+    /// 人間の行き先が違う。
     /// </summary>
-    public string Glyph => Call.Pose switch
-    {
-        DepartmentPose.Working => "🏃",
-        DepartmentPose.Resting => "🧍",
-        DepartmentPose.AwaitingApproval => "🙋",   // (a) → 承認ボタン / ターミナルへ
-        DepartmentPose.Consulting => "💬",         // (b) → .company/ のドキュメントへ
-        DepartmentPose.Degraded => "🤕",
-        _ => "❔",
-    };
+    /// <remarks>
+    /// <b>6枚は「1枚のキャラクターシート」から切り出したもの</b>（§15-5）。
+    /// 24px でも見分けが付くことを確かめてある —— 見分けているのは
+    /// **色でも表情でもなく、体の外形**である（低い塊／斜め／横長 など）。
+    /// </remarks>
+    public Bitmap? PoseImage => PoseImages.Of(Call.Pose);
 
     /// <summary>右上のバッジ。人間の返事を待つ仕事があるときだけ（設計 §15-3）。</summary>
     public string BadgeGlyph => Call.Badge switch

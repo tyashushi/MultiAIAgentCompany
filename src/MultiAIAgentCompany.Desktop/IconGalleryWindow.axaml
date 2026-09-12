@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:MultiAIAgentCompany.Desktop"
+        x:Class="MultiAIAgentCompany.Desktop.IconGalleryWindow"
+        x:DataType="vm:IconGalleryWindow"
+        Title="アイコンの一覧" Width="560" Height="680">
+
+    <!-- 設計 §15-5 の確かめを、アプリの中でやるための窓。
+         **実寸で並べる**（40px と 24px）—— 縮小して区別が付かないなら、
+         絵ではなく状態設計の問題として §15-2 に戻る。 -->
+    <ScrollViewer Padding="16">
+        <StackPanel Spacing="18">
+
+            <TextBlock Text="ポーズ（活動状態・§15-2）" FontWeight="Bold" />
+            <ItemsControl ItemsSource="{Binding Poses}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:IconGalleryRow">
+                        <Grid ColumnDefinitions="56,40,*" Margin="0,0,0,10">
+                            <Image Grid.Column="0" Source="{Binding Image}" Width="40" Height="40"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Image Grid.Column="1" Source="{Binding Image}" Width="24" Height="24"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Title}" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Opacity="0.75" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Text="バッジ（仕事状態・§15-3）と 稼働の印（§15-4）" FontWeight="Bold" />
+            <TextBlock Text="ここはまだ絵文字の仮置き。人型ができてから形を決める（§15-9）。"
+                       Opacity="0.75" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Marks}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:IconGalleryRow">
+                        <Grid ColumnDefinitions="56,40,*" Margin="0,0,0,10">
+                            <TextBlock Grid.Column="0" Text="{Binding Glyph}" FontSize="22"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="{Binding Glyph}" FontSize="13"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Title}" FontWeight="Bold" />
+                                <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Opacity="0.75" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

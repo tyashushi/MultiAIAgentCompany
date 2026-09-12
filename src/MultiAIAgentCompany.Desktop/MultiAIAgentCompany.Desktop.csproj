@@ -19,4 +19,11 @@
     <ProjectReference Include="../MultiAIAgentCompany.Core/MultiAIAgentCompany.Core.csproj" />
   </ItemGroup>
 
+  <!-- 人型アイコン（設計 §15）。**この行が要る** —— 外して測ったら、
+       アセンブリに埋まらなかった（Avalonia は Assets/** を自動では拾わない）。 -->
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+
 </Project>
