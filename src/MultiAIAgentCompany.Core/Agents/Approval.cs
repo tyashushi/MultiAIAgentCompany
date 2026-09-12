@@ -40,7 +40,8 @@ public sealed record ApprovalRequest(
     IReadOnlyList<ApprovalDecision> AvailableDecisions,
     IReadOnlyList<string> SuggestedRules,
     string? ToolName = null,
-    string? TargetPath = null)
+    string? TargetPath = null,
+    string? CommandLine = null)
 {
     /// <summary>
     /// 何のツールか（設計 §35）。<b>自動承認の判定に使う。</b>
@@ -49,6 +50,15 @@ public sealed record ApprovalRequest(
     /// <b>表示用の <c>Title</c> と分ける。</b> あちらは CLI が人間向けに作った文字列で、
     /// **版で変わる**。判定に使うと、文言が変わった日から黙って通らなくなる（§7）。
     /// <b>返してこない CLI では null</b> —— そのときは自動承認しない。
+    /// </remarks>
+    /// <summary>
+    /// 実行しようとしている命令そのもの（設計 §38）。<b>自動承認の判定に使う。</b>
+    /// </summary>
+    /// <remarks>
+    /// <c>Bash</c> のようなツールは<b>場所ではなく命令</b>が対象なので、
+    /// <see cref="TargetPath"/> では判定できない。
+    /// <b>表示用の <c>Title</c> / <c>Details</c> と分ける</b>のは §35-2 と同じ理由 ——
+    /// あちらは版で変わる。<b>返してこない CLI では null</b>、そのときは自動承認しない。
     /// </remarks>
     /// <summary>提示された決定かどうか。提示されていない決定は送らない。</summary>
     public bool Offers(string decisionId) =>

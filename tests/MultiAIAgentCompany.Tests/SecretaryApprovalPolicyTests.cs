@@ -41,21 +41,32 @@ public sealed class SecretaryApprovalPolicyTests : IDisposable
     }
 
     [Fact]
-    public void 持ち場の外に書くのは聞く()
+    public void 調整基盤の中に書くのは通す()
     {
-        // **仕事のフォルダは部門と調整基盤のもの**（§17-6 の protocol で秘書は触らない）。
-        Assert.False(Decide("Write", _workspace.Paths.Instruction("feature")).AutoApprove);
-
-        // 作業ツリーそのものも聞く。
-        Assert.False(Decide("Write", Path.Combine(_workspace.Paths.WorkspaceRoot, "src", "a.cs")).AutoApprove);
-        Assert.False(Decide("Write", "/tmp/よそ.md").AutoApprove);
+        // **人間が §17-6 の「秘書は tasks/ を触らない」を改めた**（2026-09-12、§38）。
+        Assert.True(Decide("Write", _workspace.Paths.Instruction("feature")).AutoApprove);
     }
 
     [Fact]
-    public void コマンド実行は通さない()
+    public void 状態と権利のファイルは_秘書には書かせない()
     {
-        // **ここを広げない** —— コマンドは何でもできる。
-        Assert.False(Decide("Bash", _workspace.Paths.SecretaryOutbox).AutoApprove);
+        // **約束ではなく不変条件。** §14-1（state.json を書くのはアプリだけ）と
+        // §14-2（権利の正本）が、revision の楽観ロックごとここに乗っている。
+        Assert.False(Decide("Write", _workspace.Paths.State("feature")).AutoApprove);
+        Assert.False(Decide("Edit", _workspace.Paths.Lease).AutoApprove);
+
+        // **大文字小文字を区別しないファイルシステムでは、同じファイルを指す**（レビューで発覚）。
+        Assert.False(Decide("Write", Path.Combine(
+            Path.GetDirectoryName(_workspace.Paths.State("feature"))!, "STATE.JSON")).AutoApprove);
+        Assert.False(Decide("Edit", Path.Combine(
+            _workspace.Paths.Root, "Lease.Json")).AutoApprove);
+    }
+
+    [Fact]
+    public void 調整基盤の外に書くのは聞く()
+    {
+        Assert.False(Decide("Write", Path.Combine(_workspace.Paths.WorkspaceRoot, "src", "a.cs")).AutoApprove);
+        Assert.False(Decide("Write", "/tmp/よそ.md").AutoApprove);
     }
 
     [Fact]

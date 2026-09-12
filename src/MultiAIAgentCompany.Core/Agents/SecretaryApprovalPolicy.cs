@@ -47,9 +47,15 @@ public static class SecretaryApprovalPolicy
             return new ApprovalVerdict(false, "何のツールか分からないので聞く");
         }
 
+        // **Bash は「命令の形」で縛って通す**（設計 §38、人間が広げた）。
+        // 場所ではなく命令が対象なので、`TargetPath` では判定できない。
+        if (tool is "Bash")
+        {
+            return SecretaryBashPolicy.Decide(request.CommandLine, paths.WorkspaceRoot);
+        }
+
         if (!ReadOnlyTools.Contains(tool) && !WriteTools.Contains(tool))
         {
-            // Bash など。**ここを広げない** —— コマンドは何でもできる。
             return new ApprovalVerdict(false, $"{tool} は自動で通さない");
         }
 
@@ -71,11 +77,27 @@ public static class SecretaryApprovalPolicy
                 : new ApprovalVerdict(false, $"{tool} が作業フォルダの外を読もうとしている");
         }
 
-        // 書き込みは**秘書の持ち場だけ**。`.company/tasks/` は部門と調整基盤のもので、
-        // 秘書は触らない約束になっている（§17-6 の protocol）。
-        return IsInside(full, Full(paths.SecretaryRoot))
-            ? new ApprovalVerdict(true, $"{tool}（秘書の持ち場に書く）")
-            : new ApprovalVerdict(false, $"{tool} が秘書の持ち場の外に書こうとしている");
+        // **書き込みは `.company/` の中まで**（設計 §38、人間が広げた）。
+        // 秘書が指示書や報告に手を入れられるようになる ——
+        // §17-6 の「秘書は tasks/ を触らない」という**約束の方を、人間が改めた。**
+        //
+        // **ただし `state.json` と `lease.json` は除く。** あれは約束ではなく**不変条件**で、
+        // §14-1（state.json を書くのはアプリだけ）と §14-2（権利の正本）が
+        // **revision の楽観ロックごと**そこに乗っている。
+        // 秘書が書けると、**アプリの知らない書き換え**として検出される側に回る（§23-1）。
+        if (!IsInside(full, Full(paths.Root)))
+        {
+            return new ApprovalVerdict(false, $"{tool} が .company/ の外に書こうとしている");
+        }
+
+        // **大文字小文字を区別せずに比べる**（レビューで発覚、2026-09-12）。
+        // macOS と Windows の既定は区別しないので、`STATE.JSON` は
+        // **同じファイルを指しながら、綴りの照合だけを素通りする。**
+        var fileName = Path.GetFileName(full);
+        return string.Equals(fileName, "state.json", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "lease.json", StringComparison.OrdinalIgnoreCase)
+            ? new ApprovalVerdict(false, $"{fileName} を書くのはアプリだけ（§14-1 / §14-2）")
+            : new ApprovalVerdict(true, $"{tool}（.company/ の中に書く）");
     }
 
     /// <summary>

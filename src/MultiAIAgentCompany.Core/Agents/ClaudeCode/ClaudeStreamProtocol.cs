@@ -105,6 +105,26 @@ public sealed record ClaudeApprovalRequest(
     /// 入力の <c>file_path</c> から分かる。<b>分からないなら自動承認しない</b>ので、
     /// ここで無理に埋めない。
     /// </remarks>
+    /// <summary>
+    /// 入力の文字列を1つ取り出す（設計 §38）。<b>読めなければ null。</b>
+    /// </summary>
+    private string? StringFromInput(string name)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(RawInputJson);
+            return document.RootElement.ValueKind is System.Text.Json.JsonValueKind.Object
+                && document.RootElement.TryGetProperty(name, out var value)
+                && value.ValueKind is System.Text.Json.JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     private string? PathFromInput()
     {
         try
@@ -150,7 +170,8 @@ public sealed record ClaudeApprovalRequest(
 
         // **判定に使うものは、表示用と分けて渡す**（設計 §35）。
         ToolName: ToolName,
-        TargetPath: BlockedPath ?? PathFromInput());
+        TargetPath: BlockedPath ?? PathFromInput(),
+        CommandLine: StringFromInput("command"));
 }
 
 public static class ClaudeStreamReader
