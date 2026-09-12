@@ -7,7 +7,13 @@
         x:Class="MultiAIAgentCompany.Desktop.MainWindow"
         x:DataType="vm:ShellViewModel"
         Width="1280" Height="800"
-        Title="MultiAIAgentCompany">
+        Title="MultiAIAgentCompany"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="Inter, Hiragino Sans">
+
+    <!-- **日本語を明示する**（設計 §44）。Inter だけだと日本語が中国語向けのフォントへ
+         落ちて、漢字の形が変わる。ラテンは Inter、日本語は Hiragino に拾わせる。 -->
 
     <!-- 3ペイン（設計 §1）。左＝作業ログ、中央＝秘書との会話、右＝部門ステータス。 -->
     <!-- macOS の標準メニュー（設計 §28-7）。ショートカットの所在をここで示す ——
@@ -44,7 +50,8 @@
 
     <Grid x:Name="PaneGrid" ColumnDefinitions="260,4,*,4,320" Margin="8">
 
-        <DockPanel Grid.Column="0">
+        <Border Grid.Column="0" Classes="pane">
+        <DockPanel>
             <!-- 起動時の復旧走査（設計 §14-1 / §16-3）。**一過性のログ行にしない** ——
                  流れて消えると、自動再送しない契約を人間が守れない。
                  Unreadable は部門に紐づけられないので、ここにしか出せない。 -->
@@ -126,21 +133,26 @@
             <!-- **作業ログは畳んで下へ**（設計 §32-6）。左ペインの主役は相談スレッド ——
                  初期ブリーフの「左＝チャットログ一覧」を、途中で
                  「システムの作業実行ログ」と取り違えていた。 -->
-            <Expander DockPanel.Dock="Bottom" Header="作業ログ" IsExpanded="False" Margin="0,6,0,0"
+            <Expander DockPanel.Dock="Bottom" Classes="log" IsExpanded="False" Margin="0,8,0,0"
                       FontSize="{DynamicResource FontSizeSmall}">
+                <Expander.Header>
+                    <TextBlock Text="作業ログ" Classes="section" />
+                </Expander.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                               MaxHeight="220">
                     <!-- **1つの部品にまとめる**（人間の要望、2026-09-12）——
                          1行ずつ別の部品にすると、**ドラッグで行をまたいで選べない。**
                          会話では §34-4 で既に解いていた問題（§37-10）。 -->
-                    <SelectableTextBlock Text="{Binding WorkLogText}" TextWrapping="Wrap" Margin="0,2" />
+                    <SelectableTextBlock Text="{Binding WorkLogText}" TextWrapping="Wrap" Margin="0,2"
+                                         FontSize="{DynamicResource FontSizeSmall}"
+                                         Foreground="{DynamicResource TextSecondaryBrush}" />
                 </ScrollViewer>
             </Expander>
 
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                <TextBlock Text="相談" FontWeight="Bold" VerticalAlignment="Center" />
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <TextBlock Text="相談" Classes="section" VerticalAlignment="Center" />
                 <Button Content="＋ 新しい相談" Click="OnNewThread" HorizontalAlignment="Right"
-                        FontSize="{DynamicResource FontSizeSmall}" />
+                        Classes="quiet" />
             </DockPanel>
 
             <!-- **スクロールできること**（設計 §25-1）。無いと、はみ出した行に手が届かない。 -->
@@ -148,19 +160,22 @@
                 <ItemsControl ItemsSource="{Binding Threads}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Button Click="OnThreadSelected" HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Left" Margin="0,1">
-                                <StackPanel>
+                            <!-- **行は枠を持たない**（設計 §44）。ホバーと選択のときだけ面が付く。
+                                 枠で囲むと、7行並んだときに「箱の列」に見える。 -->
+                            <Button Click="OnThreadSelected" Classes="row" Margin="0,1"
+                                    Classes.selected="{Binding IsSelected}">
+                                <StackPanel Spacing="2">
                                     <DockPanel>
                                         <!-- 選んでいるものに印を付ける。**色に頼らない**
                                              （§28 でローカライズはやらないと決めたのと同じ姿勢で、
                                              見分けは形で付ける）。 -->
-                                        <TextBlock Text="▸ " IsVisible="{Binding IsSelected}" />
+                                        <TextBlock Text="▸ " IsVisible="{Binding IsSelected}"
+                                                   Foreground="{DynamicResource AccentBrush}" />
                                         <TextBlock Text="{Binding Title}" TextWrapping="NoWrap"
-                                                   TextTrimming="CharacterEllipsis" />
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}" />
                                     </DockPanel>
-                                    <TextBlock Text="{Binding UpdatedText}" Opacity="0.6"
-                                               FontSize="{DynamicResource FontSizeSmall}" />
+                                    <TextBlock Text="{Binding UpdatedText}" Classes="meta" />
                                 </StackPanel>
                             </Button>
                         </DataTemplate>
@@ -168,17 +183,19 @@
                 </ItemsControl>
             </ScrollViewer>
         </DockPanel>
+        </Border>
 
         <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="Transparent" />
 
         <DockPanel Grid.Column="2">
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                 <Grid ColumnDefinitions="Auto,*,Auto">
-                    <TextBlock Grid.Column="0" Text="秘書 — " FontWeight="Bold" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Text="{Binding WorkspaceLabel}" VerticalAlignment="Center"
+                    <TextBlock Grid.Column="0" Text="秘書" Classes="title" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="{Binding WorkspaceLabel}" Classes="meta"
+                               VerticalAlignment="Center" Margin="8,0,0,0"
                                TextTrimming="CharacterEllipsis" />
                     <Button Grid.Column="2" x:Name="PickWorkspaceButton" Click="OnPickWorkspace"
-                            Content="フォルダを選ぶ" Margin="6,0,0,0" />
+                            Content="フォルダを選ぶ" Classes="quiet" Margin="8,0,0,0" />
                 </Grid>
 
                 <!-- trust は3値（設計 §13-9）。「未 trust」と「判定できない」を同じにしない ——
@@ -251,16 +268,20 @@
                                 VerticalAlignment="Center" Click="OnRestartSecretary" />
                     </Grid>
                 </Border>
-                <SelectableTextBlock Text="{Binding SecretaryStatus}" FontSize="{DynamicResource FontSizeSmall}"
-                                     Opacity="0.75" TextWrapping="Wrap" Margin="0,0,0,4" />
+                <SelectableTextBlock Text="{Binding SecretaryStatus}" Classes="body"
+                                     FontSize="{DynamicResource FontSizeSmall}"
+                                     Foreground="{DynamicResource TextSecondaryBrush}"
+                                     TextWrapping="Wrap" Margin="0,0,0,6" />
                 <Grid ColumnDefinitions="*,Auto">
                     <!-- **素の Enter で送る**（設計 §13-7 の実測）。IME の確定 Enter は
                          KeyDown として届かないので、確定と送信は衝突しない。 -->
                     <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
-                             KeyDown="OnMessageKeyDown"
+                             KeyDown="OnMessageKeyDown" Classes="input"
                              PlaceholderText="秘書に相談する（Enter で送る）" />
-                    <!-- 未起動なら、その副作用として起動する（§17-4）。 -->
-                    <Button Grid.Column="1" Content="秘書に送る" Margin="6,0,0,0" Click="OnSendToSecretary" />
+                    <!-- 未起動なら、その副作用として起動する（§17-4）。
+                         **画面でいちばん強い操作はこれ1つ**（設計 §44）。 -->
+                    <Button Grid.Column="1" Content="秘書に送る" Classes="primary"
+                            Margin="8,0,0,0" Click="OnSendToSecretary" />
                 </Grid>
             </StackPanel>
 
@@ -375,36 +396,49 @@
                 </StackPanel>
             </Border>
 
-            <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="4">
+            <!-- **枠ではなく面で置く**（設計 §44）。中央は地より明るくして、左右のペインと分ける。 -->
+            <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="{StaticResource CardRadius}"
+                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1">
                 <!-- 会話は下に伸びるので、新しい発言が来たら最下部へ追う（§25-1）。 -->
-                <ScrollViewer x:Name="TranscriptScroll"
+                <Panel>
+                <!-- **空のときは真ん中に薄く**（設計 §44）。左上に1行だけ置くと、
+                     広い面が「白い空洞」に見える。 -->
+                <TextBlock Text="まだ何も話していません。秘書に相談すると、ここに会話が出ます"
+                           Classes="caption" IsVisible="{Binding !HasTranscript}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                <ScrollViewer x:Name="TranscriptScroll" IsVisible="{Binding HasTranscript}"
                               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <!-- **1つの部品にまとめる**（2026-09-11、人間の要望）。
                          発言ごとに分けると、またいで選べない ——
                          まとめるとドラッグで複数選べるし、Cmd+A で全部選べる。 -->
-                    <SelectableTextBlock Text="{Binding TranscriptText}" TextWrapping="Wrap" Margin="8" />
+                    <SelectableTextBlock Text="{Binding TranscriptText}" Classes="body"
+                                         TextWrapping="Wrap" Margin="14,12"
+                                         HorizontalAlignment="Stretch" />
                 </ScrollViewer>
+                </Panel>
             </Border>
         </DockPanel>
 
         <GridSplitter Grid.Column="3" ResizeDirection="Columns" Background="Transparent" />
 
-        <DockPanel Grid.Column="4">
-            <TextBlock DockPanel.Dock="Top" Text="部門" FontWeight="Bold" Margin="0,0,0,6" />
+        <Border Grid.Column="4" Classes="pane">
+        <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="部門" Classes="section" Margin="0,0,0,8" />
 
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Departments}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:DepartmentTile">
                         <!-- 押すとその部門のセッションを開く（設計 §1）。 -->
-                        <Button Click="OnDepartmentClick" Padding="0" Margin="0,0,0,6"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                Background="Transparent" BorderThickness="0">
-                        <Border BorderThickness="1" CornerRadius="4" Padding="8"
-                                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                        <Button Click="OnDepartmentClick" Classes="bare" Margin="0,0,0,8">
+                        <!-- **人間の出番があるタイルにだけ色が付く**（設計 §44）。
+                             全部が同じ灰色の箱だと、どれを見ればよいかが絵から分からない。 -->
+                        <Border Classes="card" Classes.needs-human="{Binding NeedsHuman}">
                             <Grid ColumnDefinitions="Auto,*">
                                 <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
-                                <Grid Grid.Column="0" Width="40" Height="40" Margin="0,0,8,0">
+                                <Grid Grid.Column="0" Width="40" Height="40" Margin="0,12,0,0"
+                                      VerticalAlignment="Top">
                                     <!-- ポーズ＝活動状態（設計 §15-2）。24px でも見分けが付くことを確かめてある。 -->
                                     <Image Source="{Binding PoseImage}" Width="40" Height="40"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -413,43 +447,42 @@
                                     <TextBlock Text="{Binding RuntimeGlyph}" FontSize="{DynamicResource FontSizeNormal}"
                                                HorizontalAlignment="Left" VerticalAlignment="Bottom" />
                                 </Grid>
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock FontWeight="Bold">
+                                <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="3">
+                                    <TextBlock Classes="title">
                                         <Run Text="{Binding Name}" />
-                                        <Run Text=" / " />
-                                        <Run Text="{Binding Agent}" />
                                     </TextBlock>
+                                    <TextBlock Text="{Binding Agent}" Classes="meta" />
 
                                     <!-- **駆動モードは出さない**（設計 §27）。§22-4 で Tui を消したので
                                          常に Structured にしかならず、区別に使えない。
                                          代わりに **CLI が申告したモデル**を出す。観測できたときだけ ——
                                          こちらが渡した設定値は診断ビューへ（§27-3）。 -->
                                     <TextBlock Text="{Binding ModelText}" IsVisible="{Binding HasModel}"
-                                               FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8" />
+                                               Classes="meta" />
                                     <!-- **危険モードの表示は消した**（設計 §32-3、2026-09-09）——
                                          §30-4 の抜け道そのものを廃止したので、出すものが無い。
                                          承認は人間がその部門のターミナルで押す。 -->
                                     <!-- 3軸を潰さずに並べる（設計 §7）。 -->
-                                    <TextBlock FontSize="{DynamicResource FontSizeSmall}" Opacity="0.8">
+                                    <TextBlock Classes="meta">
                                         <Run Text="稼働 " /><Run Text="{Binding RuntimeText}" />
-                                        <Run Text="  活動 " /><Run Text="{Binding ActivityText}" />
-                                        <Run Text="  仕事 " /><Run Text="{Binding WorkText}" />
+                                        <Run Text="　活動 " /><Run Text="{Binding ActivityText}" />
+                                        <Run Text="　仕事 " /><Run Text="{Binding WorkText}" />
                                     </TextBlock>
                                     <!-- 状態だけを見せない。根拠を必ず添える（設計 §7）。 -->
-                                    <TextBlock FontSize="{DynamicResource FontSizeSmall}" Opacity="0.6" TextWrapping="Wrap"
-                                               Text="{Binding EvidenceText}" />
+                                    <TextBlock Classes="caption-1line" Text="{Binding EvidenceText}"
+                                               ToolTip.Tip="{Binding EvidenceText}" />
 
                                     <!-- 人間の出番があることを、絵文字だけに頼らず言葉でも出す
                                          （設計 §15-5: 色や記号だけで区別しない）。 -->
-                                    <TextBlock Text="◀ 選択中（直接送信の宛先）" FontSize="{DynamicResource FontSizeSmall}"
+                                    <TextBlock Text="◀ 選択中（直接送信の宛先）" Classes="meta"
+                                               Foreground="{DynamicResource AccentBrush}"
                                                Margin="0,2,0,0" IsVisible="{Binding IsSelected}" />
 
                                     <!-- 文言が何をするか言っているボタン（設計 §15-6）。
                                          押す前に結果が分かるようにする。 -->
                                     <Button Content="{Binding ActionLabel}" IsVisible="{Binding HasAction}"
-                                            Click="OnDepartmentAction" Margin="0,6,0,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center" />
+                                            Click="OnDepartmentAction" Classes="quiet"
+                                            HorizontalAlignment="Left" Margin="0,6,0,0" />
 
                                     <!-- 起動は仕事の用件と別枠（設計 §15-6）。
                                          同じ列に並べると、用件のある部門を永久に起動できない。
@@ -457,33 +490,26 @@
                                          外部ターミナルの部門では「前面に出す」になる（§32）——
                                          窓は仕事を渡したときに開くので、起動ボタンは出さない。 -->
                                     <Button Content="{Binding LifecycleLabel}" IsVisible="{Binding CanStart}"
-                                            Click="OnDepartmentStart" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center" />
+                                            Click="OnDepartmentStart" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
 
                                     <!-- 診断は**読むだけ**（設計 §22）。v1 はターミナルを持たない。
                                          用件のボタンとは別枠 —— 人間が自分の判断で覗くもの。 -->
                                     <Button Content="診断を見る" IsVisible="{Binding IsSelected}"
-                                            Click="OnShowDiagnostics" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center" />
+                                            Click="OnShowDiagnostics" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
 
                                     <!-- 報告を読んだあとに決めること（設計 §19-3）。
                                          **「報告を読む」ボタンには畳まない** —— 読む前に
                                          受理か差し戻しかは決まらない。 -->
                                     <Button Content="受理する" IsVisible="{Binding CanJudgeReport}"
-                                            Click="OnAcceptReport" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center" />
+                                            Click="OnAcceptReport" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
                                     <TextBox Text="{Binding RejectionDraft, Mode=TwoWay}"
                                              IsVisible="{Binding CanJudgeReport}"
-                                             KeyDown="OnRejectionKeyDown"
-                                             PlaceholderText="差し戻す理由（Enter で差し戻す）" FontSize="{DynamicResource FontSizeSmall}"
+                                             KeyDown="OnRejectionKeyDown" Classes="input"
+                                             PlaceholderText="差し戻す理由（Enter で差し戻す）"
+                                             FontSize="{DynamicResource FontSizeSmall}"
                                              AcceptsReturn="False" Margin="0,4,0,0" />
                                     <Button Content="差し戻して送り直す" IsVisible="{Binding CanJudgeReport}"
-                                            Click="OnRejectReport" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center" />
+                                            Click="OnRejectReport" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
 
                                     <!-- 部門への操作は右ペインに置く（設計 §17-4）。
                                          中央の入力欄は秘書のもの。 -->
@@ -506,6 +532,7 @@
             </ItemsControl>
             </ScrollViewer>
         </DockPanel>
+        </Border>
 
     </Grid>
 </Window>

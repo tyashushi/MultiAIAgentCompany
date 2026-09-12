@@ -392,10 +392,9 @@ public partial class MainWindow : Window
                 entry.Role is "human" ? $"あなた: {entry.Text}" : $"秘書: {entry.Text}");
         }
 
-        if (shell.SecretaryTranscript.Count == 0)
-        {
-            shell.SecretaryTranscript.Add("まだ何も話していません");
-        }
+        // **空のときに仮の1行を積まない**（設計 §44-3、レビューで発覚）。
+        // 積むと `HasTranscript` が真になり、**中央の空の見せ方が永久に出ない** ——
+        // 「無い」を「1行ある」で表すと、画面は空かどうかを判断できなくなる。
     }
 
     /// <summary>

@@ -1,0 +1,66 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 見た目の語彙を1箇所に集める（設計 §44）。
+         **各 XAML に色を直書きしない** —— ライトで良くてもダークで破綻する。
+         色と Brush は DynamicResource で参照する（テーマ切り替えに追随させるため）。
+         余白・角丸・寸法は変わらないので StaticResource でよい。 -->
+
+    <ResourceDictionary.ThemeDictionaries>
+
+        <!-- ライト。**白を3段に割る** —— 地、面、枠。
+             全部を同じ灰色にすると「箱が並んでいる」だけに見える（それが直す前の姿）。 -->
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FAFAFB" />
+            <SolidColorBrush x:Key="PaneBackgroundBrush" Color="#F2F2F4" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#F0F0F2" />
+            <SolidColorBrush x:Key="SurfaceSelectedBrush" Color="#E8E8EC" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#E3E3E6" />
+
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1C1C1E" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#6B6B70" />
+            <SolidColorBrush x:Key="TextTertiaryBrush" Color="#9A9AA0" />
+
+            <!-- アクセントは1色だけ。**押せるものにしか使わない。** -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#3A6FF8" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8EEFF" />
+
+            <!-- 人間の出番があることを示す色。**赤にしない** —— 異常ではなく順番の話（§15-2）。 -->
+            <SolidColorBrush x:Key="NeedsHumanBrush" Color="#B8791F" />
+            <SolidColorBrush x:Key="NeedsHumanSoftBrush" Color="#FCF3E3" />
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#1C1C1E" />
+            <SolidColorBrush x:Key="PaneBackgroundBrush" Color="#161618" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#242427" />
+            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#2D2D31" />
+            <SolidColorBrush x:Key="SurfaceSelectedBrush" Color="#35353A" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#3A3A3E" />
+
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F2F7" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#A8A8AE" />
+            <SolidColorBrush x:Key="TextTertiaryBrush" Color="#7A7A80" />
+
+            <SolidColorBrush x:Key="AccentBrush" Color="#6C95FF" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#22304F" />
+
+            <SolidColorBrush x:Key="NeedsHumanBrush" Color="#E0A44A" />
+            <SolidColorBrush x:Key="NeedsHumanSoftBrush" Color="#3A2E1A" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
+    <!-- 余白は4の倍数で刻む。**混ぜない** —— 4/6/8 が混在していると、
+         「詰めた」ではなく「揃えていない」に見える。 -->
+    <Thickness x:Key="PanePadding">12</Thickness>
+    <Thickness x:Key="CardPadding">12</Thickness>
+    <Thickness x:Key="RowPadding">8,6</Thickness>
+    <x:Double x:Key="GapSmall">4</x:Double>
+    <x:Double x:Key="GapNormal">8</x:Double>
+    <x:Double x:Key="GapLarge">12</x:Double>
+
+    <CornerRadius x:Key="CardRadius">8</CornerRadius>
+    <CornerRadius x:Key="RowRadius">6</CornerRadius>
+    <CornerRadius x:Key="InputRadius">8</CornerRadius>
+</ResourceDictionary>

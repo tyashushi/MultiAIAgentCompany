@@ -1,0 +1,133 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 押せるもの・選べるもの・ただの面を、見た目で分ける（設計 §44）。
+         **全ボタンを一律に変えない** —— メニューやダイアログまで巻き込む。クラスで分ける。 -->
+
+    <!-- 部門タイルと提案カードの「面」。枠は残すが、**線ではなく面で区切る**。 -->
+    <Style Selector="Border.card">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
+        <Setter Property="Padding" Value="{StaticResource CardPadding}" />
+    </Style>
+
+    <!-- 人間の出番があるタイル。**色を1つだけ足す**（赤にしない。異常ではなく順番の話）。 -->
+    <Style Selector="Border.card.needs-human">
+        <Setter Property="BorderBrush" Value="{DynamicResource NeedsHumanBrush}" />
+        <Setter Property="Background" Value="{DynamicResource NeedsHumanSoftBrush}" />
+    </Style>
+
+    <!-- 一覧の行。**枠を持たない** —— ホバーと選択のときだけ面が付く。 -->
+    <Style Selector="Button.row">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource RowRadius}" />
+        <Setter Property="Padding" Value="{StaticResource RowPadding}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+    </Style>
+    <Style Selector="Button.row:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    </Style>
+    <Style Selector="Button.row:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SurfaceSelectedBrush}" />
+    </Style>
+    <Style Selector="Button.row.selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SurfaceSelectedBrush}" />
+    </Style>
+
+    <!-- タイルそのものを押せるボタン。**面は中の Border が持つ**ので、ここは透明。 -->
+    <Style Selector="Button.bare">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.bare /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <!-- 主たる操作。**1画面に1つか2つ**まで。 -->
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource RowRadius}" />
+        <Setter Property="Padding" Value="12,6" />
+    </Style>
+    <Style Selector="Button.primary /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="Foreground" Value="White" />
+    </Style>
+
+    <!-- タイルの中の操作。**カードの中でいちばん強くしない。** -->
+    <Style Selector="Button.quiet">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource RowRadius}" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeSmall}" />
+    </Style>
+    <Style Selector="Button.quiet /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.quiet:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+
+    <!-- 入力欄。角丸を揃え、focus のときだけアクセントの枠。
+         **focus の見えを消さない**（キーボードで使えなくなる）。 -->
+    <Style Selector="TextBox.input">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource InputRadius}" />
+        <Setter Property="Padding" Value="10,7" />
+    </Style>
+    <Style Selector="TextBox.input:focus /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <!-- 畳んである作業ログ（設計 §44）。**ドロップダウンに見せない** ——
+         前は丸い枠と大きな山形が付いていて、「選ぶもの」に見えていた。
+         ここは開け閉めするだけの棚である。 -->
+    <Style Selector="Expander.log">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+    <!-- **テンプレート内の名前で狙わない**（実機で効かなかった）——
+         Avalonia は当たらないセレクタをエラーにしないので、
+         名前を間違えると**黙って何も起きない。** 型で狙う。 -->
+    <Style Selector="Expander.log /template/ ToggleButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource RowRadius}" />
+        <Setter Property="Padding" Value="6,6" />
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="Expander.log /template/ ToggleButton /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Expander.log /template/ ToggleButton:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    </Style>
+    <Style Selector="Expander.log /template/ Border">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <!-- ペインの地。左右は少し沈ませ、中央を明るく置く。 -->
+    <Style Selector="Border.pane">
+        <Setter Property="Background" Value="{DynamicResource PaneBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
+        <Setter Property="Padding" Value="{StaticResource PanePadding}" />
+    </Style>
+</Styles>

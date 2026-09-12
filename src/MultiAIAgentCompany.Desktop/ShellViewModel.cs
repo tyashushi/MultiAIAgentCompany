@@ -202,7 +202,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
             // 計算プロパティなので、集合が変わったことを自分で知らせないと画面に出ない。
             value.CollectionChanged += (_, _) =>
+            {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TranscriptText)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasTranscript)));
+            };
         }
     }
 
@@ -219,6 +222,15 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// </para>
     /// </remarks>
     public string TranscriptText => string.Join("\n\n", SecretaryTranscript);
+
+    /// <summary>
+    /// 会話が始まっているか（設計 §44）。
+    /// </summary>
+    /// <remarks>
+    /// <b>空のときの見せ方を変えるためだけにある。</b> 何も無い広い面に文が1行あると、
+    /// 「壊れている」のか「まだ何もしていない」のかが読めない。
+    /// </remarks>
+    public bool HasTranscript => SecretaryTranscript.Count > 0;
 
     /// <summary>
     /// 過去の相談スレッド（設計 §32-6）。

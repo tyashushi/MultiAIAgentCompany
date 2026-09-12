@@ -29,7 +29,8 @@ public sealed class ShellComposer
         {
             Approvals = Approvals,
             WorkLog = ["まだ何も動かしていない"],
-            SecretaryTranscript = ["秘書はまだ起動していない"],
+            // **仮の1行を積まない**（§44-3）。空であることは画面が中央に出す。
+            SecretaryTranscript = [],
             Departments = [],
         };
 

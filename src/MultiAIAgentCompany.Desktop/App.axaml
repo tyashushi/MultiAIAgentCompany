@@ -6,13 +6,23 @@
          読みにくいときに全体を上げる手段が無かった。**値そのものは変えていない** ——
          いま見えているものを変えずに、変えられる形にするのが目的。 -->
     <Application.Resources>
-        <x:Double x:Key="FontSizeSmall">11</x:Double>
-        <x:Double x:Key="FontSizeNormal">13</x:Double>
-        <x:Double x:Key="FontSizeLarge">14</x:Double>
-        <x:Double x:Key="FontSizeHuge">24</x:Double>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://MultiAIAgentCompany.Desktop/Themes/Tokens.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <x:Double x:Key="FontSizeSmall">11</x:Double>
+            <x:Double x:Key="FontSizeNormal">13</x:Double>
+            <x:Double x:Key="FontSizeLarge">14</x:Double>
+            <x:Double x:Key="FontSizeHuge">24</x:Double>
+        </ResourceDictionary>
     </Application.Resources>
 
     <Application.Styles>
         <FluentTheme />
+
+        <!-- 見た目の語彙（設計 §44）。**FluentTheme の後ろに置く** —— 前だと上書きされる。 -->
+        <StyleInclude Source="avares://MultiAIAgentCompany.Desktop/Themes/Typography.axaml" />
+        <StyleInclude Source="avares://MultiAIAgentCompany.Desktop/Themes/Controls.axaml" />
     </Application.Styles>
 </Application>
