@@ -129,7 +129,7 @@ public sealed class ClaudeSessionTests
     {
         // 起動してから弾くと、セッションを返せないまま claude が残る（設計 §9）。
         var started = 0;
-        var adapter = new ClaudeCodeAdapter((_, _, _, _) =>
+        var adapter = new ClaudeCodeAdapter(channelFactory: (_, _, _, _) =>
         {
             started++;
             return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));

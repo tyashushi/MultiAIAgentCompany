@@ -156,7 +156,7 @@ public sealed class AntigravityTests
     public async Task adapterは空のpとstream_json常駐引数で起動する()
     {
         IReadOnlyList<string>? actualArguments = null;
-        var adapter = new AntigravityAdapter((_, arguments, _, _) =>
+        var adapter = new AntigravityAdapter(channelFactory: (_, arguments, _, _) =>
         {
             actualArguments = arguments;
             return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));
@@ -169,7 +169,7 @@ public sealed class AntigravityTests
     public async Task 空の部門IDは起動前に弾く()
     {
         var started = false;
-        var adapter = new AntigravityAdapter((_, _, _, _) => { started = true; return Task.FromResult<IAgentProcessChannel>(new FakeChannel([])); });
+        var adapter = new AntigravityAdapter(channelFactory: (_, _, _, _) => { started = true; return Task.FromResult<IAgentProcessChannel>(new FakeChannel([])); });
         await Assert.ThrowsAnyAsync<ArgumentException>(() => adapter.StartAsync(new WorkspaceRef(Path.GetTempPath()), " ", DriveMode.Structured, CancellationToken.None));
         Assert.False(started);
     }
@@ -250,7 +250,7 @@ public sealed class AntigravityTests
 
         // 起動経路が生きていること（プロセスは偽物で確かめる）。
         var started = 0;
-        var adapter = new AntigravityAdapter((_, _, _, _) =>
+        var adapter = new AntigravityAdapter(channelFactory: (_, _, _, _) =>
         {
             started++;
             return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));
@@ -274,7 +274,7 @@ public sealed class AntigravityTests
         // 「人間に聞く手段」ができたので要らない —— **聞けるのに聞かない、を残さない。**
         // 消したものが復活しないように、**引数に綴りが現れないこと**で見張る。
         string[] passed = [];
-        var adapter = new AntigravityAdapter((_, args, _, _) =>
+        var adapter = new AntigravityAdapter(channelFactory: (_, args, _, _) =>
         {
             passed = [.. args];
             return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));

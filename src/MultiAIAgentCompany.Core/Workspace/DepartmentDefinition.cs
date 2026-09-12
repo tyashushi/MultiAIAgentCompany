@@ -31,10 +31,18 @@ namespace MultiAIAgentCompany.Core.Workspace;
 /// <b>聞けるのに聞かない、を残さない。</b>
 /// </remarks>
 /// <param name="ReportDeadlineMinutes">報告を待つ分数。null は既定、0 以下は期限を見ない。</param>
+/// <param name="ReasoningEffort">
+/// CLI に渡す思考の強さ。null なら CLI の設定に任せる（設計 §46）。
+/// </param>
+/// <remarks>
+/// <b><see cref="ReasoningEffort"/> を enum にしない。</b> 使える値が CLI ごとに違い、
+/// **モデルによっても変わる**（Codex は `low` の上に `xhigh` / `max` / `ultra` を持つものがある）。
+/// こちらで閉じた集合にすると、**CLI が増やした値を人間が指定できなくなる。**
+/// </remarks>
 public sealed record DepartmentDefinition(
     string Id, string DisplayName, string Responsibility, AgentKind Agent, DriveMode Mode,
     string? Model = null, bool ReadsOnly = false,
-    int? ReportDeadlineMinutes = null)
+    int? ReportDeadlineMinutes = null, string? ReasoningEffort = null)
 {
     /// <summary>期限がファイルに書かれていないときに使う既定。</summary>
     public static readonly TimeSpan DefaultReportDeadline = TimeSpan.FromMinutes(30);
@@ -56,7 +64,35 @@ public sealed record DepartmentDefinition(
 /// （C# の record はコレクションを参照で比べるので、配列と List は別物になる）。
 /// 中身を比べたいときは <c>Departments</c> を明示的に突き合わせること。
 /// </remarks>
-public sealed record CompanyDefinition(long Revision, IReadOnlyList<DepartmentDefinition> Departments);
+/// <summary>
+/// 秘書に使う CLI（設計 §46）。
+/// </summary>
+/// <remarks>
+/// <b>秘書は構造化でしか務まらない。</b> 中央ペインで会話し、承認をアプリ内のボタンで
+/// 受ける前提なので、<b>構造化の会話を持たない CLI は選べない</b>。
+/// とくに headless の Antigravity は<b>ツール権限を人間に聞けず全部自動拒否する</b>（§30-1 の実測）——
+/// 選ばせると、`.company/` を読むことすらできない秘書ができあがる。
+/// <para>
+/// <b>ファイルに無ければ Claude Code。</b> これまでの実装が固定でそうしていたので、
+/// **古いフォルダを開いたときに挙動が変わらない**（§23 の姿勢）。
+/// </para>
+/// </remarks>
+/// <param name="Agent">担当する CLI。</param>
+/// <param name="Model">渡すモデル。null なら CLI の設定に任せる。</param>
+/// <param name="ReasoningEffort">渡す思考の強さ。null なら CLI の設定に任せる。</param>
+public sealed record SecretaryDefinition(
+    AgentKind Agent = AgentKind.ClaudeCode, string? Model = null, string? ReasoningEffort = null);
+
+/// <param name="Secretary">
+/// 秘書の設定（設計 §46）。<b>古いファイルには無い</b>ので、null なら既定を使う。
+/// </param>
+public sealed record CompanyDefinition(
+    long Revision, IReadOnlyList<DepartmentDefinition> Departments, SecretaryDefinition? Secretary = null)
+{
+    /// <summary>秘書の設定。<b>無ければ既定</b>（Claude Code、モデルと強さは CLI 任せ）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SecretaryDefinition SecretaryOrDefault => Secretary ?? new SecretaryDefinition();
+}
 
 /// <summary><c>.company/departments.json</c> の読み書き結果。</summary>
 public abstract record DefinitionReadResult
@@ -176,7 +212,7 @@ public sealed class DepartmentStore
     private static readonly HashSet<string> KnownKeys = new(StringComparer.Ordinal)
     {
         "id", "displayName", "responsibility", "agent", "mode",
-        "model", "readsOnly", "reportDeadlineMinutes",
+        "model", "readsOnly", "reportDeadlineMinutes", "reasoningEffort",
     };
 
     public async Task<DefinitionWriteResult> SaveAsync(

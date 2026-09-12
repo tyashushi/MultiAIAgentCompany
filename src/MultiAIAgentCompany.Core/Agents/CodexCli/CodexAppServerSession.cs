@@ -27,7 +27,8 @@ public sealed class CodexAppServerSession : IStructuredSession
     private string? _commandItemStatus;
     private int _disposed;
 
-    public CodexAppServerSession(IAgentProcessChannel channel, string departmentId, string workspaceRoot, string model)
+    public CodexAppServerSession(
+        IAgentProcessChannel channel, string departmentId, string workspaceRoot, string model, string? effort = null)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         DepartmentId = departmentId ?? throw new ArgumentNullException(nameof(departmentId));
@@ -36,7 +37,7 @@ public sealed class CodexAppServerSession : IStructuredSession
         _channel.Exited += ChannelExited;
         _channel.StandardErrorLine += StandardErrorLine;
         _readLoop = ReadLoopAsync();
-        _initialization = InitializeAsync(workspaceRoot, model);
+        _initialization = InitializeAsync(workspaceRoot, model, effort?.Trim());
     }
 
     public string DepartmentId { get; }
@@ -111,7 +112,7 @@ public sealed class CodexAppServerSession : IStructuredSession
         }
     }
 
-    private async Task InitializeAsync(string workspaceRoot, string model)
+    private async Task InitializeAsync(string workspaceRoot, string model, string? effort)
     {
         try
         {
@@ -132,13 +133,21 @@ public sealed class CodexAppServerSession : IStructuredSession
         try
         {
             await WriteAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", method = "initialized" }), CancellationToken.None).ConfigureAwait(false);
+            // **思考の強さは `config` で渡す**（設計 §46）。Codex CLI には `--effort` が無く、
+            // `-c model_reasoning_effort=…` で渡す仕様なので、app-server でも同じ鍵に乗せる。
+            // **効いたかどうかは、返ってくる thread の申告で確かめる**（§7）——
+            // `ObservedModel.ReasoningEffort` に出る。
+            object config = effort is { Length: > 0 }
+                ? new { sandbox_mode = "workspace-write", model_reasoning_effort = effort }
+                : new { sandbox_mode = "workspace-write" };
+
             await WriteRequestAsync("thread/start", new
             {
                 cwd = workspaceRoot,
                 model,
                 approvalPolicy = "on-request",
                 approvalsReviewer = "user",
-                config = new { sandbox_mode = "workspace-write" },
+                config,
             }, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception)

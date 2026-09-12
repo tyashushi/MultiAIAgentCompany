@@ -40,16 +40,53 @@ public static class AgentExecutable
     /// argv は <c>ps</c> に出る。渡すのは在り処だけ（<c>DepartmentReadme.LaunchPrompt</c>）。
     /// </para>
     /// </remarks>
-    public static IReadOnlyList<string> InteractiveArguments(AgentKind kind, string prompt)
+    /// <param name="model">渡すモデル。null / 空なら渡さない（CLI の設定に任せる）。</param>
+    /// <param name="effort">
+    /// 渡す思考の強さ。null / 空なら渡さない。
+    /// <b>旗の形が CLI ごとに違う</b>（設計 §46、実機で確かめた）——
+    /// Claude と Antigravity は <c>--effort</c>、**Codex には旗が無く**
+    /// <c>-c model_reasoning_effort=…</c> で渡す。
+    /// </param>
+    public static IReadOnlyList<string> InteractiveArguments(
+        AgentKind kind, string prompt, string? model = null, string? effort = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
-        return kind switch
+
+        var arguments = new List<string>();
+        var trimmedModel = model?.Trim();
+        var trimmedEffort = effort?.Trim();
+
+        switch (kind)
         {
-            AgentKind.ClaudeCode => [prompt],
-            AgentKind.CodexCli => [prompt],
-            AgentKind.AntigravityCli => ["-i", prompt],
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
-        };
+            case AgentKind.ClaudeCode:
+                if (trimmedModel is { Length: > 0 }) arguments.AddRange(["--model", trimmedModel]);
+                if (trimmedEffort is { Length: > 0 }) arguments.AddRange(["--effort", trimmedEffort]);
+                arguments.Add(prompt);
+                break;
+
+            case AgentKind.CodexCli:
+                if (trimmedModel is { Length: > 0 }) arguments.AddRange(["-m", trimmedModel]);
+
+                // **Codex には `--effort` が無い**（実機で確かめた）。設定の上書きで渡す。
+                if (trimmedEffort is { Length: > 0 })
+                {
+                    arguments.AddRange(["-c", $"model_reasoning_effort=\"{trimmedEffort}\""]);
+                }
+
+                arguments.Add(prompt);
+                break;
+
+            case AgentKind.AntigravityCli:
+                if (trimmedModel is { Length: > 0 }) arguments.AddRange(["--model", trimmedModel]);
+                if (trimmedEffort is { Length: > 0 }) arguments.AddRange(["--effort", trimmedEffort]);
+                arguments.AddRange(["-i", prompt]);
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+
+        return arguments;
     }
 
     /// <summary>

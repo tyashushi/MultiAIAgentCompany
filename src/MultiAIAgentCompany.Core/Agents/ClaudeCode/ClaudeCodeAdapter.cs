@@ -6,14 +6,25 @@ namespace MultiAIAgentCompany.Core.Agents.ClaudeCode;
 /// <summary>Claude Code の構造化セッションを起動するアダプタ。</summary>
 public sealed class ClaudeCodeAdapter : IAgentAdapter
 {
-    private static readonly string[] Arguments =
+    private static readonly string[] BaseArguments =
         ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio"];
     private readonly Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>> _channelFactory;
+    private readonly string[] _arguments;
     private ClaudeCodeStructuredSession? _lastSession;
 
-    public ClaudeCodeAdapter(Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>>? channelFactory = null)
+    /// <param name="model">渡すモデル。null / 空なら渡さない（設計 §46）。</param>
+    /// <param name="effort">渡す思考の強さ。null / 空なら渡さない。</param>
+    public ClaudeCodeAdapter(
+        string? model = null, string? effort = null,
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>>? channelFactory = null)
     {
         _channelFactory = channelFactory ?? ((file, args, cwd, ct) => ChildProcessChannel.StartAsync(file, args, cwd, ct: ct));
+
+        // **指定が無いものは渡さない。** 空で渡すと CLI 側の設定を空で上書きしかねない（§7）。
+        var arguments = new List<string>(BaseArguments);
+        if (model?.Trim() is { Length: > 0 } trimmedModel) arguments.AddRange(["--model", trimmedModel]);
+        if (effort?.Trim() is { Length: > 0 } trimmedEffort) arguments.AddRange(["--effort", trimmedEffort]);
+        _arguments = [.. arguments];
     }
 
     public AgentKind Kind => AgentKind.ClaudeCode;
@@ -37,7 +48,7 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
             throw new ArgumentOutOfRangeException(nameof(mode), mode, null);
         }
 
-        var channel = await _channelFactory("claude", Arguments, workspace.Root, ct).ConfigureAwait(false);
+        var channel = await _channelFactory("claude", _arguments, workspace.Root, ct).ConfigureAwait(false);
         try
         {
             return _lastSession = new ClaudeCodeStructuredSession(channel, departmentId);

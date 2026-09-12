@@ -1,6 +1,7 @@
 using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
 using MultiAIAgentCompany.Core.Agents.ClaudeCode;
+using MultiAIAgentCompany.Core.Agents.CodexCli;
 using MultiAIAgentCompany.Core.Sessions;
 using MultiAIAgentCompany.Core.Status;
 using MultiAIAgentCompany.Core.Workspace;
@@ -33,6 +34,31 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
 
     private IStructuredSession? _session;
     private bool _starting;
+
+    /// <summary>
+    /// 秘書に使う CLI（設計 §46）。<b>フォルダを開くときに入れる。</b>
+    /// </summary>
+    /// <remarks>
+    /// <b>次に起動するときから効く。</b> 動いている秘書は取り替えない ——
+    /// 会話の途中で中身が入れ替わると、**人間から見て同じ相手が別人になる**（§17-7 と同じ姿勢）。
+    /// </remarks>
+    public SecretaryDefinition Definition { get; set; } = new();
+
+    /// <summary>
+    /// 秘書のアダプタ（設計 §46）。
+    /// </summary>
+    /// <remarks>
+    /// <b>Antigravity は秘書にできない。</b> headless ではツール権限を人間に聞けず
+    /// 全部自動拒否するので（§30-1 の実測）、`.company/` を読むことすらできない ——
+    /// **選ばせない**のが正しいが、設定ファイルを手で書けば入り得るので、ここでも弾く。
+    /// </remarks>
+    private static IAgentAdapter AdapterFor(SecretaryDefinition definition) => definition.Agent switch
+    {
+        AgentKind.ClaudeCode => new ClaudeCodeAdapter(definition.Model, definition.ReasoningEffort),
+        AgentKind.CodexCli => new CodexCliAdapter(definition.Model ?? "gpt-5.6-terra", definition.ReasoningEffort),
+        _ => throw new NotSupportedException(
+            $"{definition.Agent} は秘書にできません（承認を人間に聞けないため。設計 §30-1）"),
+    };
 
     /// <summary>
     /// 「いまの秘書」の世代（設計 §17-7）。<b>起動中の破棄を成立させるためにある。</b>
@@ -136,7 +162,9 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     {
         try
         {
-            var adapter = new ClaudeCodeAdapter();
+            // **秘書の CLI は設定から選ぶ**（設計 §46）。無い古いフォルダでは Claude Code ——
+            // これまでの実装が固定でそうしていたので、**開いたときに挙動が変わらない**。
+            var adapter = AdapterFor(Definition);
             var session = (IStructuredSession)await adapter.StartAsync(
                 workspace, DepartmentLabel, DriveMode.Structured, ct);
 

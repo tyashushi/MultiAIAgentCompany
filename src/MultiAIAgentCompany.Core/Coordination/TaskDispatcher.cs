@@ -457,7 +457,8 @@ public sealed class TaskDispatcher
             $"MultiAI-{department.Id}",
             _paths.WorkspaceRoot,
             command,
-            AgentExecutable.InteractiveArguments(department.Agent, prompt));
+            AgentExecutable.InteractiveArguments(
+                department.Agent, prompt, department.Model, department.ReasoningEffort));
     }
 
     /// <summary>BOM 付きで publish されても本文だけを送る。</summary>

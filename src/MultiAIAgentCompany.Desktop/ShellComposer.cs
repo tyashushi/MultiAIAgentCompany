@@ -118,6 +118,11 @@ public sealed class ShellComposer
     /// <summary>仕事の件名（設計 §44-4）。<b>slug ごとに1回だけ読む。</b></summary>
     private readonly Dictionary<string, string?> _subjects = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// 秘書に使う CLI（設計 §46）。<b>フォルダを開くときに読む。</b>
+    /// </summary>
+    public SecretaryDefinition Secretary { get; private set; } = new();
+
     /// <summary>まだ人間に見せていない沈黙の1行。<see cref="DrainSilenceNotices"/> で取り出す。</summary>
     private readonly List<string> _pendingSilenceNotices = [];
 
@@ -139,7 +144,8 @@ public sealed class ShellComposer
         // `departments.json` を編集しても効かなかった（レビューで発覚、2026-09-08）。
         // **読めなかったら開かない** —— 既定に落とすと、人間が書いた設定を
         // 黙って無視したまま動く（§7）。
-        var departments = await ReadDepartmentsAsync(workspace, ct);
+        var (departments, secretary) = await ReadDefinitionAsync(workspace, ct);
+        Secretary = secretary;
 
         Workspace = workspace;
         var paths = workspace.Company;
@@ -196,14 +202,15 @@ public sealed class ShellComposer
     /// 動き続ける —— 特に危険モード（§30-4）が「設定したのに効かない」形になる。
     /// 呼び出し元は開くのをやめて、理由を人間に出すこと（§21-1 の「開かずに聞く」）。
     /// </remarks>
-    private async Task<IReadOnlyList<DepartmentDefinition>> ReadDepartmentsAsync(
-        WorkspaceRef workspace, CancellationToken ct)
+    private async Task<(IReadOnlyList<DepartmentDefinition> Departments, SecretaryDefinition Secretary)>
+        ReadDefinitionAsync(WorkspaceRef workspace, CancellationToken ct)
     {
         var store = new DepartmentStore(workspace.Company);
         switch (await store.ReadAsync(ct))
         {
             case DefinitionReadResult.Found found:
-                return found.Definition.Departments;
+                // **秘書の設定が無い古いファイルは、既定（Claude Code）**（設計 §46）。
+                return (found.Definition.Departments, found.Definition.SecretaryOrDefault);
 
             case DefinitionReadResult.Unreadable broken:
                 throw new InvalidOperationException($"departments.json を読めません: {broken.Reason}");
@@ -218,7 +225,7 @@ public sealed class ShellComposer
                     throw new InvalidOperationException($"departments.json を作れません: {rejected.Reason}");
                 }
 
-                return defaults;
+                return (defaults, new SecretaryDefinition());
         }
     }
 

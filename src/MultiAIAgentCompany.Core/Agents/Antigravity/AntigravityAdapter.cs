@@ -6,7 +6,7 @@ namespace MultiAIAgentCompany.Core.Agents.Antigravity;
 /// <summary>Antigravity の常駐 stream-json セッションを起動するアダプタ。</summary>
 public sealed class AntigravityAdapter : IAgentAdapter
 {
-    private static readonly string[] Arguments = ["--input-format", "stream-json", "--output-format", "stream-json", "-p="];
+    private static readonly string[] BaseArguments = ["--input-format", "stream-json", "--output-format", "stream-json", "-p="];
 
     /// <summary>
     /// 危険モードで足す引数（設計 §30-4）。
@@ -23,8 +23,24 @@ public sealed class AntigravityAdapter : IAgentAdapter
     private readonly Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>> _channelFactory;
     private AntigravitySession? _lastSession;
 
-    public AntigravityAdapter(Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>>? channelFactory = null) =>
+    private readonly string[] _arguments;
+
+    /// <param name="model">渡すモデル。null / 空なら渡さない（設計 §46）。</param>
+    /// <param name="effort">渡す思考の強さ（<c>low|medium|high</c>）。null / 空なら渡さない。</param>
+    public AntigravityAdapter(
+        string? model = null, string? effort = null,
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>>? channelFactory = null)
+    {
         _channelFactory = channelFactory ?? ((file, args, cwd, ct) => ChildProcessChannel.StartAsync(file, args, cwd, ct: ct));
+
+        var arguments = new List<string>();
+        if (model?.Trim() is { Length: > 0 } trimmedModel) arguments.AddRange(["--model", trimmedModel]);
+        if (effort?.Trim() is { Length: > 0 } trimmedEffort) arguments.AddRange(["--effort", trimmedEffort]);
+
+        // **`-p=` は最後に置く**（そこから先はプロンプト扱いになる）。
+        arguments.AddRange(BaseArguments);
+        _arguments = [.. arguments];
+    }
 
     public AgentKind Kind => AgentKind.AntigravityCli;
     public AgentCapabilities Capabilities => AgentCapabilities.For(Kind);
@@ -37,7 +53,7 @@ public sealed class AntigravityAdapter : IAgentAdapter
         ArgumentException.ThrowIfNullOrWhiteSpace(departmentId);
         if (mode != DriveMode.Structured) throw new ArgumentOutOfRangeException(nameof(mode), mode, null);
 
-        var channel = await _channelFactory("agy", Arguments, workspace.Root, ct).ConfigureAwait(false);
+        var channel = await _channelFactory("agy", _arguments, workspace.Root, ct).ConfigureAwait(false);
         try { return _lastSession = new AntigravitySession(channel, departmentId); }
         catch { await channel.DisposeAsync().ConfigureAwait(false); throw; }
     }

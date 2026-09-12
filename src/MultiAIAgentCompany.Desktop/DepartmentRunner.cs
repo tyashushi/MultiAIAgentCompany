@@ -567,11 +567,18 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// </remarks>
     public event EventHandler<(string DepartmentId, string WorkspaceRoot, string Because)>? TurnFailed;
 
+    /// <summary>
+    /// その部門のアダプタ（設計 §46）。
+    /// </summary>
+    /// <remarks>
+    /// <b>モデルと思考の強さは、定義から渡す。</b> 直す前は Codex のモデルしか見ておらず、
+    /// **Claude と Antigravity は設定を無視していた** —— 設定できるのに効かない鍵になっていた。
+    /// </remarks>
     private static IAgentAdapter AdapterFor(DepartmentDefinition department) => department.Agent switch
     {
-        AgentKind.ClaudeCode => new ClaudeCodeAdapter(),
-        AgentKind.CodexCli => new CodexCliAdapter(department.Model ?? "gpt-5.6-terra"),
-        AgentKind.AntigravityCli => new AntigravityAdapter(),
+        AgentKind.ClaudeCode => new ClaudeCodeAdapter(department.Model, department.ReasoningEffort),
+        AgentKind.CodexCli => new CodexCliAdapter(department.Model ?? "gpt-5.6-terra", department.ReasoningEffort),
+        AgentKind.AntigravityCli => new AntigravityAdapter(department.Model, department.ReasoningEffort),
         _ => throw new NotSupportedException($"担当できるアダプタが無い: {department.Agent}"),
     };
 

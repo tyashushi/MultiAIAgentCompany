@@ -2885,6 +2885,14 @@ public partial class MainWindow : Window
         // 作り直される（§15-8）ので、掴んだままにすると **消えたタイルへ直接送信する**。
         _selected = null;
 
+        // **秘書の CLI は、そのフォルダの設定に従う**（設計 §46）。
+        // **動いている秘書は取り替えない** —— 効くのは次の起動から
+        // （会話の途中で中身が入れ替わると、人間から見て同じ相手が別人になる）。
+        if (_secretary is not null)
+        {
+            _secretary.Definition = _composer.Secretary;
+        }
+
         if (changed)
         {
             // ここまで来て初めて「開けた」と言える。**前のフォルダのものを止めるのはここ。**
