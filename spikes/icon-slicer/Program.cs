@@ -3,7 +3,9 @@ using SkiaSharp;
 // キャラクターシートから部門アイコンを作る（設計 §15-5）。
 if (args.Length < 2)
 {
-    Console.Error.WriteLine("使い方: slice <sheet.png> <出力先> / normalize <入力> <出力> / sheet <入力> <出力.png>");
+    Console.Error.WriteLine(
+        "使い方: slice <sheet.png> <出力先> / normalize <入力> <出力> / sheet <入力> <出力.png>"
+        + " / iconset <3体.png> <1体.png> <出力.iconset>");
     return 1;
 }
 
@@ -15,6 +17,7 @@ switch (args[0])
     case "slice": Slice(args[1], args[2]); break;
     case "normalize": Normalize(args[1], args[2]); break;
     case "sheet": Sheet(args[1], args[2]); break;
+    case "iconset": IconSet(args[1], args[2], args[3]); break;
     default:
         Console.Error.WriteLine($"知らない命令: {args[0]}");
         return 1;
@@ -173,6 +176,96 @@ void Sheet(string dir, string outPath)
     Save(surface, outPath);
     foreach (var b in bitmaps) b.Dispose();
     Console.WriteLine($"書いた: {outPath}");
+}
+
+// アプリアイコンの iconset を作る（設計 §43）。
+// **1枚で全サイズをまかなわない** —— 3体＋文字は 32px で判別できない（実寸で測った）。
+// 128px 以上は「3体」、64px 以下は「1体」を入れる。
+void IconSet(string groupPath, string singlePath, string outDir)
+{
+    Directory.CreateDirectory(outDir);
+    using var group = SKBitmap.Decode(groupPath);
+    using var single = SKBitmap.Decode(singlePath);
+
+    // macOS の作法に合わせる: 角丸の下地に載せ、周りに余白を置く。
+    // **下地を付けるのはこちら**（生成に頼むと、サイズごとに角の丸みが揃わない）。
+    (string File, int Size)[] entries =
+    [
+        ("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
+        ("icon_32x32.png", 32), ("icon_32x32@2x.png", 64),
+        ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
+        ("icon_256x256.png", 256), ("icon_256x256@2x.png", 512),
+        ("icon_512x512.png", 512), ("icon_512x512@2x.png", 1024),
+    ];
+
+    // **透明な余白を先に落とす**（実機で踏んだ）。生成された絵は周りが大きく空いているので、
+    // そのまま縮めると、**下地の中でキャラクターだけが小さくなる。**
+    using var groupTrimmed = Trim(group);
+    using var singleTrimmed = Trim(single);
+
+    foreach (var (file, size) in entries)
+    {
+        // **64px 以下は1体。** 3体を縮めると、どれも同じ灰色の塊になる。
+        var art = size <= 64 ? singleTrimmed : groupTrimmed;
+
+        using var surface = SKSurface.Create(new SKImageInfo(size, size, SKColorType.Rgba8888, SKAlphaType.Premul));
+        var canvas = surface.Canvas;
+        canvas.Clear(SKColors.Transparent);
+
+        // 角丸の下地。macOS の既定アイコンに合わせて、周りを少し空ける。
+        var margin = size * 0.06f;
+        var radius = size * 0.22f;
+        using (var plate = new SKPaint { Color = new SKColor(0xF4, 0xF6, 0xF8), IsAntialias = true })
+        using (var edge = new SKPaint
+        {
+            Color = new SKColor(0x3A, 0x1F, 0x2E, 0x30), IsAntialias = true,
+            Style = SKPaintStyle.Stroke, StrokeWidth = Math.Max(1, size * 0.006f),
+        })
+        {
+            var rect = new SKRoundRect(new SKRect(margin, margin, size - margin, size - margin), radius, radius);
+            canvas.DrawRoundRect(rect, plate);
+            canvas.DrawRoundRect(rect, edge);
+        }
+
+        // 絵は下地の内側に収める。
+        // **小さいサイズは余白を詰める**（実寸で見て決めた）——
+        // 16px で既定の余白のままだと、下地ばかりでキャラクターが読めない。
+        var padding = size <= 32 ? 0.02f : 0.10f;
+        var inner = size - margin * 2 - size * padding;
+        var scale = inner / Math.Max(art.Width, art.Height);
+        int w = (int)Math.Round(art.Width * scale), h = (int)Math.Round(art.Height * scale);
+        using (var scaled = art.Resize(new SKImageInfo(Math.Max(1, w), Math.Max(1, h)), sampling))
+        {
+            canvas.DrawBitmap(scaled, (size - w) / 2f, (size - h) / 2f);
+        }
+
+        Save(surface, Path.Combine(outDir, file));
+    }
+
+    Console.WriteLine($"iconset を書いた: {outDir}");
+    Console.WriteLine("次: iconutil -c icns " + outDir);
+}
+
+// アルファのある範囲だけを残す。
+SKBitmap Trim(SKBitmap source)
+{
+    int left = source.Width, top = source.Height, right = -1, bottom = -1;
+    for (var y = 0; y < source.Height; y++)
+    for (var x = 0; x < source.Width; x++)
+    {
+        if (source.GetPixel(x, y).Alpha < 16) continue;
+        left = Math.Min(left, x); right = Math.Max(right, x);
+        top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+    }
+
+    if (right < left || bottom < top)
+    {
+        return source.Copy();
+    }
+
+    var trimmed = new SKBitmap(right - left + 1, bottom - top + 1);
+    source.ExtractSubset(trimmed, new SKRectI(left, top, right + 1, bottom + 1));
+    return trimmed;
 }
 
 void Save(SKSurface surface, string path)
