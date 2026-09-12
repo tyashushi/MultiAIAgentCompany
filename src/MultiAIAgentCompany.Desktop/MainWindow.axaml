@@ -24,6 +24,8 @@
                     <NativeMenu>
                         <NativeMenuItem Header="フォルダを選ぶ…" Gesture="Cmd+O" Click="OnPickWorkspaceFromMenu" />
                         <NativeMenuItemSeparator />
+                        <NativeMenuItem Header="部門の設定…" Click="OnShowDepartmentSettings" />
+                        <NativeMenuItemSeparator />
                         <NativeMenuItem Header="いま開いているフォルダを Finder で開く" Gesture="Cmd+Shift+O"
                                         Click="OnRevealWorkspace" />
                     </NativeMenu>

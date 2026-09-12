@@ -215,8 +215,13 @@ public sealed class DepartmentStore
         "model", "readsOnly", "reportDeadlineMinutes", "reasoningEffort",
     };
 
+    /// <param name="secretary">
+    /// 秘書の設定（設計 §46-3）。null なら**いまの値を保つ** ——
+    /// 部門だけを直す呼び出しで、秘書の設定を黙って既定へ戻さないため。
+    /// </param>
     public async Task<DefinitionWriteResult> SaveAsync(
-        CompanyDefinition expected, IReadOnlyList<DepartmentDefinition> departments, CancellationToken ct)
+        CompanyDefinition expected, IReadOnlyList<DepartmentDefinition> departments,
+        SecretaryDefinition? secretary, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(departments);
@@ -237,10 +242,17 @@ public sealed class DepartmentStore
         if (currentRevision != expected.Revision)
             return new DefinitionWriteResult.Rejected($"Revision が一致しません（expected: {expected.Revision}, actual: {currentRevision}）");
 
-        var next = new CompanyDefinition(checked(currentRevision + 1), departments.ToArray());
+        var next = new CompanyDefinition(
+            checked(currentRevision + 1), departments.ToArray(),
+            secretary ?? (read as DefinitionReadResult.Found)?.Definition.Secretary);
         await WriteAtomicallyAsync(_paths.Departments, next, ct);
         return new DefinitionWriteResult.Written(next);
     }
+
+    /// <summary>秘書を触らずに部門だけ保存する。</summary>
+    public Task<DefinitionWriteResult> SaveAsync(
+        CompanyDefinition expected, IReadOnlyList<DepartmentDefinition> departments, CancellationToken ct) =>
+        SaveAsync(expected, departments, secretary: null, ct);
 
     /// <summary>v1 の既定5部門。各 CLI の既定モードは能力定義から取る。</summary>
     public static IReadOnlyList<DepartmentDefinition> CreateDefaultDepartments() =>
@@ -277,6 +289,16 @@ public sealed class DepartmentStore
             if (string.IsNullOrWhiteSpace(department.Responsibility)) return $"部門 Responsibility がありません: {department.Id}";
             if (!Enum.IsDefined(department.Agent)) return $"未定義の Agent です: {department.Id}";
             if (!Enum.IsDefined(department.Mode)) return $"未定義の Mode です: {department.Id}";
+
+            // **Antigravity は思考の強さを設定として持てない**（設計 §47-2、実機で確かめた）。
+            // あちらは強さが**モデル名に畳まれていて**（`gemini-3.8-flash-high`）、
+            // `--effort` を併せて渡すと **`conflicts with --effort=…` で起動しない。**
+            // **保存の時点で弾く** —— 通すと、開くたびに失敗する部門ができる。
+            if (department.Agent is AgentKind.AntigravityCli
+                && department.ReasoningEffort is { Length: > 0 })
+            {
+                return $"{department.Agent} では思考の強さを設定できません（モデル名に含まれます）: {department.Id}";
+            }
             var capabilities = AgentCapabilities.For(department.Agent);
 
             // **ExternalTerminal はどの CLI でも成立する**（設計 §32-2）——

@@ -240,6 +240,32 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Antigravity_に思考の強さを設定させない()
+    {
+        // **実機で踏んだ**（設計 §47-2）。あちらは強さがモデル名に畳まれていて、
+        // `--model gemini-3.8-flash-high --effort low` は
+        // **`conflicts with --effort=low` で起動しない。**
+        var broken = new DepartmentDefinition(
+            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.ExternalTerminal,
+            Model: "gemini-3.8-flash-high", ReasoningEffort: "low");
+
+        var rejected = Assert.IsType<DefinitionWriteResult.Rejected>(
+            await _store.SaveAsync(new CompanyDefinition(0, []), [broken], CancellationToken.None));
+        Assert.Contains("思考の強さ", rejected.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Antigravity_でもモデルだけなら保存できる()
+    {
+        var fine = new DepartmentDefinition(
+            "research", "調査", "調べる", AgentKind.AntigravityCli, DriveMode.ExternalTerminal,
+            Model: "gemini-3.8-flash-high");
+
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new CompanyDefinition(0, []), [fine], CancellationToken.None));
+    }
+
+    [Fact]
     public void 権限を人間に聞けない組み合わせを見つける()
     {
         // **2026-09-09 に実機で踏んだ**（§30-1 の再現）。

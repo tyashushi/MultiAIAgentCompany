@@ -1,0 +1,159 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:MultiAIAgentCompany.Desktop"
+        xmlns:agents="clr-namespace:MultiAIAgentCompany.Core.Agents;assembly=MultiAIAgentCompany.Core"
+        x:Class="MultiAIAgentCompany.Desktop.DepartmentSettingsWindow"
+        x:DataType="vm:DepartmentSettingsViewModel"
+        Title="部門の設定" Width="820" Height="620"
+        Background="{DynamicResource AppBackgroundBrush}">
+
+    <DockPanel Margin="12">
+
+        <!-- 結果は必ず出す（設計 §28-1）。保存も削除も、黙って失敗させない。 -->
+        <Border DockPanel.Dock="Bottom" IsVisible="{Binding HasMessage}"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                CornerRadius="{StaticResource CardRadius}" Padding="10" Margin="0,10,0,0">
+            <SelectableTextBlock Text="{Binding Message}" Classes="body" TextWrapping="Wrap" />
+        </Border>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,10,0,0"
+                    HorizontalAlignment="Right">
+            <Button Content="閉じる" Classes="quiet" Click="OnClose" />
+            <Button Content="保存する" Classes="primary" Click="OnSave" />
+        </StackPanel>
+
+        <!-- 秘書（設計 §46-3）。部門と同じ窓に置く —— どの CLI が何を担当するかは、
+             一覧で見える方が分かりやすい。 -->
+        <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,10,0,0">
+            <StackPanel Spacing="6">
+                <TextBlock Text="秘書" Classes="title" />
+                <TextBlock Classes="caption"
+                           Text="中央ペインで話す相手。Antigravity は選べません（headless では承認を人間に聞けないため）。" />
+                <Grid ColumnDefinitions="Auto,180,Auto,*,Auto,140" Margin="0,4,0,0">
+                    <TextBlock Grid.Column="0" Text="CLI" Classes="meta" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding SecretaryChoices}"
+                              SelectedItem="{Binding SecretaryAgent}" HorizontalAlignment="Stretch" />
+                    <TextBlock Grid.Column="2" Text="モデル" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
+                    <TextBox Grid.Column="3" Text="{Binding SecretaryModel}" Classes="input"
+                             Watermark="空欄なら CLI の設定に任せる" />
+                    <TextBlock Grid.Column="4" Text="強さ" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
+                    <TextBox Grid.Column="5" Text="{Binding SecretaryEffort}" Classes="input" Watermark="空欄可" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 左: 部門の一覧。右: 中身。 -->
+        <Grid ColumnDefinitions="240,12,*">
+            <DockPanel Grid.Column="0">
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+                    <Button Content="＋ 追加" Classes="quiet" Click="OnAdd" />
+                    <Button Content="削除" Classes="quiet" Click="OnRemove"
+                            IsVisible="{Binding HasSelection}" />
+                </StackPanel>
+
+                <ListBox ItemsSource="{Binding Departments}" SelectedItem="{Binding Selected}"
+                         Background="{DynamicResource PaneBackgroundBrush}"
+                         BorderThickness="0" CornerRadius="{StaticResource CardRadius}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:DepartmentEdit">
+                            <StackPanel Spacing="2" Margin="2,4">
+                                <TextBlock Text="{Binding DisplayName}" Classes="title" />
+                                <TextBlock Text="{Binding Id}" Classes="meta" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <!-- **IsVisible は DataContext を差し替える前の要素で見る。**
+                 同じ要素に置くと、差し替えた後（DepartmentEdit）で解決しようとする。 -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
+                          IsVisible="{Binding HasSelection}">
+                <StackPanel Spacing="10"
+                            DataContext="{Binding Selected}" x:DataType="vm:DepartmentEdit">
+
+                    <TextBlock Text="{Binding Title}" Classes="title" />
+
+                    <!-- **Id は新規のときだけ**（設計 §47）。state.json は departmentId しか
+                         持たないので、変えるのは「別の部門にする」ことになる。 -->
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Id" Classes="meta" />
+                        <TextBox Text="{Binding Id}" Classes="input" IsEnabled="{Binding IsNew}" />
+                        <TextBlock Classes="caption" IsVisible="{Binding !IsNew}"
+                                   Text="既にある部門の Id は変えられません（過去の仕事が指しているため）。" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="表示名" Classes="meta" />
+                        <TextBox Text="{Binding DisplayName}" Classes="input" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="責務（1行）" Classes="meta" />
+                        <TextBox Text="{Binding Responsibility}" Classes="input"
+                                 Watermark="この部門が何をするか" />
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="*,12,*">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="CLI" Classes="meta" />
+                            <ComboBox ItemsSource="{Binding $parent[Window].((vm:DepartmentSettingsViewModel)DataContext).AgentChoices}"
+                                      SelectedItem="{Binding Agent}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                        <!-- **Antigravity では出さない**（設計 §47-2、実機で分かった）——
+                             あちらは強さがモデル名に畳まれていて、effort の旗を付けると弾かれる。 -->
+                        <StackPanel Grid.Column="2" Spacing="4" IsVisible="{Binding SupportsEffort}">
+                            <TextBlock Text="思考の強さ" Classes="meta" />
+                            <ComboBox ItemsSource="{Binding EffortChoices}" SelectedItem="{Binding ReasoningEffort}"
+                                      HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="モデル" Classes="meta" />
+
+                        <!-- **一覧が取れる CLI では、一覧から選ばせる**（設計 §47-2）。
+                             取れないものは自由入力のまま —— それらしく埋めない（§7）。 -->
+                        <ComboBox ItemsSource="{Binding ModelChoices}" SelectedItem="{Binding SelectedModel}"
+                                  IsVisible="{Binding HasModelChoices}" HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="agents:AgentModelChoice">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Label}" />
+                                        <TextBlock Text="{Binding Id}" Classes="meta" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBox Text="{Binding Model}" Classes="input" IsVisible="{Binding !HasModelChoices}" />
+                        <TextBlock Text="{Binding ModelHint}" Classes="caption" />
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="*,12,*">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="報告を待つ分数" Classes="meta" />
+                            <TextBox Text="{Binding ReportDeadlineMinutes}" Classes="input"
+                                     Watermark="空欄なら 30 分" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Bottom">
+                            <CheckBox IsChecked="{Binding ReadsOnly}" Content="読むだけ（書き込み権を取らない）" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 駆動モードは選ばせない（§46）。**残っていたときだけ**直す口を出す。 -->
+                    <Border Classes="card" IsVisible="{Binding IsStructured}">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="この部門は構造化で動く設定になっています" Classes="title" />
+                            <TextBlock Classes="caption"
+                                       Text="承認がこの窓ではなくアプリ内のボタンに出ます。いまの設計は外部ターミナルで人間が押す形に揃えてあります。" />
+                            <Button Content="外部ターミナルに直す" Classes="quiet" Click="OnUseTerminal"
+                                    HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

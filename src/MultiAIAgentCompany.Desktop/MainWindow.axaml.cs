@@ -93,6 +93,9 @@ public partial class MainWindow : Window
     /// <summary>アイコンの一覧の窓（設計 §15-5）。<b>1つだけ開く。</b></summary>
     private IconGalleryWindow? _iconGallery;
 
+    /// <summary>部門の設定の窓（設計 §47）。<b>1つだけ開く。</b></summary>
+    private DepartmentSettingsWindow? _settings;
+
     /// <summary>前回のワークスペース。<b>覚えるのはパスだけ</b>（設計 §21-3）。</summary>
     private readonly WorkspaceMemory _memory = WorkspaceMemory.CreateDefault();
 
@@ -560,6 +563,120 @@ public partial class MainWindow : Window
     /// 人間が自分の判断で覗くもの。段に足すと「人間の出番」の意味が濁る。
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// 部門の設定を開く（設計 §47）。
+    /// </summary>
+    /// <remarks>
+    /// <b>消してよいかは Core が決める</b>（<see cref="DepartmentRemoval"/>）——
+    /// 画面はその結果を出すだけにする。判定に要る材料（仕事・計画・提案・権利・
+    /// 読めない数・窓が動いているか）は、ここで集めて渡す。
+    /// </remarks>
+    private async void OnShowDepartmentSettings(object? sender, EventArgs e)
+    {
+        if (_composer?.Workspace is not { } workspace || _composer.Tasks is not { } tasks)
+        {
+            Note("フォルダを選ぶまで、部門の設定は開けません");
+            return;
+        }
+
+        if (_settings is { } open)
+        {
+            if (open.WindowState is WindowState.Minimized)
+            {
+                open.WindowState = WindowState.Normal;
+            }
+
+            open.Activate();
+            return;
+        }
+
+        var window = new DepartmentSettingsWindow(
+            new DepartmentStore(workspace.Company),
+            DecideRemovalAsync,
+            async departmentId =>
+            {
+                if (_runner is not null)
+                {
+                    await _runner.StopAsync(departmentId);
+                }
+            });
+
+        _settings = window;
+        window.Closed += async (_, _) =>
+        {
+            if (ReferenceEquals(_settings, window))
+            {
+                _settings = null;
+            }
+
+            // **閉じたら読み直す。** 保存された設定は、開き直しで効く（§47）。
+            if (_composer?.Workspace is { } current)
+            {
+                await OpenWorkspaceAsync(current.Root);
+            }
+        };
+
+        window.Show(this);
+        await window.LoadAsync();
+    }
+
+    /// <summary>
+    /// その部門を消してよいか（設計 §47）。<b>材料を集めるだけ</b>で、判定は Core。
+    /// </summary>
+    /// <remarks>
+    /// <b>そのとき読む。</b> 覚えている値で判定すると、**画面を開いている間に増えた仕事**を
+    /// 見落とす —— 消してよいかは、押した瞬間の事実で決める（§7）。
+    /// </remarks>
+    private async Task<DepartmentRemovalDecision> DecideRemovalAsync(string departmentId)
+    {
+        if (_composer?.Tasks is not { } tasks)
+        {
+            return new DepartmentRemovalDecision.Blocked(["ワークスペースが選ばれていない"]);
+        }
+
+        var ct = CancellationToken.None;
+        var recovery = await tasks.ScanForRecoveryAsync(ct);
+
+        var states = new List<TaskState>();
+        foreach (var slug in await tasks.ListSlugsAsync(ct))
+        {
+            if (await tasks.ReadAsync(slug, ct) is TaskReadResult.Found found)
+            {
+                states.Add(found.State);
+            }
+        }
+
+        var plans = new List<string>();
+        if (_composer.Plans is { } planStore)
+        {
+            foreach (var id in await planStore.ListIdsAsync(ct))
+            {
+                if (await planStore.ReadAsync(id, ct) is PlanReadResult.Found plan
+                    && plan.Plan.Steps.Any(step => string.Equals(step.DepartmentId, departmentId, StringComparison.Ordinal)))
+                {
+                    plans.Add(id);
+                }
+            }
+        }
+
+        var proposals = _composer.Outbox is { } outbox
+            ? outbox.Read()
+                .Where(proposal => string.Equals(proposal.DepartmentId, departmentId, StringComparison.Ordinal))
+                .Select(proposal => proposal.Id)
+                .ToArray()
+            : [];
+
+        var holdsLease = _composer.Leases is { } leases
+            && await leases.ReadAsync(ct) is LeaseReadResult.Found found2
+            && found2.Leases.Holders.TryGetValue(LeaseKind.Write, out var holder)
+            && holder.Holder.Kind is ActorKind.Department
+            && string.Equals(holder.Holder.Id, departmentId, StringComparison.Ordinal);
+
+        return DepartmentRemoval.Decide(
+            departmentId, states, plans, proposals, holdsLease,
+            recovery.Unreadable.Count, _runner?.IsRunning(departmentId) is true);
+    }
+
     /// <summary>
     /// アイコンを実寸で並べて見る（設計 §15-5）。
     /// </summary>

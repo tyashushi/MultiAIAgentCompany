@@ -594,6 +594,44 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// 動き続ける** —— 画面は B なのに CLI は A を触っており、A のロックを返した瞬間に
     /// 別のアプリが A を開ける（レビューで発覚）。
     /// </remarks>
+    /// <summary>
+    /// その部門だけ終わらせる（設計 §47）。
+    /// </summary>
+    /// <remarks>
+    /// <b>部門を消すときに要る。</b> 定義から消すのに窓が残ると、
+    /// **人間が制御できない CLI がワークスペースを書ける**（レビューの指摘）。
+    /// <para>
+    /// <b>居なければ何もしない。</b> 「終わらせた」と言えるのは、居たものを終わらせたときだけ。
+    /// </para>
+    /// </remarks>
+    /// <returns>終わらせたか（居なければ false）。</returns>
+    public async Task<bool> StopAsync(string departmentId)
+    {
+        IAgentSession? session;
+        lock (_startGate)
+        {
+            if (!_sessions.TryGetValue(departmentId, out session))
+            {
+                return false;
+            }
+
+            _sessions.Remove(departmentId);
+        }
+
+        try
+        {
+            await session.DisposeAsync();
+        }
+        catch (Exception)
+        {
+            // 終わらせられなくても、こちらの手からは離す（§9 の片付けと同じ姿勢）。
+        }
+
+        composer.TrackerOf(departmentId).OnDisappeared();
+        SessionsChanged?.Invoke(this, departmentId);
+        return true;
+    }
+
     public async Task StopAllAsync()
     {
         // 世代を進めてから待つ。走っている起動は、自分が古いと分かって自分で閉じる。
