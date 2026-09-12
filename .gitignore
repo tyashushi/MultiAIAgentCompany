@@ -3,6 +3,7 @@ obj/
 .claude/handoffs/
 *.user
 .live-scratch/
+.DS_Store
 
 # アプリを自分のリポジトリで試すと .company/ ができる。これは対象ワークスペースの調整基盤で、
 # このリポジトリの成果物ではない。
