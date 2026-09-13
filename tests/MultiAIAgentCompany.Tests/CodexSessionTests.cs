@@ -142,15 +142,21 @@ public sealed class CodexSessionTests
         var approval = new TaskCompletionSource<ApprovalRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
         var evidence = new List<Evidence>();
         session.ApprovalRequested += (_, request) => approval.TrySetResult(request);
-        session.Observed += (_, item) => evidence.Add(item);
+        // **Observed は二つのスレッドから来る。** 承認要求の後も fixture の続きを読み取りループが
+        // 観測し続け、理由の観測は RespondAsync を呼んだこのスレッドで出る。
+        // 素の List に並行して Add すると、列挙中に書き換わって落ちる（まれにしか出ない）。
+        session.Observed += (_, item) => { lock (evidence) evidence.Add(item); };
         channel.Release();
         await session.CompleteHandshakeAsync(CancellationToken.None);
         await session.SendUserMessageAsync(FixturePrompt, CancellationToken.None);
         var request = await approval.Task;
         await session.RespondAsync(request, request.AvailableDecisions.Single(item => item.Id == "accept"), "human reason", CancellationToken.None);
+        await channel.Completed;
 
         Assert.DoesNotContain(channel.Written, line => line.Contains("human reason", StringComparison.Ordinal));
-        Assert.Contains(evidence, item => item.RedactedSummary.Contains("human reason"));
+        Evidence[] observed;
+        lock (evidence) observed = [.. evidence];
+        Assert.Contains(observed, item => item.RedactedSummary.Contains("human reason"));
     }
 
     private const string FixtureWorkspace = "/Volumes/SSD/Developer/MultiAIAgentCompany/spikes/fixtures/codex/_scratch/ws";
