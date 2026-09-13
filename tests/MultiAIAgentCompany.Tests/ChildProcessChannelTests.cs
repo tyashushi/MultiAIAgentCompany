@@ -7,7 +7,7 @@ namespace MultiAIAgentCompany.Tests;
 /// 実プロセスの後始末。設計 §9 —— <b>アプリ終了後に孤児と zombie を残さない。</b>
 /// </summary>
 /// <remarks>
-/// CLI は使わない（<c>/bin/sh</c> だけ）ので、普段のテスト実行に混ぜてよい。
+/// CLI は使わない（<c>/bin/sh</c>、Windows では <c>ping</c> だけ）ので、普段のテスト実行に混ぜてよい。
 /// </remarks>
 public sealed class ChildProcessChannelTests
 {
@@ -16,8 +16,7 @@ public sealed class ChildProcessChannelTests
     {
         // Process オブジェクトを捨てるだけでは子は生き残る。
         // 起動直後の失敗（握手のエラー、キャンセル）でこの経路に来るので、ここで殺せないと孤児になる。
-        var channel = await ChildProcessChannel.StartAsync(
-            "/bin/sh", ["-c", "sleep 120"], Path.GetTempPath(), ct: CancellationToken.None);
+        var channel = await StartSleepingAsync();
         var pid = channel.Identity.Pid;
 
         await channel.DisposeAsync();
@@ -28,12 +27,16 @@ public sealed class ChildProcessChannelTests
     [Fact]
     public async Task 破棄を二回呼んでも壊れない()
     {
-        var channel = await ChildProcessChannel.StartAsync(
-            "/bin/sh", ["-c", "sleep 120"], Path.GetTempPath(), ct: CancellationToken.None);
+        var channel = await StartSleepingAsync();
 
         await channel.DisposeAsync();
         await channel.DisposeAsync();
     }
+
+    /// <summary>120 秒眠るだけの子。Windows には <c>sleep</c> が無いので <c>ping</c> で待つ。</summary>
+    private static Task<IAgentProcessChannel> StartSleepingAsync() => OperatingSystem.IsWindows()
+        ? ChildProcessChannel.StartAsync("ping.exe", ["-n", "120", "127.0.0.1"], Path.GetTempPath(), ct: CancellationToken.None)
+        : ChildProcessChannel.StartAsync("/bin/sh", ["-c", "sleep 120"], Path.GetTempPath(), ct: CancellationToken.None);
 
     private static bool IsAlive(int pid)
     {

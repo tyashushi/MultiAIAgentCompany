@@ -180,7 +180,8 @@ public static class SecretaryBashPolicy
                 return new ApprovalVerdict(false, $"{token} は展開先が分からないので聞く");
             }
 
-            var full = Full(token.StartsWith('/') ? token : Path.Combine(workspaceRoot, token));
+            // `Path.Combine` は根付きの語（`/x`、`C:/x`、`D:x`）を渡されると、そちらだけを返す。
+            var full = Full(Path.Combine(workspaceRoot, token));
             if (full is null || !IsInside(full, root))
             {
                 return new ApprovalVerdict(false, $"{token} は作業フォルダの外なので聞く");
@@ -278,12 +279,17 @@ public static class SecretaryBashPolicy
     /// <remarks>
     /// <b>旗と、ただの文字列（検索語）は見ない。</b> 作業フォルダから出るには
     /// <c>/</c> か <c>~</c> か <c>..</c> が要るので、それを持つ語だけ確かめれば足りる。
+    /// <para>
+    /// <b>Windows では <c>:</c> も場所の印</b>（2026-09-14）。<c>cat D:secret.txt</c> は
+    /// <c>/</c> を持たないのに、別のドライブを読む。
+    /// </para>
     /// </remarks>
     private static bool LooksLikePath(string token) =>
         !token.StartsWith('-')
         && (token.Contains('/', StringComparison.Ordinal)
             || token.StartsWith('~')
-            || token is "." or "..");
+            || token is "." or ".."
+            || (OperatingSystem.IsWindows() && token.Contains(':', StringComparison.Ordinal)));
 
     private static string? Full(string path)
     {
@@ -299,6 +305,6 @@ public static class SecretaryBashPolicy
 
     private static bool IsInside(string full, string? root) =>
         root is not null
-        && (full.Equals(root, StringComparison.Ordinal)
-            || full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+        && (full.Equals(root, SecretaryApprovalPolicy.PathComparison)
+            || full.StartsWith(root + Path.DirectorySeparatorChar, SecretaryApprovalPolicy.PathComparison));
 }

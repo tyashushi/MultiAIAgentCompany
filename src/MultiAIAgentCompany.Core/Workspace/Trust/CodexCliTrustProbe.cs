@@ -31,7 +31,11 @@ public sealed partial class CodexCliTrustProbe : IWorkspaceTrustProbe
                 var section = ProjectSection().Match(line);
                 if (section.Success)
                 {
-                    var path = UnescapeTomlBasicString(section.Groups["path"].Value);
+                    // **Windows のパスはリテラル文字列（'C:\...'）で書かれる。** `\` をエスケープしなくて
+                    // 済む形を toml の書き手が選ぶので、こちらは中身を解釈せずにそのまま使う。
+                    var path = section.Groups["literal"].Success
+                        ? section.Groups["literal"].Value
+                        : UnescapeTomlBasicString(section.Groups["path"].Value);
                     if (path is null) return null;
                     inTarget = WorkspacePathNormalizer.Equals(path, workspace.Root);
                     foundTarget |= inTarget;
@@ -90,7 +94,7 @@ public sealed partial class CodexCliTrustProbe : IWorkspaceTrustProbe
         return result.ToString();
     }
 
-    [GeneratedRegex("^\\[projects\\.\\\"(?<path>(?:\\\\.|[^\\\"\\\\])*)\\\"\\]\\s*(?:#.*)?$")]
+    [GeneratedRegex("^\\[projects\\.(?:\\\"(?<path>(?:\\\\.|[^\\\"\\\\])*)\\\"|'(?<literal>[^'\\r\\n]*)')\\]\\s*(?:#.*)?$")]
     private static partial Regex ProjectSection();
     [GeneratedRegex("^\\[[A-Za-z0-9_.-]+\\]\\s*(?:#.*)?$")]
     private static partial Regex Section();

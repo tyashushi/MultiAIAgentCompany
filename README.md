@@ -5,14 +5,14 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Avalonia UI](https://img.shields.io/badge/Avalonia-12.0.4-8B5CF6?logo=avalonia)](https://avaloniaui.net/)
-[![Platform](https://img.shields.io/badge/Platform-macOS-000000?logo=apple)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-000000)](#️-動作要件)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
 ## 🌟 概要
 
-**MultiAIAgentCompany** は、対話型の AI コーディングエージェントを「会社の各部門」に見立てて協調させる macOS アプリです。
+**MultiAIAgentCompany** は、対話型の AI コーディングエージェントを「会社の各部門」に見立てて協調させる macOS / Windows アプリです。
 
 人間がすべてのエージェントと個別にやり取りするのではなく、**秘書**に要件を伝えます。秘書が計画を立て、設計・実装・調査・レビュー・テストの各部門へ仕事を渡します。
 
@@ -48,7 +48,7 @@ Unity のように「プロセスがフォルダを掴んでいる」「キャ�
 
 ### 3. 承認は、人間がターミナルで押す
 
-各部門は **macOS の Terminal.app で対話起動**します。CLI 本来の画面（思考の過程、差分のプレビュー、承認プロンプト）を見ながら、**人間がその窓で承認**します。
+各部門は **外部ターミナル（macOS は Terminal.app、Windows はコンソール窓 / Windows Terminal）で対話起動**します。CLI 本来の画面（思考の過程、差分のプレビュー、承認プロンプト）を見ながら、**人間がその窓で承認**します。
 
 アプリは承認を代行しません。**承認を全部飛ばすモード（`--dangerously-skip-permissions` など）は選べません。**
 
@@ -118,15 +118,17 @@ CLI 自身が持つ「自動」系のモード（Claude Code の `auto`、Codex 
 
 - **🎨 見た目**:
   - ライト / ダーク両対応
-  - 英数字は Inter、**Inter に無い字は Hiragino Sans** で描く（ツールチップのような窓の外の小窓も含む）
+  - 英数字は Inter、**Inter に無い字は Hiragino Sans（Windows では Yu Gothic UI）** で描く（ツールチップのような窓の外の小窓も含む）
   - 人間の出番があるタイルにだけ色が付く
 
 ---
 
 ## 🛠️ 動作要件
 
-- **OS**: macOS（**macOS 26.5 / Apple Silicon で動作確認**。Intel Mac は未確認）
-  - **Windows / Linux は未対応です。** 部門を外部ターミナルで開く部分が macOS の Terminal.app 専用のためです
+- **OS**:
+  - macOS（**macOS 26.5 / Apple Silicon で動作確認**。Intel Mac は未確認）
+  - Windows（**Windows 11 Pro 26200 / 既定のターミナルが Windows Terminal の環境で動作確認**。Windows 10、conhost だけの環境は未確認）
+  - **Linux は未対応です。** 部門を外部ターミナルで開く部分がまだありません
 - **.NET 10 SDK**（ビルドに必要）
 - **使う CLI**（使う部門のぶんだけ）:
   - [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview)（`claude`）
@@ -151,13 +153,15 @@ dotnet build MultiAIAgentCompany.slnx
 dotnet test MultiAIAgentCompany.slnx
 ```
 
+Windows では、シンボリックリンクを使うテストは特権が無ければジャンクションで代わりに確かめます（開発者モードは要りません）。
+
 実物の CLI を起動するテスト（課金とネットワークを伴う）は、**既定ではスキップ**されます。走らせるときは `MAC_LIVE_CLAUDE=1` / `MAC_LIVE_CODEX=1` / `MAC_LIVE_AGY=1` / `MAC_LIVE_PLAN=1` を指定します。
 
 ```bash
 dotnet run --project src/MultiAIAgentCompany.Desktop/MultiAIAgentCompany.Desktop.csproj
 ```
 
-`dotnet run` では Dock のアイコンが dotnet のものになります。アプリのアイコンで起動したいときは、`.app` バンドルを作ります:
+macOS の `dotnet run` では Dock のアイコンが dotnet のものになります。アプリのアイコンで起動したいときは、`.app` バンドルを作ります（macOS のみ）:
 
 ```bash
 spikes/app-bundle/make-app.sh
@@ -169,7 +173,7 @@ spikes/app-bundle/make-app.sh
 
 1. **フォルダを選ぶ**: 中央上の「フォルダを選ぶ」か `Cmd+O` で、作業するリポジトリを選ぶ。前回のフォルダは次の起動で開き直す。git リポジトリなら、`.company/` を `.gitignore` に足すか聞かれる
 2. **秘書に相談する**: 中央の入力欄から話しかける（例: 「ログイン機能を設計して、実装まで進めて」）
-3. **仕事が部門へ渡る**: 秘書が計画を立てると、最初の部門の仕事ができ、Terminal.app の窓が開く
+3. **仕事が部門へ渡る**: 秘書が計画を立てると、最初の部門の仕事ができ、ターミナルの窓が開く（macOS は Terminal.app、Windows は既定のターミナル）
 4. **ターミナルで承認する**: その窓で、エージェントの作業と承認プロンプトを見て、人間が承認する
 5. **質問が来たら答える**: 部門が判断に迷うと `question.md` を書いて止まる。その窓で答えれば続きをやる
 6. **報告を受け取る**: 部門が `report.md` を書くと中央に出る。計画の途中の工程はアプリが受理して次へ進め、**最後の工程だけ人間が受理する**
@@ -212,10 +216,13 @@ spikes/app-bundle/make-app.sh
 
 ## ⚠️ 既知の制限
 
-- **macOS 専用**（上記）。Windows 対応は予定しています
+- **Linux は未対応**（上記）
 - **配布用のアプリはまだありません。** .NET 10 SDK でビルドして使ってください（GitHub のリリースで `.app` を配布する予定です）
 - **画面と文書は日本語のみ**です
-- **動作を確かめた環境は 1 台**（macOS 26.5 / Apple Silicon）です
+- **動作を確かめた環境は OS ごとに 1 台**（macOS 26.5 / Apple Silicon、Windows 11 Pro）です
+- **Windows では、部門の窓に見出しを付けません。** 窓の見分けは、タイルの「ターミナルを前面に出す」で行います
+- **Windows の通知は PowerShell の名前で出ます**（アプリ自身を通知の差出人として登録していないため）
+- **Windows で npm の CLI（`codex.cmd` など）を使うとき、`%` や記号を含むフォルダ名・設定は渡せません。** cmd.exe を通るので、壊れる引数は起動前に止めて理由を出します
 - **Claude Code のモデル一覧は取れません。** Claude の部門のモデルは打ち込みです（`opus` / `sonnet` などの別名も使えます）。思考の強さの候補は CLI から取ります
 - **Terminal.app はスクリプトからタブを作れない**ので、部門は別々の窓で開きます。窓の見分けは、タイルの「ターミナルを前面に出す」で行います
 - アプリを再起動したあと仕事を送り直すと、**同じ部門の窓が2つ並ぶ**ことがあります（古い方は空のシェルです）

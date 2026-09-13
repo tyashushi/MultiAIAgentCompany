@@ -138,6 +138,52 @@ public partial class MainWindow : Window
 
         // **ターミナルで信頼を与えて戻ってきたら、表示を読み直す**（設計 §54）。
         Activated += async (_, _) => await RefreshTrustAsync();
+
+        if (!OperatingSystem.IsMacOS())
+        {
+            BindMenuGestures();
+        }
+    }
+
+    /// <summary>
+    /// メニューのショートカットを、窓のキー操作として効かせる（macOS 以外）。
+    /// </summary>
+    /// <remarks>
+    /// <b>窓の中に描いたメニューでは、ショートカットが効かない</b>（2026-09-14、Windows の実機で確かめた）。
+    /// サブメニューの項目は開くまで作られないので、そこに付いたキーは誰も聞いていない。
+    /// macOS は OS のメニューが聞くので要らない（足すと2回走る）。
+    /// <para>
+    /// <b>メニューの定義から作る。</b> キーと処理をここに別に書くと、片方だけ直し忘れる。
+    /// </para>
+    /// </remarks>
+    private void BindMenuGestures()
+    {
+        if (NativeMenu.GetMenu(this) is not { } menu)
+        {
+            return;
+        }
+
+        foreach (var item in Flatten(menu))
+        {
+            if (item.Gesture is { } gesture)
+            {
+                KeyBindings.Add(new KeyBinding { Gesture = gesture, Command = new MenuItemClick(item) });
+            }
+        }
+
+        static IEnumerable<NativeMenuItem> Flatten(NativeMenu menu) => menu.Items
+            .OfType<NativeMenuItem>()
+            .SelectMany(item => item.Menu is { } sub ? Flatten(sub).Prepend(item) : [item]);
+    }
+
+    /// <summary>メニュー項目を押したことにする。<b>処理はメニューの Click のまま</b>（入口を増やさない）。</summary>
+    private sealed class MenuItemClick(NativeMenuItem item) : System.Windows.Input.ICommand
+    {
+        public event EventHandler? CanExecuteChanged { add { } remove { } }
+
+        public bool CanExecute(object? parameter) => item.IsEnabled;
+
+        public void Execute(object? parameter) => ((INativeMenuItemExporterEventsImplBridge)item).RaiseClicked();
     }
 
     /// <summary>trust を読み直す窓口。<b>切り替えの最中と終了処理の最中は読まない。</b></summary>

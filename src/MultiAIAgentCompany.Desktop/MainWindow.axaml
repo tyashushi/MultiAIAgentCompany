@@ -22,11 +22,13 @@
             <NativeMenuItem Header="ファイル">
                 <NativeMenuItem.Menu>
                     <NativeMenu>
-                        <NativeMenuItem Header="フォルダを選ぶ…" Gesture="Cmd+O" Click="OnPickWorkspaceFromMenu" />
+                        <NativeMenuItem Header="フォルダを選ぶ…" Gesture="{OnPlatform Default=Cmd+O, Windows=Ctrl+O}"
+                                        Click="OnPickWorkspaceFromMenu" />
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="部門の設定…" Click="OnShowDepartmentSettings" />
                         <NativeMenuItemSeparator />
-                        <NativeMenuItem Header="いま開いているフォルダを Finder で開く" Gesture="Cmd+Shift+O"
+                        <NativeMenuItem Header="{OnPlatform Default='いま開いているフォルダを Finder で開く', Windows='いま開いているフォルダをエクスプローラーで開く'}"
+                                        Gesture="{OnPlatform Default=Cmd+Shift+O, Windows=Ctrl+Shift+O}"
                                         Click="OnRevealWorkspace" />
                     </NativeMenu>
                 </NativeMenuItem.Menu>
@@ -34,20 +36,26 @@
             <NativeMenuItem Header="表示">
                 <NativeMenuItem.Menu>
                     <NativeMenu>
-                        <NativeMenuItem Header="もう一度走査する" Gesture="Cmd+R" Click="OnRescanFromMenu" />
+                        <NativeMenuItem Header="もう一度走査する" Gesture="{OnPlatform Default=Cmd+R, Windows=Ctrl+R}" Click="OnRescanFromMenu" />
                         <NativeMenuItem Header="作業ログを消す" Click="OnClearWorkLog" />
                         <NativeMenuItem Header="直近のエラーの詳細を出す" Click="OnShowLastErrors" />
-                        <NativeMenuItem Header="会話を全部コピーする" Gesture="Cmd+Shift+C" Click="OnCopyTranscript" />
-                        <NativeMenuItem Header="作業ログを全部コピーする" Gesture="Cmd+Shift+L" Click="OnCopyWorkLog" />
+                        <NativeMenuItem Header="会話を全部コピーする" Gesture="{OnPlatform Default=Cmd+Shift+C, Windows=Ctrl+Shift+C}" Click="OnCopyTranscript" />
+                        <NativeMenuItem Header="作業ログを全部コピーする" Gesture="{OnPlatform Default=Cmd+Shift+L, Windows=Ctrl+Shift+L}" Click="OnCopyWorkLog" />
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="アイコンの一覧を見る" Click="OnShowIconGallery" />
                         <NativeMenuItemSeparator />
-                        <NativeMenuItem Header="入力欄へ移動" Gesture="Cmd+L" Click="OnFocusMessage" />
+                        <NativeMenuItem Header="入力欄へ移動" Gesture="{OnPlatform Default=Cmd+L, Windows=Ctrl+L}" Click="OnFocusMessage" />
                     </NativeMenu>
                 </NativeMenuItem.Menu>
             </NativeMenuItem>
         </NativeMenu>
     </NativeMenu.Menu>
+
+    <!-- **Windows には画面上部のメニューバーが無い**（2026-09-14、実機で確かめた）。
+         `NativeMenu` だけだと、部門の設定やエラーの詳細に**入口が無くなる**。
+         `NativeMenuBar` は、OS のメニューに出せる macOS では隠れ、出せない OS では窓の中に同じメニューを描く。 -->
+    <DockPanel>
+    <NativeMenuBar DockPanel.Dock="Top" />
 
     <Grid x:Name="PaneGrid" ColumnDefinitions="260,4,*,4,320" Margin="8">
 
@@ -634,4 +642,5 @@
         </Border>
 
     </Grid>
+    </DockPanel>
 </Window>

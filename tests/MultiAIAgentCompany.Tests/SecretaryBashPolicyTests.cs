@@ -160,6 +160,26 @@ public sealed class SecretaryBashPolicyTests : IDisposable
     }
 
     [Fact]
+    public void Windowsでは別のドライブを指す語を通さない()
+    {
+        // `D:secret.txt` は `/` を持たないのに、別のドライブを読む（2026-09-14）。
+        if (!OperatingSystem.IsWindows()) return;
+
+        Assert.False(Decide("cat D:secret.txt").AutoApprove);
+        Assert.False(Decide("cat C:/Windows/win.ini").AutoApprove);
+    }
+
+    [Fact]
+    public void Windowsでは作業フォルダの大文字小文字の違いで聞かない()
+    {
+        // CLI は `c:\` と `C:\` を混ぜて渡してくる。NTFS の既定は区別しないので、同じ場所である。
+        if (!OperatingSystem.IsWindows()) return;
+
+        var inside = Path.Combine(_workspace.Paths.WorkspaceRoot, "docs", "design.md").ToUpperInvariant().Replace('\\', '/');
+        Assert.True(Decide($"cat {inside}").AutoApprove);
+    }
+
+    [Fact]
     public void 通したときも理由を言う()
     {
         // **黙って強い権限で動くものを作らない**（§35-4）。

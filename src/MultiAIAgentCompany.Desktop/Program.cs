@@ -91,10 +91,18 @@ internal static class Program
             // `Window` にフォントを指定するだけでは、**ツールチップのように窓の外に出る小窓へ届かない** ——
             // 部門の絵のツールチップが □ になった。窓ごと・部品ごとに書くと、書き忘れた所がまた化ける。
             // **既定は Inter のまま**にする（`WithInterFont` が入れる名前と同じ）—— 英数字の見た目を変えない。
+            // **Windows には Hiragino が無い**ので Yu Gothic UI を並べる（無い名前は飛ばされる）。
+            // 指定しなくても OS 任せの字で出るが、どの字になるかが決まらない（2026-09-14）。
+            // **`Window` の FontFamily には足さない**（実機で踏んだ）—— あちらの `Inter` は同梱の Inter に解決されず、
+            // 足すと英数字まで Yu Gothic UI で描かれ、**パスの `\` が `¥` になる。** ここは足りない字だけに効く。
             .With(new FontManagerOptions
             {
                 DefaultFamilyName = "fonts:Inter#Inter",
-                FontFallbacks = [new FontFallback { FontFamily = new FontFamily("Hiragino Sans") }],
+                FontFallbacks =
+                [
+                    new FontFallback { FontFamily = new FontFamily("Hiragino Sans") },
+                    new FontFallback { FontFamily = new FontFamily("Yu Gothic UI") },
+                ],
             })
             .LogToTrace();
 }

@@ -124,7 +124,14 @@ public static class SecretaryApprovalPolicy
         }
 
         // **区切りまで含めて比べる。** 含めないと `/ws` が `/ws-other` に当たる。
-        return full.Equals(root, StringComparison.Ordinal)
-            || full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+        return full.Equals(root, PathComparison)
+            || full.StartsWith(root + Path.DirectorySeparatorChar, PathComparison);
     }
+
+    /// <summary>
+    /// <b>Windows では大文字小文字を区別しない</b>（2026-09-14）。CLI は <c>c:\</c> と <c>C:\</c> を
+    /// 混ぜて渡してくるので、区別すると作業フォルダの中を読むたびに人間に聞くことになる。
+    /// </summary>
+    internal static StringComparison PathComparison { get; } =
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 }

@@ -133,9 +133,14 @@ public sealed class AntigravityTests
     [Fact]
     public async Task stderrの未知event警告はObservedに出す()
     {
-        var channel = await ChildProcessChannel.StartAsync("/bin/sh",
-            ["-c", "read line; echo 'warning: ignoring unsupported stream input message event \\\"future\\\"' >&2"],
-            Path.GetTempPath());
+        // 1行読んでから stderr に警告を出す。Windows の cmd も sh と同じ行（`\"future\"`）を出す。
+        var channel = OperatingSystem.IsWindows()
+            ? await ChildProcessChannel.StartAsync("cmd.exe",
+                ["/c", "set /p line=& echo warning: ignoring unsupported stream input message event \"future\" 1>&2"],
+                Path.GetTempPath())
+            : await ChildProcessChannel.StartAsync("/bin/sh",
+                ["-c", "read line; echo 'warning: ignoring unsupported stream input message event \\\"future\\\"' >&2"],
+                Path.GetTempPath());
         await using var session = new AntigravitySession(channel, "research");
         var observed = new TaskCompletionSource<Evidence>(TaskCreationOptions.RunContinuationsAsynchronously);
         session.Observed += (_, evidence) =>

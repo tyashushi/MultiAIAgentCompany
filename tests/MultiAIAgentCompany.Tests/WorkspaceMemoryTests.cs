@@ -17,7 +17,7 @@ public sealed class WorkspaceMemoryTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_workspace, ".company"));
     }
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose() => DirectoryLinks.DeleteTree(_root);
 
     private Task RememberAsync(string path) =>
         _memory.RememberAsync(path, DateTimeOffset.UnixEpoch, CancellationToken.None);
@@ -71,13 +71,13 @@ public sealed class WorkspaceMemoryTests : IDisposable
     {
         // **同じ綴りで中身が別物になる典型**（§21-2）。人間には同じフォルダに見える。
         var link = Path.Combine(_root, "link");
-        Directory.CreateSymbolicLink(link, _workspace);
+        DirectoryLinks.Create(link, _workspace);
         await RememberAsync(link);
 
         var other = Path.Combine(_root, "other");
         Directory.CreateDirectory(Path.Combine(other, ".company"));
         Directory.Delete(link);
-        Directory.CreateSymbolicLink(link, other);
+        DirectoryLinks.Create(link, other);
 
         var ask = Assert.IsType<WorkspaceResume.Ask>(await DecideAsync());
 

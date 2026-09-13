@@ -4,14 +4,26 @@ namespace MultiAIAgentCompany.Core.Terminal;
 /// いまの OS に合う <see cref="ITerminalLauncher"/> を選ぶ（設計 §32-7）。
 /// </summary>
 /// <remarks>
-/// <b>macOS 以外はまだ無い。</b> ブリーフが Avalonia を選んだ理由は Win/Mac/Linux なので、
+/// <b>Linux はまだ無い。</b> ブリーフが Avalonia を選んだ理由は Win/Mac/Linux なので、
 /// これは<b>その選択に対する借金</b>である —— 借金は黙って抱えず、
 /// **押したときに理由が出る形**にしておく（§28-1 の「押してから失敗するまで分からない、を無くす」）。
 /// </remarks>
 public static class TerminalLaunchers
 {
-    public static ITerminalLauncher ForCurrentOs() =>
-        OperatingSystem.IsMacOS() ? new MacTerminalLauncher() : new UnsupportedTerminalLauncher();
+    public static ITerminalLauncher ForCurrentOs()
+    {
+        if (OperatingSystem.IsMacOS())
+        {
+            return new MacTerminalLauncher();
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return new WindowsTerminalLauncher();
+        }
+
+        return new UnsupportedTerminalLauncher();
+    }
 }
 
 /// <summary>

@@ -20,7 +20,7 @@ public sealed class WorkspaceTrustTests : IDisposable
     public async Task Claudeはtrust済みをtrueと返す()
     {
         await File.WriteAllTextAsync(Path.Combine(_root, ".claude.json"),
-            $"{{\"projects\":{{\"{_workspace.Root}\":{{\"hasTrustDialogAccepted\":true}}}}}}");
+            $"{{\"projects\":{{{Json(_workspace.Root)}:{{\"hasTrustDialogAccepted\":true}}}}}}");
         Assert.True(await new ClaudeCodeTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
     }
 
@@ -41,7 +41,7 @@ public sealed class WorkspaceTrustTests : IDisposable
     {
         var directory = Path.Combine(_root, ".codex"); Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "config.toml");
-        await File.WriteAllTextAsync(path, $"[projects.\"{_workspace.Root}\"]\ntrust_level = \"trusted\"");
+        await File.WriteAllTextAsync(path, $"[projects.\"{TomlBasic(_workspace.Root)}\"]\ntrust_level = \"trusted\"");
         Assert.True(await new CodexCliTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
         await File.WriteAllTextAsync(path, "[projects.\"/other\"]\ntrust_level = \"trusted\"");
         Assert.False(await new CodexCliTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
@@ -56,7 +56,7 @@ public sealed class WorkspaceTrustTests : IDisposable
     {
         var directory = Path.Combine(_root, ".gemini", "antigravity-cli"); Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "settings.json");
-        await File.WriteAllTextAsync(path, $"{{\"trustedWorkspaces\":[\"{_workspace.Root}\"]}}");
+        await File.WriteAllTextAsync(path, $"{{\"trustedWorkspaces\":[{Json(_workspace.Root)}]}}");
         Assert.True(await new AntigravityTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
         await File.WriteAllTextAsync(path, "{\"trustedWorkspaces\":[\"/other\"]}");
         Assert.False(await new AntigravityTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
@@ -85,7 +85,7 @@ public sealed class WorkspaceTrustTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+        DirectoryLinks.DeleteTree(_root);
     }
     [Fact]
     public async Task 親がシンボリックリンクでも同じワークスペースと分かる()
@@ -95,7 +95,7 @@ public sealed class WorkspaceTrustTests : IDisposable
         var real = Path.Combine(_root, "real-parent");
         var link = Path.Combine(_root, "link-parent");
         Directory.CreateDirectory(Path.Combine(real, "repo"));
-        Directory.CreateSymbolicLink(link, real);
+        DirectoryLinks.Create(link, real);
 
         var settings = Path.Combine(_root, ".gemini", "antigravity-cli");
         Directory.CreateDirectory(settings);
@@ -128,7 +128,7 @@ public sealed class WorkspaceTrustTests : IDisposable
             command = "node"
             args = ["--experimental-repl-await"]
 
-            [projects."{_workspace.Root}"]
+            [projects."{TomlBasic(_workspace.Root)}"]
             trust_level = "trusted"
 
             [tui.model_availability_nux]
@@ -137,6 +137,29 @@ public sealed class WorkspaceTrustTests : IDisposable
 
         Assert.True(await new CodexCliTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task Codexのリテラル文字列の見出しも読める()
+    {
+        // Windows のパスは `\` を含むので、toml の書き手はエスケープの要らない
+        // リテラル文字列（'C:\...'）を選ぶ。これを「読めない見出し」として null にすると、
+        // Windows では Codex の trust が**いつも判定できない**になる（2026-09-14）。
+        var directory = Path.Combine(_root, ".codex");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.toml");
+
+        await File.WriteAllTextAsync(path, $"[projects.'{_workspace.Root}']\ntrust_level = \"trusted\"");
+        Assert.True(await new CodexCliTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
+
+        await File.WriteAllTextAsync(path, @"[projects.'C:\other']" + "\ntrust_level = \"trusted\"");
+        Assert.False(await new CodexCliTrustProbe(_root).IsTrustedAsync(_workspace, CancellationToken.None));
+    }
+
+    /// <summary>JSON の文字列にする。Windows のパスの <c>\</c> をそのまま埋めると壊れた JSON になる。</summary>
+    private static string Json(string value) => System.Text.Json.JsonSerializer.Serialize(value);
+
+    /// <summary>toml の基本文字列（"..."）の中身にする。</summary>
+    private static string TomlBasic(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     [Fact]
     public async Task 読めないprojects見出しがあれば判定しない()

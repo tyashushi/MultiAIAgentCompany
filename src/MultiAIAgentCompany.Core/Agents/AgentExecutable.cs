@@ -207,12 +207,22 @@ public static class AgentExecutable
             yield return directory;
         }
 
-        if (!includeWellKnown || OperatingSystem.IsWindows())
+        if (!includeWellKnown)
         {
             yield break;
         }
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (OperatingSystem.IsWindows())
+        {
+            // **Windows でも PATH だけでは足りないことがある**（2026-09-14 に実機で確かめた置き場所）。
+            // インストーラが PATH を書き換えても、既に開いているアプリには届かない。
+            yield return Path.Combine(home, ".local", "bin");  // Claude Code のネイティブ版
+            yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm");  // npm -g
+            yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "agy", "bin");  // Antigravity
+            yield break;
+        }
+
         yield return "/opt/homebrew/bin";
         yield return "/usr/local/bin";
         yield return Path.Combine(home, ".local", "bin");
@@ -232,11 +242,23 @@ public static class AgentExecutable
             yield break;
         }
 
-        yield return combined;
-        if (OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows())
         {
-            yield return combined + ".exe";
-            yield return combined + ".cmd";
+            yield return combined;
+            yield break;
         }
+
+        // **拡張子の無いものは候補にしない**（2026-09-14、実機で発覚）。
+        // npm は `codex.cmd` の隣に**同じ名前の sh スクリプト `codex`** も置くので、
+        // それを先に拾うと、Windows では起動できないファイルを「見つかった」と言ってしまう。
+        // 名前に既に拡張子が付いていれば、そのまま見る。
+        if (Path.HasExtension(name))
+        {
+            yield return combined;
+        }
+
+        yield return combined + ".exe";
+        yield return combined + ".cmd";
+        yield return combined + ".bat";
     }
 }

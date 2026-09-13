@@ -21,6 +21,16 @@ internal sealed class TemporaryWorkspace : IDisposable
     {
         if (Directory.Exists(Path))
         {
+            // **git は objects を読み取り専用で書く。** Windows ではその属性が付いたファイルを
+            // Directory.Delete が消せないので、先に外す（macOS では属性が削除を妨げない）。
+            if (OperatingSystem.IsWindows())
+            {
+                foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+            }
+
             Directory.Delete(Path, recursive: true);
         }
     }

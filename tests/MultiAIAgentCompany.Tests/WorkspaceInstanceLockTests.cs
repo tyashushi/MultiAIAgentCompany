@@ -17,7 +17,7 @@ public sealed class WorkspaceInstanceLockTests : IDisposable
         Directory.CreateDirectory(_workspace);
     }
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose() => DirectoryLinks.DeleteTree(_root);
 
     private WorkspaceInstanceLockResult Acquire(string? workspace = null) =>
         WorkspaceInstanceLock.Acquire(workspace ?? _workspace, _runtime, DateTimeOffset.UnixEpoch);
@@ -66,7 +66,7 @@ public sealed class WorkspaceInstanceLockTests : IDisposable
         // symlink の綴り違いで「別のワークスペース」に見えると、
         // 同じフォルダを2つのアプリが開ける（§21-2 と同じ理由）。
         var link = Path.Combine(_root, "link");
-        Directory.CreateSymbolicLink(link, _workspace);
+        DirectoryLinks.Create(link, _workspace);
 
         using var first = Assert.IsType<WorkspaceInstanceLockResult.Acquired>(Acquire()).Lock;
 

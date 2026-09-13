@@ -61,12 +61,14 @@ public sealed class CompanyPathsTests
     [Fact]
     public void 設計どおりの配置になっている()
     {
-        Assert.Equal(Path.Combine("/tmp/ws", ".company"), Paths.Root);
-        Assert.Equal(Path.Combine("/tmp/ws", ".company", "tasks", "add-login", "instruction.md"), Paths.Instruction("add-login"));
-        Assert.Equal(Path.Combine("/tmp/ws", ".company", "tasks", "add-login", "state.json"), Paths.State("add-login"));
-        Assert.Equal(Path.Combine("/tmp/ws", ".company", "archive"), Paths.ArchiveRoot);
-        Assert.Equal(Path.Combine("/tmp/ws", ".company", "lease.json"), Paths.Lease);
-        Assert.Equal(Path.Combine("/tmp/ws", ".company", "tasks", "add-login", "attempts", "2"), Paths.AttemptDirectory("add-login", 2));
+        // CompanyPaths はフルパスにして持つ。Windows では `/tmp/ws` が `C:\tmp\ws` になる。
+        var ws = Path.GetFullPath("/tmp/ws");
+        Assert.Equal(Path.Combine(ws, ".company"), Paths.Root);
+        Assert.Equal(Path.Combine(ws, ".company", "tasks", "add-login", "instruction.md"), Paths.Instruction("add-login"));
+        Assert.Equal(Path.Combine(ws, ".company", "tasks", "add-login", "state.json"), Paths.State("add-login"));
+        Assert.Equal(Path.Combine(ws, ".company", "archive"), Paths.ArchiveRoot);
+        Assert.Equal(Path.Combine(ws, ".company", "lease.json"), Paths.Lease);
+        Assert.Equal(Path.Combine(ws, ".company", "tasks", "add-login", "attempts", "2"), Paths.AttemptDirectory("add-login", 2));
     }
 
     [Theory]

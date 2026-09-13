@@ -124,4 +124,25 @@ public sealed class TerminalLaunchTests
         Assert.Contains("read", text);          // シェルで待つな、と名指ししている
         Assert.Contains("report.md", text);
     }
+
+    [Theory]
+    [InlineData(@"C:\Users\me\AppData\Roaming\npm\codex.cmd", "100%")]
+    [InlineData(@"C:\x\codex.CMD", "a\nb")]
+    [InlineData(@"C:\x\run.bat", "\"x\" & calc")]
+    [InlineData(@"C:\x\codex.cmd", "gpt&calc")]  // 空白が無いと引用符で囲まれない
+    public void バッチファイルに壊れる引数は渡さない(string command, string argument)
+    {
+        // **npm の shim は cmd.exe を通る。** `%` は展開され、`"` と `&` が同じ引数にあると
+        // 後ろが別の命令として走る（設計 §32-7）。
+        Assert.NotNull(WindowsCommandLine.UnsafeForBatch(command, ["-i", argument]));
+    }
+
+    [Theory]
+    [InlineData(@"C:\x\codex.cmd", "model_reasoning_effort=\"high\"")]            // 実際に渡している形
+    [InlineData(@"C:\x\codex.cmd", @"C:\ws & co\.company\README.md と ... を読んで")] // `"` が無ければ & は引用符の中
+    [InlineData(@"C:\x\claude.exe", "100% & \"x\"")]                                 // exe は cmd.exe を通らない
+    public void ふつうの引数はバッチファイルにも渡す(string command, string argument)
+    {
+        Assert.Null(WindowsCommandLine.UnsafeForBatch(command, [argument]));
+    }
 }

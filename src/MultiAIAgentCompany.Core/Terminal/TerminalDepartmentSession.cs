@@ -195,8 +195,10 @@ public sealed class TerminalDepartmentSession : IAgentSession
         var result = await _launcher.TerminateAsync(Handle, ct);
         Note(result switch
         {
-            TerminalTerminateResult.Signalled signalled =>
-                $"プロセスグループ {signalled.ProcessGroupId} に TERM を送った",
+            // Windows にはプロセスグループへの TERM が無く、ツリーごと終わらせている（§32-7）。
+            TerminalTerminateResult.Signalled signalled => OperatingSystem.IsWindows()
+                ? $"プロセス {signalled.ProcessGroupId} をツリーごと終了させた"
+                : $"プロセスグループ {signalled.ProcessGroupId} に TERM を送った",
             TerminalTerminateResult.NotRunning notRunning => notRunning.Reason,
             TerminalTerminateResult.Failed failure => $"終了させられません: {failure.Reason}",
             _ => "終了の結果が分かりません",
