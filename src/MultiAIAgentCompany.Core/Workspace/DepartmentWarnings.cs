@@ -46,18 +46,40 @@ public static class DepartmentWarnings
         var warnings = new List<DepartmentWarning>();
         foreach (var department in departments)
         {
-            if (!CannotAskHuman(department))
+            if (CannotAskHuman(department))
             {
-                continue;
+                warnings.Add(new DepartmentWarning(
+                    department.Id,
+                    $"{department.DisplayName} は {department.Agent} を Structured で動かす設定です。"
+                    + "**この組み合わせはツール権限を人間に聞けません**（headless では全部自動拒否され、"
+                    + "報告を出せないまま止まります）。"
+                    + $"`departments.json` の `{department.Id}` の `mode` を `ExternalTerminal` にすると、"
+                    + "そのターミナルで人間が承認できます"));
             }
 
-            warnings.Add(new DepartmentWarning(
-                department.Id,
-                $"{department.DisplayName} は {department.Agent} を Structured で動かす設定です。"
-                + "**この組み合わせはツール権限を人間に聞けません**（headless では全部自動拒否され、"
-                + "報告を出せないまま止まります）。"
-                + $"`departments.json` の `{department.Id}` の `mode` を `ExternalTerminal` にすると、"
-                + "そのターミナルで人間が承認できます"));
+            // **設定を直さず、何が効かないかを伝える**（設計 §51-3）。
+            if (department.PermissionMode is { } permissionMode)
+            {
+                if (!AgentPermissionModes.For(department.Agent).Contains(permissionMode))
+                {
+                    warnings.Add(new DepartmentWarning(
+                        department.Id,
+                        $"{department.DisplayName} の権限モード `{permissionMode}` は {department.Agent} にはありません。"
+                        + "**権限モードを渡さずに起動します**。"
+                        + $"`departments.json` の `{department.Id}` の `permissionMode` を消すか、"
+                        + "その CLI が持っているモードに直してください"));
+                }
+
+                if (department.Mode is DriveMode.Structured)
+                {
+                    warnings.Add(new DepartmentWarning(
+                        department.Id,
+                        $"{department.DisplayName} は Structured で動かす設定です。"
+                        + "**権限モードは外部ターミナルの部門にしか効きません**。"
+                        + $"`departments.json` の `{department.Id}` の `permissionMode` を消すか、"
+                        + "`mode` を `ExternalTerminal` に直してください"));
+                }
+            }
         }
 
         return warnings;

@@ -458,7 +458,7 @@ public sealed class TaskDispatcher
             _paths.WorkspaceRoot,
             command,
             AgentExecutable.InteractiveArguments(
-                department.Agent, prompt, department.Model, department.ReasoningEffort));
+                department.Agent, prompt, department.Model, department.ReasoningEffort, department.PermissionMode));
     }
 
     /// <summary>BOM 付きで publish されても本文だけを送る。</summary>

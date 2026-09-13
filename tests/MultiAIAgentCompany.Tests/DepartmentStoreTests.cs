@@ -18,6 +18,95 @@ public sealed class DepartmentStoreTests : IDisposable
         _store = new DepartmentStore(_paths);
     }
 
+    [Theory]
+    [InlineData(AgentPermissionMode.Auto)]
+    [InlineData(AgentPermissionMode.Manual)]
+    [InlineData(AgentPermissionMode.AcceptEdits)]
+    [InlineData(AgentPermissionMode.Plan)]
+    public async Task 権限モードは文字列で保存され読み戻せる(AgentPermissionMode mode)
+    {
+        var department = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.ExternalTerminal, PermissionMode: mode);
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new(0, []), [department], CancellationToken.None));
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        Assert.Equal(department, Assert.Single(read.Definition.Departments));
+        using var json = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(_paths.Departments));
+        var stored = json.RootElement.GetProperty("departments")[0].GetProperty("permissionMode");
+        Assert.Equal(System.Text.Json.JsonValueKind.String, stored.ValueKind);
+        Assert.Equal(mode.ToString(), stored.GetString());
+        Assert.Empty(await _store.FindUnreadKeysAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 権限モードのない既存ファイルはCLI任せで読める()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_paths.Departments)!);
+        await File.WriteAllTextAsync(_paths.Departments, """
+            {"revision":1,"departments":[{"id":"design","displayName":"設計","responsibility":"設計する",
+            "agent":"ClaudeCode","mode":"ExternalTerminal"}]}
+            """);
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        Assert.Null(Assert.Single(read.Definition.Departments).PermissionMode);
+    }
+
+    [Theory]
+    [InlineData(AgentKind.CodexCli, AgentPermissionMode.Plan)]
+    [InlineData(AgentKind.AntigravityCli, AgentPermissionMode.Auto)]
+    public async Task 持たない権限モードでも読み書きを拒まず警告する(AgentKind kind, AgentPermissionMode mode)
+    {
+        var department = new DepartmentDefinition(
+            "design", "設計", "設計する", kind, DriveMode.ExternalTerminal, PermissionMode: mode);
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new(0, []), [department], CancellationToken.None));
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        Assert.Equal(department, Assert.Single(read.Definition.Departments));
+        var warning = Assert.Single(DepartmentWarnings.For(read.Definition.Departments));
+        Assert.Equal("design", warning.DepartmentId);
+        Assert.Contains("渡さずに起動", warning.Message);
+        Assert.Contains("departments.json", warning.Message);
+        Assert.Contains("`design`", warning.Message);
+        Assert.Contains("permissionMode", warning.Message);
+        Assert.Contains("消すか", warning.Message);
+    }
+
+    [Fact]
+    public void 構造化の権限モードは効かないと警告する()
+    {
+        var department = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.Structured,
+            PermissionMode: AgentPermissionMode.Plan);
+        var warning = Assert.Single(DepartmentWarnings.For([department]));
+        Assert.Equal("design", warning.DepartmentId);
+        Assert.Contains("外部ターミナルの部門にしか効きません", warning.Message);
+        Assert.Contains("permissionMode", warning.Message);
+        Assert.Contains("ExternalTerminal", warning.Message);
+    }
+
+    [Fact]
+    public void 持たないモードを構造化に指定すると両方の警告が出る()
+    {
+        var department = new DepartmentDefinition(
+            "implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.Structured,
+            PermissionMode: AgentPermissionMode.Plan);
+        Assert.Equal(2, DepartmentWarnings.For([department]).Count);
+    }
+
+    [Fact]
+    public void 持っている権限モードを外部ターミナルで使うときは警告しない()
+    {
+        foreach (var kind in new[] { AgentKind.ClaudeCode, AgentKind.CodexCli, AgentKind.AntigravityCli })
+        {
+            foreach (var mode in AgentPermissionModes.For(kind))
+            {
+                var department = new DepartmentDefinition(
+                    "design", "設計", "設計する", kind, DriveMode.ExternalTerminal, PermissionMode: mode);
+                Assert.Empty(DepartmentWarnings.For([department]));
+            }
+        }
+    }
+
     [Fact]
     public async Task 既定の部門集合は保存して読み直せる()
     {
@@ -70,6 +159,16 @@ public sealed class DepartmentStoreTests : IDisposable
         Directory.CreateDirectory(_paths.Root);
         await File.WriteAllTextAsync(_paths.Departments,
             "{\"revision\":1,\"departments\":[{\"id\":\"same\",\"displayName\":\"設計\",\"responsibility\":\"x\",\"agent\":\"ClaudeCode\",\"mode\":\"Structured\"},{\"id\":\"same\",\"displayName\":\"実装\",\"responsibility\":\"x\",\"agent\":\"CodexCli\",\"mode\":\"Structured\"}]}");
+        Assert.IsType<DefinitionReadResult.Unreadable>(await _store.ReadAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 未定義の権限モードはUnreadable()
+    {
+        // **数値で書くと enum に入ってしまう**（Codex の指摘）。Agent / Mode と同じく弾く（§51）。
+        Directory.CreateDirectory(_paths.Root);
+        await File.WriteAllTextAsync(_paths.Departments,
+            "{\"revision\":1,\"departments\":[{\"id\":\"impl\",\"displayName\":\"実装\",\"responsibility\":\"x\",\"agent\":\"CodexCli\",\"mode\":\"ExternalTerminal\",\"permissionMode\":999}]}");
         Assert.IsType<DefinitionReadResult.Unreadable>(await _store.ReadAsync(CancellationToken.None));
     }
 

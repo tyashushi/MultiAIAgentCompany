@@ -110,6 +110,19 @@
                         </StackPanel>
                     </Grid>
 
+                    <!-- **CLI が持つ権限モードだけ選べる**（設計 §51-2）。 -->
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="権限モード" Classes="meta" />
+                        <ComboBox ItemsSource="{Binding PermissionModeChoices}"
+                                  SelectedItem="{Binding SelectedPermissionMode}" HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PermissionModeChoice">
+                                    <TextBlock Text="{Binding Label}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+
                     <StackPanel Spacing="4">
                         <TextBlock Text="モデル" Classes="meta" />
 

@@ -47,8 +47,10 @@ public static class AgentExecutable
     /// Claude と Antigravity は <c>--effort</c>、**Codex には旗が無く**
     /// <c>-c model_reasoning_effort=…</c> で渡す。
     /// </param>
+    /// <param name="permissionMode">権限モード。<b>CLI が持たない値は渡さない</b>（設計 §51-3）。</param>
     public static IReadOnlyList<string> InteractiveArguments(
-        AgentKind kind, string prompt, string? model = null, string? effort = null)
+        AgentKind kind, string prompt, string? model = null, string? effort = null,
+        AgentPermissionMode? permissionMode = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
 
@@ -56,16 +58,42 @@ public static class AgentExecutable
         var trimmedModel = model?.Trim();
         var trimmedEffort = effort?.Trim();
 
+        // **持たない組み合わせは渡さずに起動する**（設計 §51-3）。警告は DepartmentWarnings が出す。
+        var supportedPermissionMode = permissionMode is { } mode && AgentPermissionModes.For(kind).Contains(mode)
+            ? permissionMode
+            : null;
+
         switch (kind)
         {
             case AgentKind.ClaudeCode:
-                if (trimmedModel is { Length: > 0 }) arguments.AddRange(["--model", trimmedModel]);
-                if (trimmedEffort is { Length: > 0 }) arguments.AddRange(["--effort", trimmedEffort]);
+                if (trimmedModel is { Length: > 0 })
+                {
+                    arguments.AddRange(["--model", trimmedModel]);
+                }
+                if (trimmedEffort is { Length: > 0 })
+                {
+                    arguments.AddRange(["--effort", trimmedEffort]);
+                }
+                if (supportedPermissionMode is { } claudeMode)
+                {
+                    arguments.AddRange(["--permission-mode", claudeMode switch
+                    {
+                        AgentPermissionMode.Auto => "auto",
+                        AgentPermissionMode.Manual => "manual",
+                        AgentPermissionMode.AcceptEdits => "acceptEdits",
+                        AgentPermissionMode.Plan => "plan",
+                        _ => throw new ArgumentOutOfRangeException(nameof(permissionMode)),
+                    }]);
+                }
+
                 arguments.Add(prompt);
                 break;
 
             case AgentKind.CodexCli:
-                if (trimmedModel is { Length: > 0 }) arguments.AddRange(["-m", trimmedModel]);
+                if (trimmedModel is { Length: > 0 })
+                {
+                    arguments.AddRange(["-m", trimmedModel]);
+                }
 
                 // **Codex には `--effort` が無い**（実機で確かめた）。設定の上書きで渡す。
                 if (trimmedEffort is { Length: > 0 })
@@ -73,12 +101,29 @@ public static class AgentExecutable
                     arguments.AddRange(["-c", $"model_reasoning_effort=\"{trimmedEffort}\""]);
                 }
 
+                if (supportedPermissionMode is AgentPermissionMode.Auto)
+                {
+                    arguments.Add("--approve-for-me");
+                }
+
                 arguments.Add(prompt);
                 break;
 
             case AgentKind.AntigravityCli:
-                if (trimmedModel is { Length: > 0 }) arguments.AddRange(["--model", trimmedModel]);
-                if (trimmedEffort is { Length: > 0 }) arguments.AddRange(["--effort", trimmedEffort]);
+                if (trimmedModel is { Length: > 0 })
+                {
+                    arguments.AddRange(["--model", trimmedModel]);
+                }
+                if (trimmedEffort is { Length: > 0 })
+                {
+                    arguments.AddRange(["--effort", trimmedEffort]);
+                }
+                if (supportedPermissionMode is { } antigravityMode)
+                {
+                    arguments.AddRange(["--mode",
+                        antigravityMode is AgentPermissionMode.AcceptEdits ? "accept-edits" : "plan"]);
+                }
+
                 arguments.AddRange(["-i", prompt]);
                 break;
 

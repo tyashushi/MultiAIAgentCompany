@@ -64,7 +64,7 @@ public sealed class ShellComposer
             _trackers[department.Id] = tracker;
             _definitions[department.Id] = department;
             Shell.Departments.Add(new DepartmentTile(
-                department.Id, department.DisplayName, department.Agent, department.Mode, tracker));
+                department.Id, department.DisplayName, department.Agent, department.Mode, tracker, department.PermissionMode));
         }
     }
 

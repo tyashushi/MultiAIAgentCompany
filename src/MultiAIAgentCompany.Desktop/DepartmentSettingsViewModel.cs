@@ -6,6 +6,12 @@ using MultiAIAgentCompany.Core.Workspace;
 
 namespace MultiAIAgentCompany.Desktop;
 
+/// <summary>権限モードの候補。<b>同じモードは等しい</b>ので選択を保てる（設計 §51-3）。</summary>
+public sealed record PermissionModeChoice(AgentPermissionMode? Mode)
+{
+    public string Label => Mode is { } mode ? AgentPermissionModes.Label(mode) : "CLI の設定に任せる";
+}
+
 /// <summary>
 /// 設定画面で編集している1部門（設計 §47）。
 /// </summary>
@@ -26,6 +32,8 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
         Responsibility = definition.Responsibility;
         Agent = definition.Agent;
         Mode = definition.Mode;
+        PermissionMode = definition.PermissionMode;
+        UpdatePermissionModeChoices();
         Model = definition.Model ?? string.Empty;
         ReasoningEffort = definition.ReasoningEffort ?? string.Empty;
         ReadsOnly = definition.ReadsOnly;
@@ -46,6 +54,7 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
         set
         {
             field = value;
+            UpdatePermissionModeChoices();
             Raise();
             Raise(nameof(ModelHint));
             Raise(nameof(SupportsEffort));
@@ -59,6 +68,63 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
 
     /// <summary><b>null は空欄として持つ。</b> ComboBox は選択が外れると null を書き戻してくる。</summary>
     public string ReasoningEffort { get => field; set { field = value ?? string.Empty; Raise(); } } = string.Empty;
+
+    /// <summary>起動時の権限モード。<b>null は CLI 任せ</b>（設計 §51-2）。</summary>
+    public AgentPermissionMode? PermissionMode
+    {
+        get => field;
+        set
+        {
+            field = value;
+            Raise();
+            Raise(nameof(SelectedPermissionMode));
+        }
+    }
+
+    public ObservableCollection<PermissionModeChoice> PermissionModeChoices { get; } = [new(null)];
+
+    public PermissionModeChoice? SelectedPermissionMode
+    {
+        get => PermissionModeChoices.FirstOrDefault(choice => choice.Mode == PermissionMode);
+        set => PermissionMode = value?.Mode;
+    }
+
+    /// <summary>候補を<b>その場で足し引きして選択を保つ</b>（設計 §51-3、§48）。</summary>
+    private void UpdatePermissionModeChoices()
+    {
+        var modes = AgentPermissionModes.For(Agent);
+        if (PermissionMode is { } mode && !modes.Contains(mode))
+        {
+            PermissionMode = null;
+        }
+
+        List<PermissionModeChoice> target = [new(null), .. modes.Select(mode => new PermissionModeChoice(mode))];
+        for (var i = PermissionModeChoices.Count - 1; i >= 0; i--)
+        {
+            if (!target.Contains(PermissionModeChoices[i]))
+            {
+                PermissionModeChoices.RemoveAt(i);
+            }
+        }
+
+        for (var i = 0; i < target.Count; i++)
+        {
+            if (i < PermissionModeChoices.Count && PermissionModeChoices[i] == target[i])
+            {
+                continue;
+            }
+
+            var existing = PermissionModeChoices.IndexOf(target[i]);
+            if (existing >= 0)
+            {
+                PermissionModeChoices.Move(existing, i);
+            }
+            else
+            {
+                PermissionModeChoices.Insert(i, target[i]);
+            }
+        }
+    }
 
     public bool ReadsOnly { get => field; set { field = value; Raise(); } }
 
@@ -230,7 +296,10 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
         // 欄を隠しただけでは、**ファイルに残った値がそのまま渡り続ける** ——
         // Antigravity は `--model gemini-3.8-flash-high --effort low` を
         // **`conflicts with --effort=low` で弾く**ので、モデルを変えた瞬間に起動しなくなる。
-        SupportsEffort ? Blank(ReasoningEffort) : null);
+        SupportsEffort ? Blank(ReasoningEffort) : null,
+
+        // **保存時にも持たない値を落とす**（設計 §51-3）。
+        PermissionMode is { } mode && AgentPermissionModes.For(Agent).Contains(mode) ? mode : null);
 
     private static string? Blank(string value) => value.Trim() is { Length: > 0 } trimmed ? trimmed : null;
 

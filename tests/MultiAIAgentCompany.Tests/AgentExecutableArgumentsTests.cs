@@ -58,4 +58,71 @@ public sealed class AgentExecutableArgumentsTests
             ["--model", "gemini-3-pro", "--effort", "medium", "-i", "読んで"],
             AgentExecutable.InteractiveArguments(AgentKind.AntigravityCli, "読んで", "gemini-3-pro", "medium"));
     }
+    [Theory]
+    [InlineData(AgentKind.ClaudeCode, AgentPermissionMode.Auto, "--permission-mode", "auto")]
+    [InlineData(AgentKind.ClaudeCode, AgentPermissionMode.Manual, "--permission-mode", "manual")]
+    [InlineData(AgentKind.ClaudeCode, AgentPermissionMode.AcceptEdits, "--permission-mode", "acceptEdits")]
+    [InlineData(AgentKind.ClaudeCode, AgentPermissionMode.Plan, "--permission-mode", "plan")]
+    [InlineData(AgentKind.CodexCli, AgentPermissionMode.Auto, "--approve-for-me", null)]
+    [InlineData(AgentKind.AntigravityCli, AgentPermissionMode.AcceptEdits, "--mode", "accept-edits")]
+    [InlineData(AgentKind.AntigravityCli, AgentPermissionMode.Plan, "--mode", "plan")]
+    public void 権限モードはプロンプトの前に渡す(
+        AgentKind kind, AgentPermissionMode mode, string flag, string? value)
+    {
+        // **モデルと強さを併用しても、プロンプトより前**（設計 §51）。agy は -i より前。
+        var expected = AgentExecutable.InteractiveArguments(kind, "読んで", "model", "high").ToList();
+        var promptIndex = expected.Count - (kind is AgentKind.AntigravityCli ? 2 : 1);
+        expected.Insert(promptIndex, flag);
+        if (value is not null)
+        {
+            expected.Insert(promptIndex + 1, value);
+        }
+
+        Assert.Equal(expected, AgentExecutable.InteractiveArguments(kind, "読んで", "model", "high", mode));
+    }
+
+    [Theory]
+    [InlineData(AgentKind.CodexCli, AgentPermissionMode.Manual)]
+    [InlineData(AgentKind.CodexCli, AgentPermissionMode.AcceptEdits)]
+    [InlineData(AgentKind.CodexCli, AgentPermissionMode.Plan)]
+    [InlineData(AgentKind.AntigravityCli, AgentPermissionMode.Auto)]
+    [InlineData(AgentKind.AntigravityCli, AgentPermissionMode.Manual)]
+    public void CLIが持たない権限モードは渡さない(AgentKind kind, AgentPermissionMode mode)
+    {
+        Assert.Equal(
+            AgentExecutable.InteractiveArguments(kind, "読んで", "model", "high"),
+            AgentExecutable.InteractiveArguments(kind, "読んで", "model", "high", mode));
+    }
+
+    [Theory]
+    [InlineData(AgentKind.ClaudeCode)]
+    [InlineData(AgentKind.CodexCli)]
+    [InlineData(AgentKind.AntigravityCli)]
+    public void 権限モードがnullなら既存の引数を変えない(AgentKind kind)
+    {
+        Assert.Equal(
+            AgentExecutable.InteractiveArguments(kind, "読んで", "model", "high"),
+            AgentExecutable.InteractiveArguments(kind, "読んで", "model", "high", permissionMode: null));
+    }
+
+    [Fact]
+    public void CLIごとの権限モードを表示順に返す()
+    {
+        Assert.Equal(
+            [AgentPermissionMode.Auto, AgentPermissionMode.Manual, AgentPermissionMode.AcceptEdits, AgentPermissionMode.Plan],
+            AgentPermissionModes.For(AgentKind.ClaudeCode));
+        Assert.Equal([AgentPermissionMode.Auto], AgentPermissionModes.For(AgentKind.CodexCli));
+        Assert.Equal([AgentPermissionMode.AcceptEdits, AgentPermissionMode.Plan], AgentPermissionModes.For(AgentKind.AntigravityCli));
+    }
+
+    [Theory]
+    [InlineData(AgentPermissionMode.Auto, "自動")]
+    [InlineData(AgentPermissionMode.Manual, "手動")]
+    [InlineData(AgentPermissionMode.AcceptEdits, "編集を受け入れる")]
+    [InlineData(AgentPermissionMode.Plan, "プラン")]
+    public void 権限モードの表示名を返す(AgentPermissionMode mode, string label)
+    {
+        Assert.Equal(label, AgentPermissionModes.Label(mode));
+    }
+
 }

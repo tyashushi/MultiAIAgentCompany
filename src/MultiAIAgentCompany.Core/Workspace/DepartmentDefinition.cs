@@ -39,10 +39,12 @@ namespace MultiAIAgentCompany.Core.Workspace;
 /// **モデルによっても変わる**（Codex は `low` の上に `xhigh` / `max` / `ultra` を持つものがある）。
 /// こちらで閉じた集合にすると、**CLI が増やした値を人間が指定できなくなる。**
 /// </remarks>
+/// <param name="PermissionMode">起動時の権限モード。<b>null は CLI の設定に任せる</b>（設計 §51-2）。</param>
 public sealed record DepartmentDefinition(
     string Id, string DisplayName, string Responsibility, AgentKind Agent, DriveMode Mode,
     string? Model = null, bool ReadsOnly = false,
-    int? ReportDeadlineMinutes = null, string? ReasoningEffort = null)
+    int? ReportDeadlineMinutes = null, string? ReasoningEffort = null,
+    AgentPermissionMode? PermissionMode = null)
 {
     /// <summary>期限がファイルに書かれていないときに使う既定。</summary>
     public static readonly TimeSpan DefaultReportDeadline = TimeSpan.FromMinutes(30);
@@ -212,7 +214,7 @@ public sealed class DepartmentStore
     private static readonly HashSet<string> KnownKeys = new(StringComparer.Ordinal)
     {
         "id", "displayName", "responsibility", "agent", "mode",
-        "model", "readsOnly", "reportDeadlineMinutes", "reasoningEffort",
+        "model", "readsOnly", "reportDeadlineMinutes", "reasoningEffort", "permissionMode",
     };
 
     /// <param name="secretary">
@@ -289,6 +291,12 @@ public sealed class DepartmentStore
             if (string.IsNullOrWhiteSpace(department.Responsibility)) return $"部門 Responsibility がありません: {department.Id}";
             if (!Enum.IsDefined(department.Agent)) return $"未定義の Agent です: {department.Id}";
             if (!Enum.IsDefined(department.Mode)) return $"未定義の Mode です: {department.Id}";
+
+            // **数値でも読めてしまう**（`JsonStringEnumConverter` は整数を許す）ので、Agent / Mode と同じく弾く（設計 §51、Codex の指摘）。
+            if (department.PermissionMode is { } permissionMode && !Enum.IsDefined(permissionMode))
+            {
+                return $"未定義の PermissionMode です: {department.Id}";
+            }
 
             // **Antigravity は思考の強さを設定として持てない**（設計 §47-2、実機で確かめた）。
             // あちらは強さが**モデル名に畳まれていて**（`gemini-3.8-flash-high`）、

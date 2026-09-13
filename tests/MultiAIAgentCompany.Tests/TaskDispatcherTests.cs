@@ -24,6 +24,16 @@ public sealed class TaskDispatcherTests : IDisposable
     }
 
     [Fact]
+    public void 外部ターミナルの起動要求に部門の権限モードを渡す()
+    {
+        var department = new DepartmentDefinition(
+            "implementation", "実装", "実装する", AgentKind.CodexCli, DriveMode.ExternalTerminal,
+            PermissionMode: AgentPermissionMode.Auto);
+        var request = _dispatcher.TerminalRequestFor(department, "feature");
+        Assert.Equal(["--approve-for-me", DepartmentReadme.LaunchPrompt(_workspace.Paths, "feature")], request.Arguments);
+    }
+
+    [Fact]
     public async Task 構造化部門には指示書を渡し送信前にDispatchedを書き込む()
     {
         var expected = await CreateDraftAsync();

@@ -499,6 +499,9 @@
                                         <Run Text="{Binding Name}" />
                                     </TextBlock>
                                     <TextBlock Text="{Binding Agent}" Classes="meta" />
+                                    <!-- **指定があるときだけ起動時の権限を出す**（設計 §51-3）。 -->
+                                    <TextBlock Text="{Binding PermissionModeText}" IsVisible="{Binding HasPermissionMode}"
+                                               Classes="meta" />
 
                                     <!-- **駆動モードは出さない**（設計 §27）。§22-4 で Tui を消したので
                                          常に Structured にしかならず、区別に使えない。

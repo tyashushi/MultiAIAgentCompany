@@ -307,12 +307,14 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     private readonly List<string> _observations = [];
 
     public DepartmentTile(
-        string id, string name, AgentKind agent, DriveMode mode, DepartmentStatusTracker tracker)
+        string id, string name, AgentKind agent, DriveMode mode, DepartmentStatusTracker tracker,
+        AgentPermissionMode? permissionMode = null)
     {
         Id = id;
         Name = name;
         Agent = agent;
         Mode = mode;
+        PermissionMode = permissionMode;
         _tracker = tracker;
         _tracker.Changed += OnTrackerChanged;
     }
@@ -325,6 +327,22 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     public AgentKind Agent { get; }
 
     public DriveMode Mode { get; }
+
+    /// <summary><b>起動時の設定値</b>をタイルに出す（設計 §51-3）。</summary>
+    public AgentPermissionMode? PermissionMode { get; }
+
+    public string PermissionModeText => HasPermissionMode
+        ? $"権限: {AgentPermissionModes.Label(PermissionMode!.Value)}"
+        : string.Empty;
+
+    /// <remarks>
+    /// <b>実際に起動引数で渡るときだけ出す。</b> その CLI が持たない値や、構造化の部門に書かれた値は
+    /// 渡らない（警告は <see cref="DepartmentWarnings"/> が出す）—— 渡らないものを「権限: 自動」と
+    /// 出すと、**タイルが嘘をつく**（§7）。
+    /// </remarks>
+    public bool HasPermissionMode => PermissionMode is { } mode
+        && Mode is DriveMode.ExternalTerminal
+        && AgentPermissionModes.For(Agent).Contains(mode);
 
     /// <summary>
     /// CLI が申告したモデル（設計 §27）。<b>観測できたときだけ入る。</b>
