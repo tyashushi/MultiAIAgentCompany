@@ -106,6 +106,45 @@ public sealed class ShellComposer
         }
     }
 
+    /// <summary>
+    /// trust を読み直す（設計 §54）。<b>ディスクへ書かない</b>（§13-9）。
+    /// </summary>
+    /// <remarks>
+    /// 人間が「ターミナルで開く」で信頼を与えて戻ってきたとき、**表示が古いまま**だと
+    /// 与えたのに「未 trust」と出続ける。アプリが前面に戻ったときに呼ぶ。
+    /// </remarks>
+    public async Task RefreshTrustAsync(CancellationToken ct)
+    {
+        if (Workspace is not { } workspace)
+        {
+            return;
+        }
+
+        var rows = await ReadTrustAsync(workspace, ct);
+
+        // **読んでいる間にフォルダが変わっていたら、古いフォルダの結果を出さない。**
+        if (ReferenceEquals(Workspace, workspace))
+        {
+            ShowTrust(rows);
+        }
+    }
+
+    private static Task<IReadOnlyList<WorkspaceTrustRow>> ReadTrustAsync(WorkspaceRef workspace, CancellationToken ct) =>
+        WorkspaceTrustReport.BuildAsync(workspace,
+            [new ClaudeCodeTrustProbe(), new CodexCliTrustProbe(), new AntigravityTrustProbe()],
+            ct);
+
+    private void ShowTrust(IReadOnlyList<WorkspaceTrustRow> rows)
+    {
+        Shell.Trust.Clear();
+        foreach (var row in rows)
+        {
+            // **CLI があるかどうかも、ここで一緒に見る**（設計 §28-1）。
+            // 無いものに trust を与えろと言っても始まらない。
+            Shell.Trust.Add(new TrustRow(row.Agent, row.State, AgentExecutable.Find(row.Agent)));
+        }
+    }
+
     public ShellViewModel Shell { get; }
 
     /// <summary>(a) ランタイム承認の待ち行列。セッションの ApprovalRequested をここへ流す。</summary>
@@ -174,9 +213,7 @@ public sealed class ShellComposer
     public async Task<bool> SelectWorkspaceAsync(string root, CancellationToken ct)
     {
         var workspace = new WorkspaceRef(root);
-        var rows = await WorkspaceTrustReport.BuildAsync(workspace,
-            [new ClaudeCodeTrustProbe(), new CodexCliTrustProbe(), new AntigravityTrustProbe()],
-            ct);
+        var rows = await ReadTrustAsync(workspace, ct);
 
         // **部門はワークスペースごとに違う**（設計 §15-8）。ここまで読んでいなかったので、
         // `departments.json` を編集しても効かなかった（レビューで発覚、2026-09-08）。
@@ -226,13 +263,7 @@ public sealed class ShellComposer
 
         // **開いたことは、開いた側が入れる**（設計 §28-2、レビューで発覚）。
         Shell.HasWorkspace = true;
-        Shell.Trust.Clear();
-        foreach (var row in rows)
-        {
-            // **CLI があるかどうかも、ここで一緒に見る**（設計 §28-1）。
-            // 無いものに trust を与えろと言っても始まらない。
-            Shell.Trust.Add(new TrustRow(row.Agent, row.State, AgentExecutable.Find(row.Agent)));
-        }
+        ShowTrust(rows);
 
         // **部門の顔ぶれが変わったことを、呼び出し元に伝える。**
         // 変わったなら動いているセッションを止める必要がある（古い検出器に繋がっているので）。

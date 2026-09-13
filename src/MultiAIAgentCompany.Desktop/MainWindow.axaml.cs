@@ -11,6 +11,7 @@ using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
 using MultiAIAgentCompany.Core.Sessions;
 using MultiAIAgentCompany.Core.Status;
+using MultiAIAgentCompany.Core.Terminal;
 using MultiAIAgentCompany.Core.Workspace;
 using MultiAIAgentCompany.Core.Workspace.Trust;
 using CoreTaskStatus = MultiAIAgentCompany.Core.Coordination.TaskStatus;
@@ -134,6 +135,70 @@ public partial class MainWindow : Window
     {
         AvaloniaXamlLoader.Load(this);
         Closed += (_, _) => _usageCancellation?.Cancel();
+
+        // **ターミナルで信頼を与えて戻ってきたら、表示を読み直す**（設計 §54）。
+        Activated += async (_, _) => await RefreshTrustAsync();
+    }
+
+    /// <summary>trust を読み直す窓口。<b>切り替えの最中と終了処理の最中は読まない。</b></summary>
+    private async Task RefreshTrustAsync()
+    {
+        if (_closing || _switching || _composer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _composer.RefreshTrustAsync(CancellationToken.None);
+
+            // **秘書の状態の文言も trust から作っている**（Codex の指摘）。読み直さないと、
+            // 行は「信頼済み」なのに秘書の欄だけ「trust していない」と言い続ける。
+            UpdateSecretaryStatus();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            NoteException("trust を読み直せなかった", exception);
+        }
+    }
+
+    /// <summary>信頼を与えるためのターミナル。<b>部門の窓とは別</b>に開く。</summary>
+    private readonly ITerminalLauncher _trustTerminals = TerminalLaunchers.ForCurrentOs();
+
+    /// <summary>
+    /// 未 trust の CLI を、このフォルダでターミナルに開く（設計 §54、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>引数を付けずに対話起動するだけ。</b> 信頼の確認は CLI 自身が出すので、
+    /// **押すのは人間**（アプリは trust を書かない。§13-9）。部門の仕事も渡さない。
+    /// </remarks>
+    private async void OnOpenTrustTerminal(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not TrustRow row || _composer?.Workspace is not { } workspace)
+        {
+            return;
+        }
+
+        try
+        {
+            var command = AgentExecutable.ResolveCommand(AgentExecutable.NameOf(row.Agent));
+            var result = await _trustTerminals.LaunchAsync(
+                new TerminalLaunchRequest($"MultiAI-trust-{row.Agent}", workspace.Root, command, []),
+                CancellationToken.None);
+
+            Note(result switch
+            {
+                TerminalLaunchResult.Launched =>
+                    $"{row.Agent} をターミナルで開いた。信頼を与えたら、このアプリに戻ると表示が更新される",
+                TerminalLaunchResult.Failed failed => $"{row.Agent} をターミナルで開けなかった: {failed.Reason}",
+                TerminalLaunchResult.WindowBusy busy => $"{row.Agent} をターミナルで開けなかった: {busy.Reason}",
+                _ => $"{row.Agent} をターミナルで開けなかった（{result.GetType().Name}）",
+            });
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            NoteException($"{row.Agent} をターミナルで開けなかった", exception);
+        }
     }
 
     private async void OnAgentUsageExpanded(object? sender, RoutedEventArgs e) => await RefreshAgentUsageAsync();

@@ -219,11 +219,16 @@
                 <ItemsControl ItemsSource="{Binding Trust}" Margin="0,4,0,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="vm:TrustRow">
-                            <Grid ColumnDefinitions="110,90,*" Margin="0,1">
+                            <Grid ColumnDefinitions="110,90,*,Auto" Margin="0,1">
                                 <TextBlock Grid.Column="0" Text="{Binding AgentText}" FontSize="{DynamicResource FontSizeSmall}" />
                                 <TextBlock Grid.Column="1" Text="{Binding StateText}" FontSize="{DynamicResource FontSizeSmall}" FontWeight="Bold" />
                                 <TextBlock Grid.Column="2" Text="{Binding ActionText}" FontSize="{DynamicResource FontSizeSmall}"
                                            Opacity="0.75" TextWrapping="Wrap" />
+                                <!-- **信頼を与える場所まで連れて行く**（設計 §54、人間の要望）。
+                                     アプリは trust を書かない（§13-9）—— 開くだけで、与えるのは人間。 -->
+                                <Button Grid.Column="3" Content="ターミナルで開く" Classes="quiet"
+                                        FontSize="{DynamicResource FontSizeSmall}" Margin="8,0,0,0"
+                                        IsVisible="{Binding CanOpenTerminal}" Click="OnOpenTrustTerminal" />
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

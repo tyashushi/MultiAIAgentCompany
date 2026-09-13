@@ -819,6 +819,14 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
     public string AgentText => Agent.ToString();
 
     /// <summary>
+    /// 「ターミナルで開く」を出すか（設計 §54）。<b>未 trust と分かっているときだけ。</b>
+    /// </summary>
+    /// <remarks>
+    /// 「判定できない」には出さない —— 未 trust とは限らないのに、操作を促すことになる（§13-9）。
+    /// </remarks>
+    public bool CanOpenTerminal => ExecutablePath is not null && State is WorkspaceTrustState.NotTrusted;
+
+    /// <summary>
     /// <b>そもそも CLI があるか</b>を、trust より先に言う（設計 §28-1）。
     /// </summary>
     /// <remarks>
@@ -843,7 +851,7 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
         : State switch
         {
             WorkspaceTrustState.Trusted => "そのまま使える",
-            WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える",
+            WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える（戻ってくると表示が更新される）",
             _ => "設定ファイルを読めなかった。未 trust とは限らない",
         };
 }
