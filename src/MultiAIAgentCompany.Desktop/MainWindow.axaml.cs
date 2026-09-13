@@ -3145,7 +3145,110 @@ public partial class MainWindow : Window
         // ここまで来れば、前のフォルダはもう誰も触っていない。
         _supersededLock?.Dispose();
         _supersededLock = null;
+
+        // **会話の記録を git に入れないか聞く**（設計 §53）。切り替えの門の外で待つ ——
+        // 人間が返事をするまで、別のフォルダへの切り替えを塞がない。
+        if (_composer.Workspace is { } workspace)
+        {
+            Dispatcher.UIThread.Post(() => _ = AskCompanyGitIgnoreAsync(workspace));
+        }
+
         return true;
+    }
+
+    /// <summary>このアプリを起動してから、もう聞いたフォルダ（鍵）。</summary>
+    /// <remarks>
+    /// <b>「あとで」を選んだフォルダを、同じ起動の中で聞き直さない。</b>
+    /// 部門の設定を閉じるたびにフォルダを開き直す（§47）ので、覚えないと閉じるたびに出る。
+    /// </remarks>
+    private readonly HashSet<string> _gitIgnoreAsked = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// <c>.company/</c> を <c>.gitignore</c> に足すか、人間に聞く（設計 §53）。
+    /// </summary>
+    /// <remarks>
+    /// <b>黙って足さない。</b> <c>.gitignore</c> は利用者の持ち物 —— §30-4 で却下した
+    /// 「アプリが人間の持ち物を勝手に触る」と同じになる。
+    /// </remarks>
+    private async Task AskCompanyGitIgnoreAsync(WorkspaceRef workspace)
+    {
+        try
+        {
+            if (_closing || !_gitIgnoreAsked.Add(WorkspaceInstanceLock.KeyOf(workspace.Root)))
+            {
+                return;
+            }
+
+            if (await CompanyGitIgnore.CheckAsync(workspace, CancellationToken.None)
+                is not CompanyGitIgnoreCheck.ShouldAsk ask)
+            {
+                return;
+            }
+
+            var box = new Window
+            {
+                Title = ".company/ を git に入れないようにしますか",
+                Width = 520,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false,
+            };
+
+            var add = new Button { Content = ".gitignore に足す", IsDefault = true };
+            var later = new Button { Content = "あとで", IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
+            var never = new Button { Content = "このフォルダでは聞かない", Margin = new Thickness(8, 0, 0, 0) };
+            add.Click += (_, _) => box.Close("add");
+            later.Click += (_, _) => box.Close("later");
+            never.Click += (_, _) => box.Close("never");
+
+            var body = "このフォルダの .company/ には、秘書との会話・指示書・報告書が保存されます。"
+                + "このままだと git add . で一緒に commit され、公開リポジトリならそのまま公開されます。"
+                + $"\n\n{workspace.Root}/.gitignore に「.company/」の行を足します（注釈の行も1行付きます）。";
+            if (ask.AlreadyTracked)
+            {
+                // **足しても外れないものがある**ことを、足す前に言う。
+                body += "\n\n※ .company/ の中身は既に git に入っています。.gitignore に足しても、"
+                    + "入っているものは外れません（外すには git rm -r --cached .company が要ります）。";
+            }
+
+            box.Content = new StackPanel
+            {
+                Margin = new Thickness(16),
+                Children =
+                {
+                    new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) },
+                    new StackPanel
+                    {
+                        Orientation = Avalonia.Layout.Orientation.Horizontal,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                        Children = { add, later, never },
+                    },
+                },
+            };
+
+            switch (await box.ShowDialog<string?>(this))
+            {
+                case "add":
+                    // **「足した」と「効いた」を分けて言う**（Codex の指摘）。
+                    Note(await CompanyGitIgnore.AddAsync(workspace, CancellationToken.None)
+                        ? $".gitignore に .company/ を足した（{workspace.Root}）"
+                        : $".gitignore に .company/ を足したが、git はまだ .company/ を無視していない。"
+                            + $"ほかの .gitignore が打ち消していないか確かめてください（{workspace.Root}）");
+                    break;
+                case "never":
+                    await CompanyGitIgnore.DeclineAsync(workspace, CancellationToken.None);
+                    Note(".company/ を .gitignore に足すか、このフォルダでは聞かない（.company/gitignore-declined を消すとまた聞く）");
+                    break;
+                default:
+                    Note(".company/ を .gitignore に足していない（次にアプリを起動したとき、また聞く）");
+                    break;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // **聞けなかったことで、フォルダを開いたことを取り消さない。** ただし黙らない。
+            NoteException(".gitignore を確かめられなかった", exception);
+        }
     }
 
     /// <summary>
