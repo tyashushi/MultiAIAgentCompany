@@ -1,168 +1,206 @@
 # MultiAIAgentCompany 🏢
 
-> **人間は「社長」、対話は「秘書」ただ1人。**  
-> 複数の AI コーディングエージェント（Claude Code / Codex CLI / Antigravity CLI）を「仮想企業」として統括し、自律的に連携・分業させるデスクトップオーケストレーター。
+> **人間は「社長」、対話するのは「秘書」ただ1人。**
+> 複数の AI コーディングエージェント（Claude Code / Codex CLI / Antigravity CLI）を「会社の部門」に見立てて、仕事を受け渡しさせるデスクトップアプリ。
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Avalonia UI](https://img.shields.io/badge/Avalonia-12.0.4-8B5CF6?logo=avalonia)](https://avaloniaui.net/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-000000?logo=apple)](https://www.apple.com/macos/)
-[![Tests](https://img.shields.io/badge/Tests-1550%2B%20Passing-success)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
-## 🌟 概要 (Overview)
+## 🌟 概要
 
-**MultiAIAgentCompany** は、主要な対話型 AI コーディングエージェントを「会社の各専門部門」に見立てて協調動作させる macOS デスクトップアプリケーションです。
+**MultiAIAgentCompany** は、対話型の AI コーディングエージェントを「会社の各部門」に見立てて協調させる macOS アプリです。
 
-人間がすべてのエージェントと個別にチャットするのではなく、**「秘書（Claude Code）」** に要件を伝えるだけで、秘書がタスクを計画・分解し、各専門部門（設計・実装・調査・レビュー・テスト）へと自律的に仕事をパスします。
+人間がすべてのエージェントと個別にやり取りするのではなく、**秘書**に要件を伝えます。秘書が計画を立て、設計・実装・調査・レビュー・テストの各部門へ仕事を渡します。
 
-人間は現場監督としてチャットを中継する「伝書鳩」から解放され、**要所での意思決定（承認・質問への回答・成果物の合否判定）を行う「社長」** として振る舞うことができます。
+人間はチャットを中継する「伝書鳩」から解放され、**要所の意思決定**（承認・質問への回答・報告を受理するか差し戻すか）に集中できます。
 
+```mermaid
+flowchart TD
+    H["人間（社長）"] -- 相談 / 最終判断 --> S["秘書<br/>Claude Code または Codex CLI"]
+    S -- 計画 / 仕事を渡す --> D1["設計<br/>Claude Code"]
+    S --> D2["調査<br/>Antigravity CLI"]
+    S --> D3["レビュー<br/>Claude Code"]
+    S --> D4["実装<br/>Codex CLI"]
+    S --> D5["テスト<br/>Codex CLI"]
 ```
-                    ┌─────────────────────────┐
-                    │      人間 (社長)        │
-                    └───────────┬─────────────┘
-                                │ (相談 / 最終意思決定)
-                                ▼
-                    ┌─────────────────────────┐
-                    │    秘書 (Claude Code)    │
-                    └───────────┬─────────────┘
-                                │ (タスク計画 / バトンパス)
-      ┌────────────────┬────────┴────────┬────────────────┐
-      ▼                ▼                 ▼                ▼
-┌───────────┐    ┌───────────┐     ┌───────────┐    ┌───────────┐
-│ 設計部門   │    │ 調査部門    │     │ レビュー   │    │ 実装部門   │
-│(Claude)   │    │(Antigravity)    │ (Codex)   │    │ (Codex)   │
-└───────────┘    └───────────┘     └───────────┘    └───────────┘
-```
+
+部門の顔ぶれと担当 CLI は、既定値から画面で変えられます（後述）。
 
 ---
 
-## 💡 コア思想：なぜ作ったのか？ (Core Philosophy)
+## 💡 考え方
 
-### 1. 共有ドキュメント方式の実装
-エージェント同士の口頭伝言ゲームではなく、ワークスペース内の共有フォルダ（`.company/`）に配置された **Markdown / JSON ドキュメント（指示書、報告書、相談、状態）** を介して非同期に仕事を受け渡します。
-アプリがクラッシュしても、PC を再起動しても、**すべての仕事と進捗がファイルとしてディスクに残るため、いつでも 100% 確実に復旧** できます。
+### 1. 会話ではなく、ファイルで仕事を受け渡す
 
-### 2. 単一フォルダ共有 ＋ 書き込み権（Write Lease）
-他のマルチエージェントツール（Orca 等）のように **Git worktree（フォルダ複製）を強制しません**。
-Unity やゲームエンジン、巨大なモノレポなど、「1つのプロセスがフォルダを掴んでいる」「キャッシュが巨大で複製できない」現場のプロジェクトでも、**単一フォルダの書き込み権（`lease.json`）を排他的に制御する** ことで安全に共存できます。
+エージェント同士の伝言ではなく、ワークスペース内の `.company/` に置いた **Markdown / JSON の文書**（指示書・報告書・相談・状態）で、非同期に仕事を受け渡します。
 
-### 3. 外部ターミナル連携による「安心の手動承認」
-エージェントを無理やりヘッドレス（全自動）で動かすために危険な全自動承認（`--dangerously-skip-permissions`）を強制することを排除しました。
-各部門は **OS ネイティブのターミナル（macOS Terminal.app）** で対話起動するため、CLI 本来のリッチな TUI、思考ログ、カラー差分プレビューを確認しながら、人間が自分の手で安全に `y` / Enter を押して承認できます。
+アプリが落ちても、**仕事と進捗はファイルとしてディスクに残ります**。ただし「送ったかどうか分からない仕事」を勝手に送り直すことはしません —— 起動時に**人間に確かめてもらう**形にしています（二重実行を避けるため）。
+
+### 2. フォルダを複製しない。書き込み権で順番を守る
+
+Git worktree のようにフォルダを複製せず、**1つのフォルダを共有**します。そのかわり、ワークスペースに1つの**書き込み権（`lease.json`）**で、同時に書く部門を1つに制限します。
+
+Unity のように「プロセスがフォルダを掴んでいる」「キャッシュが大きくて複製できない」プロジェクトでも使えることを狙っています。
+
+### 3. 承認は、人間がターミナルで押す
+
+各部門は **macOS の Terminal.app で対話起動**します。CLI 本来の画面（思考の過程、差分のプレビュー、承認プロンプト）を見ながら、**人間がその窓で承認**します。
+
+アプリは承認を代行しません。承認を全部自動で通すモード（`--dangerously-skip-permissions` など）も使いません。
 
 ---
 
-## 🖥️ 画面構成（3ペイン UI）
+## 🖥️ 画面構成（3ペイン）
 
 | ペイン | 役割と主な機能 |
 | :--- | :--- |
-| **左ペイン**<br>相談スレッド一覧 | ・**スレッド履歴**: 「＋ 新しい相談」ボタンと過去の相談履歴（Claude / Antigravity アプリ同様の UX）<br>・**相談の片付け**: 不要になったスレッドを消さずに `.company/archive/` へ安全退避<br>・**復旧パネル**: 起動時に中断タスクや未読 lease を検出し、人間が再送・破棄を判断<br>・**作業ログ**: 下部に折りたたまれたシステム実行ログ（ドラッグで全行一括コピー可能） |
-| **中央ペイン**<br>秘書との対話 | ・**秘書チャット**: 要件や設計の相談を入力（Enter 送信）<br>・**自律パイプライン進行**: 秘書が立てた計画（調査 → 設計 → レビュー → 実装）が自動で進行<br>・**成果物の即時表示**: 部門から `report.md` が上がると中央ペインに即時プレビュー表示 |
-| **右ペイン**<br>部門ステータス一覧 | ・**部門タイル**: 3軸ステータス（稼働 / 活動 / 仕事）＋その根拠、担当モデル名、タスク件名を表示<br>・**ロボットアイコン**: 活動状態に応じた 3 頭身ロボットの 6 ポーズベクター描画<br>・**アクション**: ターミナル前面化、仕事の個別作成、報告書の「受理」または「差し戻して送り直す」 |
+| **左**<br>相談の一覧 | ・**相談スレッド**: 「＋ 新しい相談」と過去の相談<br>・**片付ける**: 選んでいる相談を、消さずに `.company/archive/threads/` へ移す<br>・**確かめてほしいこと**: 起動時に、送ったかどうか分からない仕事や読めない書き込み権を出し、人間が「送り直す / 取り消す」を決める<br>・**作業ログ**: 下に畳んである実行ログ（ドラッグで選んでコピーできる） |
+| **中央**<br>秘書との会話 | ・**秘書との会話**: 入力欄から相談（Enter で送信）<br>・**計画の進行**: 秘書が立てた計画（例: 調査 → 設計 → レビュー → 実装）を、アプリが順に進める<br>・**報告の即時表示**: 部門が `report.md` を書くと、中央に表示 |
+| **右**<br>部門 | ・**部門タイル**: 状態を3つの軸（稼働 / 活動 / 仕事）で分けて出し、根拠と、いま抱えている仕事の件名を添える<br>・**ロボットのアイコン**: 活動状態に応じた 6 ポーズ（3頭身のロボット）<br>・**操作**: ターミナルを前面に出す、この部門に仕事を作る、報告を受理する / 差し戻す、仕事を取り消す |
 
 ---
 
-## 🚀 主な機能 (Key Features)
+## 🚀 主な機能
 
-- **🏢 既定の専門部門セット**:
-  - **設計 (`design`)**: Claude Code
-  - **実装 (`implementation`)**: Codex CLI
-  - **調査 (`research`)**: Antigravity CLI
-  - **レビュー (`review`)**: Claude Code
-  - **テスト (`testing`)**: Codex CLI
-  - **設計レビュー 整合 (`design-review-consistency`)**: Codex CLI（`ReadsOnly: true`）
-  - **設計レビュー 外から (`design-review-outside`)**: Antigravity CLI（`ReadsOnly: true`）
-- **🔄 自律パイプライン & レビュー差し戻し往復**:
-  - 秘書が作成した計画に基づき、前工程の成果物を次工程の指示書へ自動でバトンパス。
-  - レビュー部門の判定（`verdict: ok / revise`）をパースし、修正が必要な場合は最大 3 回まで自動で差し戻し往復。上限に達した際は安全に人間の判断へハンドオフ。
-- **⚙️ GUI 部門設定画面**:
-  - アプリのメニューバーから「部門の設定」を開き、部門の追加・編集・削除、モデル名、思考強度（Reasoning Effort）を柔軟にカスタマイズ可能。
-  - 各 CLI の引数差異（Claude の `--effort`、Codex の `-c model_reasoning_effort`、Antigravity のモデル名埋め込み）を自動吸収。
-- **🎨 洗練されたデザインシステム**:
-  - `Tokens.axaml` によるライト / ダークテーマ完全対応。
-  - 日本語フォント（Inter + Hiragino Sans）の全ウィンドウ適用による文字化け防止。
-  - 「人間の出番があるタイル」だけが控えめにハイライトされる設計。
+- **🏢 既定の部門**:
 
----
+  | 部門 | Id | CLI | 備考 |
+  | :--- | :--- | :--- | :--- |
+  | 設計 | `design` | Claude Code | |
+  | 実装 | `implementation` | Codex CLI | |
+  | 調査 | `research` | Antigravity CLI | |
+  | レビュー | `review` | Claude Code | |
+  | テスト | `testing` | Codex CLI | |
+  | 設計レビュー（整合） | `design-review-consistency` | Codex CLI | 読むだけ（書き込み権を取らない） |
+  | 設計レビュー（外から） | `design-review-outside` | Antigravity CLI | 読むだけ |
 
-## 🛠️ 動作要件 (Requirements)
+- **🔄 計画の自動進行と差し戻し**:
+  - 前の工程の報告を、**要約せずそのまま**次の工程の指示書に入れて渡す
+  - レビュー部門の判定行（`verdict: ok` / `verdict: revise`）を読み、直しが要れば見てもらった工程へ差し戻す。**差し戻しは既定で 3 回まで**。超えたら止めて人間を呼ぶ
+  - **最後の工程の報告だけは、人間が受理する**
 
-- **OS**: macOS 14 (Sonoma) 以上（Apple Silicon / Intel 両対応）
-- **ランタイム / SDK**: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)（開発・ビルド時）
-- **対象 AI CLI**:
-  - [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) (`claude`)
-  - [Codex CLI](https://github.com/openai/codex) (`codex`)
-  - [Google Antigravity CLI](https://antigravity.google) (`agy`)
-  ※ 利用するエージェントが `$PATH` 上で実行可能であること。
+- **⚙️ 部門の設定画面**（メニュー「ファイル → 部門の設定…」）:
+  - 部門の追加・編集・削除、担当 CLI、**モデル**、**思考の強さ**
+  - **秘書の CLI も選べる**（Claude Code / Codex CLI）
+  - **モデルの候補は CLI から取る**: Codex は `codex debug models`、Antigravity は `agy models`。**モデルごとに使える強さだけ**を候補にする（設定できるのに起動しない組み合わせを作らない）
+  - CLI ごとの渡し方の違いを吸収（Claude は `--effort`、Codex は `-c model_reasoning_effort=…`、Antigravity は強さがモデル名に含まれる）
+  - 終わっていない仕事・計画からの参照・書き込み権がある部門は、消せない（理由を全部出す）
+
+- **🎨 見た目**:
+  - ライト / ダーク両対応
+  - 日本語フォントを全部の窓に指定（Inter ＋ Hiragino Sans）
+  - 人間の出番があるタイルにだけ色が付く
 
 ---
 
-## 📦 ビルドと実行 (Getting Started)
+## 🛠️ 動作要件
 
-### 1. リポジトリのクローン
+- **OS**: macOS（**macOS 26.5 / Apple Silicon で動作確認**。Intel Mac は未確認）
+  - **Windows / Linux は未対応です。** 部門を外部ターミナルで開く部分が macOS の Terminal.app 専用のためです
+- **.NET 10 SDK**（ビルドに必要）
+- **使う CLI**（使う部門のぶんだけ）:
+  - [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview)（`claude`）
+  - [Codex CLI](https://github.com/openai/codex)（`codex`）
+  - [Antigravity CLI](https://antigravity.google)（`agy`）
+- 各 CLI が**ログイン済み**で、作業するフォルダを**信頼済み（trust）**にしてあること。アプリは trust を書き換えません（画面上部に状態を出します）
+
+---
+
+## 📦 ビルドと実行
+
 ```bash
-git clone https://github.com/<your-account>/MultiAIAgentCompany.git
+git clone https://github.com/tyashushi/MultiAIAgentCompany.git
 cd MultiAIAgentCompany
 ```
 
-### 2. ビルド
 ```bash
 dotnet build MultiAIAgentCompany.slnx
 ```
 
-### 3. テストの実行（1,550+ 件）
 ```bash
 dotnet test MultiAIAgentCompany.slnx
 ```
 
-### 4. アプリの起動
+実物の CLI を起動するテスト（課金とネットワークを伴う）は、**既定ではスキップ**されます。走らせるときは `MAC_LIVE_CLAUDE=1` / `MAC_LIVE_CODEX=1` / `MAC_LIVE_AGY=1` / `MAC_LIVE_PLAN=1` を指定します。
+
 ```bash
 dotnet run --project src/MultiAIAgentCompany.Desktop/MultiAIAgentCompany.Desktop.csproj
 ```
 
----
+`dotnet run` では Dock のアイコンが dotnet のものになります。アプリのアイコンで起動したいときは、`.app` バンドルを作ります:
 
-## 📖 基本的な使い方 (Workflow)
-
-1. **フォルダを選ぶ**:
-   アプリ右上の「フォルダを選ぶ」または `Cmd+O` で、作業対象のリポジトリ（ワークスペース）を選択します。
-2. **秘書に相談する**:
-   中央ペインの入力欄から秘書に話しかけます（例: `「ユーザー認証のAPIを設計して実装まで進めて」`）。
-3. **計画の自動進行**:
-   秘書が計画を立てると、自動的に最初の部門（調査や設計）へタスクが発行され、Mac の `Terminal.app` が立ち上がります。
-4. **ターミナルでの確認と承認**:
-   ターミナル上でエージェントの思考ログやツールの承認プロンプトを確認し、`y` / Enter で承認します。
-5. **報告の受理と次の工程へ**:
-   作業が完了して `report.md` が出力されると、アプリの中央ペインに報告書が即時表示されます。レビューが通れば次の工程（実装やテスト）へ自動で進みます。
-
----
-
-## 📁 調整基盤のディレクトリ構造 (.company/)
-
-ワークスペース直下の `.company/` ディレクトリで全状態を永続管理します：
-
-```text
-<ワークスペース>/.company/
-  departments.json       # 部門定義（担当CLI・モデル・思考強度など）
-  lease.json             # ワークスペース書き込み権（排他制御）
-  secretary/             # 秘書用領域
-    threads/             # 会話スレッド履歴（meta.json, transcript.jsonl）
-    outbox/              # 秘書が発行した提案
-  tasks/<task-slug>/     # タスクごとの共有ドキュメント
-    instruction.md       # 指示書
-    report.md            # 報告書（成果物）
-    question.md          # 仕様確認・判断の相談（AI → 人間）
-    answer.md            # 人間の回答
-    rejection.md         # 差し戻し理由
-    state.json           # タスク状態、世代(attempt)、Revision
-  archive/               # 片付けられた相談スレッドや完了タスクの退避先
+```bash
+spikes/app-bundle/make-app.sh
 ```
 
 ---
 
-## 📄 ライセンス (License)
+## 📖 使い方
 
-本プロジェクトは [MIT License](LICENSE) のもとで公開されています。
+1. **フォルダを選ぶ**: 中央上の「フォルダを選ぶ」か `Cmd+O` で、作業するリポジトリを選ぶ。前回のフォルダは次の起動で開き直す
+2. **秘書に相談する**: 中央の入力欄から話しかける（例: 「ログイン機能を設計して、実装まで進めて」）
+3. **仕事が部門へ渡る**: 秘書が計画を立てると、最初の部門の仕事ができ、Terminal.app の窓が開く
+4. **ターミナルで承認する**: その窓で、エージェントの作業と承認プロンプトを見て、人間が承認する
+5. **質問が来たら答える**: 部門が判断に迷うと `question.md` を書いて止まる。その窓で答えれば続きをやる
+6. **報告を受け取る**: 部門が `report.md` を書くと中央に出る。計画の途中の工程はアプリが受理して次へ進め、**最後の工程だけ人間が受理する**
+
+---
+
+## 📁 `.company/` の構造
+
+作業するフォルダの直下に `.company/` を作り、状態をすべてファイルで持ちます:
+
+```text
+<ワークスペース>/.company/
+  departments.json        # 部門定義（担当 CLI・モデル・思考の強さ・秘書の設定）
+  lease.json              # 書き込み権（ワークスペースに1つ）
+  README-department.md    # 部門への約束（報告や質問の書き方）
+  secretary/
+    README.md             # 秘書への約束
+    threads/<id>/         # 相談スレッド（meta.json / transcript.jsonl）
+    outbox/               # 秘書が出した提案
+    processed/            # 受理・却下した提案（消さずに移す）
+  plans/<plan-id>/
+    plan.json             # 秘書が立てた計画と、各工程の進み具合
+  tasks/<task-slug>/
+    instruction.md        # 指示書
+    report.md             # 報告書
+    question.md           # 部門からの質問
+    answer.md             # 人間の回答
+    rejection.md          # 差し戻しの理由
+    next-instruction.md   # 次の試行の指示（差し戻しのとき）
+    attempts/<n>/         # 過去の試行（消さずに封じる）
+    state.json            # 仕事の状態・試行番号・revision
+  archive/threads/        # 片付けた相談
+  unreadable/             # 読めなかった仕事（消さずに移す）
+```
+
+`.company/` は対象のワークスペースの記録で、このリポジトリの成果物ではありません（`.gitignore` 済み）。
+
+---
+
+## ⚠️ 既知の制限
+
+- **macOS 専用**（上記）
+- **Claude Code のモデル一覧は取れません。** Claude の部門のモデルは打ち込みです（`opus` / `sonnet` などの別名も使えます）。思考の強さの候補は CLI から取ります
+- **Terminal.app はスクリプトからタブを作れない**ので、部門は別々の窓で開きます。窓の見分けは、タイルの「ターミナルを前面に出す」で行います
+- アプリを再起動したあと仕事を送り直すと、**同じ部門の窓が2つ並ぶ**ことがあります（古い方は空のシェルです）
+- 外部ターミナルで動く部門は、アプリから**活動状態（作業中か休憩中か）を観測できません**。タイルには「分からない」と出ます
+
+---
+
+## 📚 設計文書
+
+このリポジトリの中心は、コードより **[設計文書](docs/design/multi-ai-agent-company.md)** です。何を決め、なぜそうしたか、**実機で何を測り、何を踏んだか**を節ごとに残しています。
+
+作業の続きから入るときは、**[CONTINUE.md](CONTINUE.md)**（引き継ぎ）から読んでください。
+
+---
+
+## 📄 ライセンス
+
+[MIT License](LICENSE)

@@ -133,6 +133,11 @@ public partial class MainWindow : Window
         _composer = composer;
         _runner = runner;
         _secretary = secretary;
+
+        // **UI の失敗を、人間に見せる**（設計 §49）。落とさない代わりに、黙らない ——
+        // 記録（`crash.log`）だけだと、**画面を見ている人間には何も起きていないように見える。**
+        Program.UiThreadFailed += (_, exception) => Dispatcher.UIThread.Post(() =>
+            NoteException("画面の処理で例外が出た（アプリは動き続けている）", exception));
         DataContext = composer.Shell;
 
         // **失敗を仕事の状態に書ける唯一の経路**（設計 §30-3）。
