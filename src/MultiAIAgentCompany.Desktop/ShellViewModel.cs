@@ -19,6 +19,24 @@ namespace MultiAIAgentCompany.Desktop;
 /// </summary>
 public sealed class ShellViewModel : INotifyPropertyChanged
 {
+    /// <summary>AI の残量。<b>保存せず、要求されたときだけ取り直す</b>（設計 §50）。</summary>
+    public IReadOnlyList<AgentUsageRow> AgentUsage { get; } =
+    [
+        new(AgentKind.ClaudeCode, "Claude Code"),
+        new(AgentKind.CodexCli, "Codex"),
+        new(AgentKind.AntigravityCli, "Antigravity"),
+    ];
+
+    public string AgentUsageObservedText
+    {
+        get;
+        set
+        {
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AgentUsageObservedText)));
+        }
+    } = string.Empty;
+
     private string _workspaceLabel = "（ワークスペース未選択）";
 
     public string WorkspaceLabel
@@ -805,5 +823,54 @@ public sealed class ThreadItem(string id, string title, DateTimeOffset updatedAt
             field = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
         }
+    }
+}
+
+/// <summary>CLI ごとの残量表示。<b>失敗の根拠もそのまま出す</b>（設計 §7 / §50）。</summary>
+public sealed class AgentUsageRow(AgentKind kind, string name) : INotifyPropertyChanged
+{
+    public AgentKind Kind { get; } = kind;
+    public string Name { get; } = name;
+    public string Text { get; private set; } = string.Empty;
+    public string RawOutput { get; private set; } = string.Empty;
+    public bool HasRawOutput => RawOutput.Length > 0;
+    public DateTimeOffset? ObservedAt { get; private set; }
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void BeginRead()
+    {
+        Text = "取得中…";
+        RawOutput = string.Empty;
+        ObservedAt = null;
+        Notify();
+    }
+
+    public void Show(AgentUsageResult result)
+    {
+        RawOutput = result is AgentUsageResult.Unreadable unreadable ? unreadable.RawOutput : string.Empty;
+        ObservedAt = result is AgentUsageResult.Available available ? available.ObservedAt : null;
+        Text = result switch
+        {
+            AgentUsageResult.Available value => string.Join(Environment.NewLine, value.Windows.Select(Format)),
+            AgentUsageResult.NotInstalled => "見つからない（インストールされていない）",
+            AgentUsageResult.Unreadable value => $"読み取れなかった: {value.Reason}",
+            _ => string.Empty,
+        };
+        Notify();
+    }
+
+    private static string Format(AgentUsageWindow window)
+    {
+        var name = window.Group is null ? window.Name : $"{window.Group} / {window.Name}";
+        var reset = window.ResetText ?? window.ResetsAt?.ToLocalTime().ToString("M/d HH:mm");
+        return $"{name}　残り {Math.Round(window.RemainingPercent):0}%"
+            + (reset is null ? string.Empty : $"　リセット {reset}");
+    }
+
+    private void Notify()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Text)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RawOutput)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasRawOutput)));
     }
 }

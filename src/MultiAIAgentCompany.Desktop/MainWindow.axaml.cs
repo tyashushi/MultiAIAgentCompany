@@ -126,7 +126,61 @@ public partial class MainWindow : Window
     /// </remarks>
     private WorkspaceInstanceLock? _supersededLock;
 
-    public MainWindow() => AvaloniaXamlLoader.Load(this);
+    /// <summary>残量取得の二重起動を防ぎ、閉じるときに止める（設計 §50）。</summary>
+    private CancellationTokenSource? _usageCancellation;
+    private bool _usageReading;
+
+    public MainWindow()
+    {
+        AvaloniaXamlLoader.Load(this);
+        Closed += (_, _) => _usageCancellation?.Cancel();
+    }
+
+    private async void OnAgentUsageExpanded(object? sender, RoutedEventArgs e) => await RefreshAgentUsageAsync();
+
+    private async void OnRefreshAgentUsage(object? sender, RoutedEventArgs e) => await RefreshAgentUsageAsync();
+
+    /// <summary><b>3つを並行に取り、届いた順に出す。</b> タイマーからは呼ばない（設計 §50-2）。</summary>
+    private async Task RefreshAgentUsageAsync()
+    {
+        if (_usageReading || _closing || DataContext is not ShellViewModel shell) return;
+        _usageReading = true;
+        using var cancellation = new CancellationTokenSource();
+        _usageCancellation = cancellation;
+        try
+        {
+            shell.AgentUsageObservedText = string.Empty;
+            foreach (var row in shell.AgentUsage) row.BeginRead();
+            await Task.WhenAll(shell.AgentUsage.Select(async row =>
+            {
+                AgentUsageResult result;
+                try
+                {
+                    result = await Task.Run(() => AgentUsageCatalog.ReadAsync(row.Kind, cancellation.Token), cancellation.Token);
+                }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+                catch (Exception exception)
+                {
+                    result = new AgentUsageResult.Unreadable(row.Kind, $"取得できない: {exception.Message}", string.Empty);
+                }
+
+                if (cancellation.IsCancellationRequested) return;
+                row.Show(result);
+                var observed = shell.AgentUsage.Max(item => item.ObservedAt);
+                shell.AgentUsageObservedText = observed is { } time ? $"取得 {time.ToLocalTime():HH:mm}" : string.Empty;
+            }));
+        }
+        catch (Exception exception)
+        {
+            // **画面の失敗で落とさず、理由をパネルに出す**（§49 / §50）。
+            shell.AgentUsageObservedText = $"読み取れなかった: {exception.Message}";
+        }
+        finally
+        {
+            _usageCancellation = null;
+            _usageReading = false;
+        }
+    }
 
     public MainWindow(ShellComposer composer, DepartmentRunner runner, SecretaryRunner secretary) : this()
     {
@@ -2865,7 +2919,11 @@ public partial class MainWindow : Window
     /// 終了処理に入ったことを画面へ伝える（設計 §26-4）。
     /// </summary>
     /// <remarks>ここから先は、新しいセッションを作らせない。</remarks>
-    internal void NotifyClosing() => _closing = true;
+    internal void NotifyClosing()
+    {
+        _closing = true;
+        _usageCancellation?.Cancel();
+    }
 
     private void Note(string line)
     {

@@ -437,6 +437,42 @@
         <DockPanel>
             <TextBlock DockPanel.Dock="Top" Text="部門" Classes="section" Margin="0,0,0,8" />
 
+            <!-- **開いたときと更新を押したときだけ取る。** 色や警告の閾値は付けない（設計 §50-2）。 -->
+            <Expander DockPanel.Dock="Bottom" Classes="log" IsExpanded="False" Margin="0,8,0,0"
+                      FontSize="{DynamicResource FontSizeSmall}" Expanded="OnAgentUsageExpanded">
+                <Expander.Header>
+                    <TextBlock Text="AIの残量" Classes="section" />
+                </Expander.Header>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+                        <Button Content="更新" Classes="quiet" Click="OnRefreshAgentUsage" />
+                        <TextBlock Text="{Binding AgentUsageObservedText}" VerticalAlignment="Center"
+                                   FontSize="{DynamicResource FontSizeSmall}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  MaxHeight="220">
+                        <ItemsControl ItemsSource="{Binding AgentUsage}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:AgentUsageRow">
+                                    <StackPanel Spacing="2" Margin="0,2,0,8">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                   FontSize="{DynamicResource FontSizeSmall}"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                                                   FontSize="{DynamicResource FontSizeSmall}"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        <SelectableTextBlock Text="{Binding RawOutput}" IsVisible="{Binding HasRawOutput}"
+                                                             TextWrapping="Wrap" FontSize="{DynamicResource FontSizeSmall}"
+                                                             Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Expander>
+
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Departments}">
                 <ItemsControl.ItemTemplate>
