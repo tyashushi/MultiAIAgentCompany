@@ -68,6 +68,44 @@ public sealed class ShellComposer
         }
     }
 
+    /// <summary>順番を問わず、同じ部門定義の集まりか。</summary>
+    private bool HasSameDepartments(IReadOnlyList<DepartmentDefinition> departments) =>
+        _definitions.Count == departments.Count
+        && departments.All(department =>
+            _definitions.TryGetValue(department.Id, out var known) && known == department);
+
+    /// <summary>
+    /// タイルの<b>並びだけ</b>を <c>departments.json</c> の順に揃える。
+    /// </summary>
+    /// <remarks>
+    /// <b>タイルも検出器も作り直さない。</b> 作り直すと、動いているセッションが
+    /// 古い検出器に繋がったまま、画面のタイルだけが新品になる（<see cref="Rebuild"/> の注意と同じ）。
+    /// </remarks>
+    private void Reorder(IReadOnlyList<DepartmentDefinition> departments)
+    {
+        _definitions.Clear();
+        for (var index = 0; index < departments.Count; index++)
+        {
+            var department = departments[index];
+            _definitions[department.Id] = department;
+
+            var current = -1;
+            for (var i = 0; i < Shell.Departments.Count; i++)
+            {
+                if (string.Equals(Shell.Departments[i].Id, department.Id, StringComparison.Ordinal))
+                {
+                    current = i;
+                    break;
+                }
+            }
+
+            if (current >= 0 && current != index)
+            {
+                Shell.Departments.Move(current, index);
+            }
+        }
+    }
+
     public ShellViewModel Shell { get; }
 
     /// <summary>(a) ランタイム承認の待ち行列。セッションの ApprovalRequested をここへ流す。</summary>
@@ -154,10 +192,17 @@ public sealed class ShellComposer
         // 同じフォルダを開き直したときも通るので、無条件に作り直すと
         // **動いているセッションが古い検出器に繋がったまま、画面のタイルだけが新品になる** ——
         // 稼働も承認も届かないのに「起動できる」ように見える。
-        var rebuilt = !_definitions.Values.SequenceEqual(departments);
+        //
+        // **並べ替えただけなら、顔ぶれは変わっていない**（人間の要望、2026-09-13）。
+        // 順番まで比べると、設定画面で並べ替えて保存しただけで、動いている部門が止められる。
+        var rebuilt = !HasSameDepartments(departments);
         if (rebuilt)
         {
             Rebuild(departments);
+        }
+        else if (!_definitions.Values.SequenceEqual(departments))
+        {
+            Reorder(departments);
         }
         // **ワークスペースが変わったら、沈黙の記憶も捨てる**（設計 §31-6）。
         // **Rebuild に置かない** —— あれは顔ぶれが変わったときしか呼ばれないので、

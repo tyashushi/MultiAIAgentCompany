@@ -196,6 +196,37 @@ public partial class DepartmentSettingsWindow : Window
         }
     }
 
+    private void OnMoveUp(object? sender, RoutedEventArgs e) => MoveSelected(-1);
+
+    private void OnMoveDown(object? sender, RoutedEventArgs e) => MoveSelected(+1);
+
+    /// <summary>
+    /// 選んでいる部門を上下に動かす。<b>保存するまでディスクに触らない</b>（§47）。
+    /// </summary>
+    /// <remarks>
+    /// <c>departments.json</c> の並びがそのまま右ペインのタイルの順になる。
+    /// </remarks>
+    private void MoveSelected(int offset)
+    {
+        if (_model.Selected is not { } selected)
+        {
+            return;
+        }
+
+        var from = _model.Departments.IndexOf(selected);
+        var to = from + offset;
+        if (from < 0 || to < 0 || to >= _model.Departments.Count)
+        {
+            return;
+        }
+
+        _model.Departments.Move(from, to);
+
+        // **動かすと ListBox が選択を外すことがある**ので、選び直す。
+        _model.Selected = selected;
+        _model.Message = $"{selected.DisplayName} を{(offset < 0 ? "上" : "下")}へ動かした（保存で確定します）";
+    }
+
     private void OnUseTerminal(object? sender, RoutedEventArgs e)
     {
         if (_model.Selected is { } selected)

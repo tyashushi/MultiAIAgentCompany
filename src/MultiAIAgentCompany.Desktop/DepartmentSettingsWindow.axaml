@@ -50,6 +50,11 @@
                     <Button Content="＋ 追加" Classes="quiet" Click="OnAdd" />
                     <Button Content="削除" Classes="quiet" Click="OnRemove"
                             IsVisible="{Binding HasSelection}" />
+                    <!-- **並べ替え**（人間の要望、2026-09-13）。右ペインのタイルもこの順になる。 -->
+                    <Button Content="↑" Classes="quiet" Click="OnMoveUp" ToolTip.Tip="上へ"
+                            IsVisible="{Binding HasSelection}" />
+                    <Button Content="↓" Classes="quiet" Click="OnMoveDown" ToolTip.Tip="下へ"
+                            IsVisible="{Binding HasSelection}" />
                 </StackPanel>
 
                 <ListBox ItemsSource="{Binding Departments}" SelectedItem="{Binding Selected}"
