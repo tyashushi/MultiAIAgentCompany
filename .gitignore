@@ -1,6 +1,5 @@
 bin/
 obj/
-.claude/handoffs/
 *.user
 .live-scratch/
 .DS_Store
@@ -8,12 +7,13 @@ obj/
 # アプリを自分のリポジトリで試すと .company/ ができる。これは対象ワークスペースの調整基盤で、
 # このリポジトリの成果物ではない。
 .company/
-spikes/probes/external-terminal/work/report.md
-spikes/probes/terminal-question/work/report.md
-spikes/probes/terminal-question/work/question.md
-spikes/probes/terminal-question-claude/work/report.md
-spikes/probes/terminal-question-claude/work/question.md
-spikes/probes/terminal-question-codex/work/report.md
-spikes/probes/terminal-question-codex/work/question.md
 spikes/icon-slicer/out/
 spikes/app-bundle/out/
+
+# AI との作業に使う文書（公開しない）。手元には置くが、git には入れない。
+# 引き継ぎ・設計の記録・調査メモ・検証用スクリプト。
+CONTINUE.md
+docs/
+spikes/probes/
+.claude/
+.codex/
