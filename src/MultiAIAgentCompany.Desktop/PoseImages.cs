@@ -46,6 +46,13 @@ public static class PoseImages
         _ => "unknown",
     };
 
+    private static readonly Lazy<Bitmap?> BowingImage = new(() => Load("bowing"));
+
+    /// <summary>
+    /// おじぎ（設計 §52-4）。<b>活動状態のポーズではない</b> —— 受理したときのねぎらいにだけ使う。
+    /// </summary>
+    public static Bitmap? Bowing => BowingImage.Value;
+
     private static Bitmap? Load(string name)
     {
         try

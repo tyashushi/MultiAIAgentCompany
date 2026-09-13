@@ -15,6 +15,13 @@ dotnet run -- normalize out/raw ../../src/MultiAIAgentCompany.Desktop/Assets/pos
 dotnet run -- sheet ../../src/MultiAIAgentCompany.Desktop/Assets/poses out/check.png
 ```
 
+あとから1体だけ足すときは、**白い背景の1枚から切り抜く**（設計 §52-4 のおじぎで使った）:
+
+```bash
+# 縁から繋がった白だけを抜く（体の中の明るい所には穴を開けない）。生成画像の白い縁も一緒に抜ける
+dotnet run -- cutout ~/Downloads/bowing.png ../../src/MultiAIAgentCompany.Desktop/Assets/poses/bowing.png 0.90 0.02
+```
+
 **倍率は手で決めてある**（`Program.cs` の `Poses`）。頭の幅の自動検出は、
 ノートPC や煙を頭と数えて外した —— 6枚しかないので、目で見て決める方が早くて確かである。
 

@@ -165,10 +165,38 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public bool HasRecovery => Recovery.Count > 0;
 
-    public ShellViewModel() =>
+    public ShellViewModel()
+    {
         // 計算プロパティなので、集合が変わったことを自分で知らせないと画面に出ない。
         Recovery.CollectionChanged += (_, _) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasRecovery)));
+        Threads.CollectionChanged += (_, _) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasThreads)));
+    }
+
+    /// <summary>フォルダを選ぶ前の一言（設計 §52-2）。</summary>
+    public string NoWorkspaceQuip => Quips.NoWorkspace;
+
+    /// <summary>会話が空のときの一言（設計 §52-2）。</summary>
+    public string EmptyTranscriptQuip => Quips.EmptyTranscript;
+
+    /// <summary>相談が無いときの一言（設計 §52-2）。</summary>
+    public string NoThreadsQuip => Quips.NoThreads;
+
+    /// <summary>どの部門も仕事を抱えていないときの一言（設計 §52-2）。</summary>
+    public string AllIdleQuip => Quips.AllIdle;
+
+    /// <summary>空の画面に置く絵。<b>状態を運ばない場所なので、ポーズの意味とは結び付けない</b>（§52-1）。</summary>
+    public Bitmap? RestingPoseImage => PoseImages.Of(DepartmentPose.Resting);
+
+    public Bitmap? ConsultingPoseImage => PoseImages.Of(DepartmentPose.Consulting);
+
+    public bool HasThreads => Threads.Count > 0;
+
+    /// <summary>
+    /// どの部門も仕事を抱えていないか（設計 §52-2）。<b>判定は Core</b>（<see cref="Quips.AreAllIdle"/>）。
+    /// </summary>
+    public bool AllDepartmentsIdle => Quips.AreAllIdle([.. Departments.Select(tile => tile.Status.Work?.Value)]);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -281,7 +309,33 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// 部門タイル。<b>ワークスペースごとに入れ替わる</b>（設計 §15-8 / §30-4）——
     /// <c>departments.json</c> は人間が編集できるので、フォルダを開くたびに作り直す。
     /// </summary>
-    public required ObservableCollection<DepartmentTile> Departments { get; init; }
+    public required ObservableCollection<DepartmentTile> Departments
+    {
+        get;
+        init
+        {
+            field = value;
+
+            // **タイルの仕事状態が変わったら、「全員手すき」も読み直す**（§52-2）。
+            value.CollectionChanged += (_, e) =>
+            {
+                foreach (var tile in e.NewItems?.OfType<DepartmentTile>() ?? [])
+                {
+                    tile.PropertyChanged += OnDepartmentChanged;
+                }
+
+                foreach (var tile in e.OldItems?.OfType<DepartmentTile>() ?? [])
+                {
+                    tile.PropertyChanged -= OnDepartmentChanged;
+                }
+
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AllDepartmentsIdle)));
+            };
+        }
+    }
+
+    private void OnDepartmentChanged(object? sender, PropertyChangedEventArgs e) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AllDepartmentsIdle)));
 
     /// <summary>
     /// (a) ランタイム承認の待ち行列（設計 §3 / §5）。
@@ -562,7 +616,79 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         {
             field = value;
             Raise();
+            Raise(nameof(PoseSize));
         }
+    }
+
+    /// <summary>
+    /// 絵の大きさ。<b>選んでいる部門だけ大きく出す</b>（設計 §52-5）。
+    /// </summary>
+    /// <remarks>
+    /// 40px では見分けが優先で細部は潰れる（§15-9）。**一覧の並びは 40px のまま**にして、
+    /// 選んだ1つだけ表情や小物が見える大きさにする。
+    /// </remarks>
+    public double PoseSize => IsSelected ? 96 : 40;
+
+    private (DepartmentPose Pose, bool NeedsHuman)? _quipKey;
+    private string _quip = string.Empty;
+
+    /// <summary>
+    /// 絵にマウスを載せたときの一言（設計 §52-3）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ポーズか人間の出番が変わったときだけ選び直す。</b> 通知は観測のたびに全プロパティへ飛ぶ（<c>RaiseAll</c>）ので、
+    /// 読むたびに選ぶと、見ている間に言葉が入れ替わってちらつく。
+    /// </remarks>
+    public string Quip
+    {
+        get
+        {
+            // **人間の出番も鍵に入れる**（Codex の指摘）—— ポーズが同じまま質問が届くことがある。
+            var key = (Call.Pose, Call.NeedsHuman);
+            if (_quipKey != key)
+            {
+                _quipKey = key;
+                _quip = Quips.Pick(key.Pose, key.NeedsHuman, Random.Shared.Next);
+            }
+
+            return _quip;
+        }
+    }
+
+    /// <summary>ねぎらいの一言（設計 §52-4）。<b>出している間だけ</b>入る。</summary>
+    public string CheerText { get; private set; } = string.Empty;
+
+    public bool HasCheer => CheerText.Length > 0;
+
+    /// <summary>ねぎらいに添える絵（設計 §52-4）。<b>状態のポーズは差し替えない</b>（§52-1）。</summary>
+    public Bitmap? CheerImage => PoseImages.Bowing;
+
+    private DispatcherTimer? _cheerTimer;
+
+    /// <summary>
+    /// 報告を受理したときに、少しだけねぎらう（設計 §52-4）。
+    /// </summary>
+    /// <remarks>
+    /// <b>人間が受理した、という起きたことへの反応</b>なので、観測していないことを言っていない（§7）。
+    /// <para><b>10秒出す</b>（人間の判断）—— 2.5 秒では、受理を押して目を戻す前に消えていた。</para>
+    /// </remarks>
+    public void Cheer()
+    {
+        _cheerTimer?.Stop();
+        CheerText = Quips.Cheer;
+        Raise(nameof(CheerText));
+        Raise(nameof(HasCheer));
+
+        _cheerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        _cheerTimer.Tick += (_, _) =>
+        {
+            _cheerTimer?.Stop();
+            _cheerTimer = null;
+            CheerText = string.Empty;
+            Raise(nameof(CheerText));
+            Raise(nameof(HasCheer));
+        };
+        _cheerTimer.Start();
     }
 
     public string RuntimeText => Status.Runtime.Value.ToString();

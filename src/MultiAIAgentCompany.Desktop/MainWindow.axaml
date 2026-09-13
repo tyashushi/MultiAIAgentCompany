@@ -156,6 +156,10 @@
                         Classes="quiet" />
             </DockPanel>
 
+            <!-- **相談が無いときだけ一言**（設計 §52-2）。 -->
+            <TextBlock DockPanel.Dock="Top" Text="{Binding NoThreadsQuip}" Classes="caption"
+                       IsVisible="{Binding !HasThreads}" Margin="0,0,0,8" />
+
             <!-- **スクロールできること**（設計 §25-1）。無いと、はみ出した行に手が届かない。 -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <ItemsControl ItemsSource="{Binding Threads}">
@@ -392,6 +396,12 @@
                     BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                     BorderThickness="1" CornerRadius="4">
                 <StackPanel>
+                    <!-- **何も無いときだけ遊ぶ**（設計 §52-2）。説明文は削らない。 -->
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
+                        <Image Source="{Binding RestingPoseImage}" Width="64" Height="64" />
+                        <TextBlock Text="{Binding NoWorkspaceQuip}" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontSizeLarge}" />
+                    </StackPanel>
                     <TextBlock Text="AI たちを部門として働かせるアプリです" FontWeight="Bold" FontSize="{DynamicResource FontSizeLarge}" />
                     <TextBlock TextWrapping="Wrap" Margin="0,8,0,0" Opacity="0.85"
                                Text="Claude Code / Codex CLI / Antigravity CLI を「部門」として扱います。あなたは秘書と会話し、秘書が仕事を各部門に渡します。" />
@@ -414,9 +424,14 @@
                 <Panel>
                 <!-- **空のときは真ん中に薄く**（設計 §44）。左上に1行だけ置くと、
                      広い面が「白い空洞」に見える。 -->
-                <TextBlock Text="まだ何も話していません。秘書に相談すると、ここに会話が出ます"
-                           Classes="caption" IsVisible="{Binding !HasTranscript}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <!-- **ロボットと一言を添える**（設計 §52-2）。何をすればよいかの一文は残す。 -->
+                <StackPanel IsVisible="{Binding !HasTranscript}" Spacing="8"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Image Source="{Binding ConsultingPoseImage}" Width="80" Height="80" HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding EmptyTranscriptQuip}" HorizontalAlignment="Center" TextWrapping="Wrap" />
+                    <TextBlock Text="まだ何も話していません。秘書に相談すると、ここに会話が出ます"
+                               Classes="caption" HorizontalAlignment="Center" TextWrapping="Wrap" />
+                </StackPanel>
 
                 <ScrollViewer x:Name="TranscriptScroll" IsVisible="{Binding HasTranscript}"
                               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -436,6 +451,10 @@
         <Border Grid.Column="4" Classes="pane">
         <DockPanel>
             <TextBlock DockPanel.Dock="Top" Text="部門" Classes="section" Margin="0,0,0,8" />
+
+            <!-- **どの部門も仕事を抱えていないときだけ**（設計 §52-2）。判定は仕事状態（.company/ の文書）。 -->
+            <TextBlock DockPanel.Dock="Top" Text="{Binding AllIdleQuip}" Classes="caption" TextWrapping="Wrap"
+                       IsVisible="{Binding AllDepartmentsIdle}" Margin="0,0,0,8" />
 
             <!-- **開いたときと更新を押したときだけ取る。** 色や警告の閾値は付けない（設計 §50-2）。 -->
             <Expander DockPanel.Dock="Bottom" Classes="log" IsExpanded="False" Margin="0,8,0,0"
@@ -484,11 +503,14 @@
                         <Border Classes="card" Classes.needs-human="{Binding NeedsHuman}">
                             <Grid ColumnDefinitions="Auto,*">
                                 <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
-                                <Grid Grid.Column="0" Width="40" Height="40" Margin="0,12,0,0"
+                                <!-- **選んでいる部門だけ大きく出す**（設計 §52-5）。一覧の並びは 40px のまま。 -->
+                                <Grid Grid.Column="0" Width="{Binding PoseSize}" Height="{Binding PoseSize}" Margin="0,12,0,0"
                                       VerticalAlignment="Top">
-                                    <!-- ポーズ＝活動状態（設計 §15-2）。24px でも見分けが付くことを確かめてある。 -->
-                                    <Image Source="{Binding PoseImage}" Width="40" Height="40"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <!-- ポーズ＝活動状態（設計 §15-2）。24px でも見分けが付くことを確かめてある。
+                                         **一言はツールチップに置く**（§52-3）—— 絵そのものと根拠の文言には混ぜない。 -->
+                                    <Image Source="{Binding PoseImage}" Width="{Binding PoseSize}" Height="{Binding PoseSize}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ToolTip.Tip="{Binding Quip}" />
                                     <TextBlock Text="{Binding BadgeGlyph}" FontSize="{DynamicResource FontSizeNormal}"
                                                HorizontalAlignment="Right" VerticalAlignment="Top" />
                                     <TextBlock Text="{Binding RuntimeGlyph}" FontSize="{DynamicResource FontSizeNormal}"
@@ -498,6 +520,12 @@
                                     <TextBlock Classes="title">
                                         <Run Text="{Binding Name}" />
                                     </TextBlock>
+                                    <!-- **受理したら少しだけねぎらう**（設計 §52-4）。 -->
+                                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasCheer}">
+                                        <Image Source="{Binding CheerImage}" Width="32" Height="32" />
+                                        <TextBlock Text="{Binding CheerText}" VerticalAlignment="Center"
+                                                   Classes="meta" Foreground="{DynamicResource AccentBrush}" />
+                                    </StackPanel>
                                     <TextBlock Text="{Binding Agent}" Classes="meta" />
                                     <!-- **指定があるときだけ起動時の権限を出す**（設計 §51-3）。 -->
                                     <TextBlock Text="{Binding PermissionModeText}" IsVisible="{Binding HasPermissionMode}"

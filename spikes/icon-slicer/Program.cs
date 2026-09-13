@@ -5,7 +5,8 @@ if (args.Length < 2)
 {
     Console.Error.WriteLine(
         "使い方: slice <sheet.png> <出力先> / normalize <入力> <出力> / sheet <入力> <出力.png>"
-        + " / iconset <3体.png> <1体.png> <出力.iconset>");
+        + " / iconset <3体.png> <1体.png> <出力.iconset>"
+        + " / cutout <白背景の1体.png> <出力.png> <fill> <bottomMargin>");
     return 1;
 }
 
@@ -17,6 +18,7 @@ switch (args[0])
     case "slice": Slice(args[1], args[2]); break;
     case "normalize": Normalize(args[1], args[2]); break;
     case "sheet": Sheet(args[1], args[2]); break;
+    case "cutout": Cutout(args[1], args[2], double.Parse(args[3]), double.Parse(args[4])); break;
     case "iconset": IconSet(args[1], args[2], args[3]); break;
     default:
         Console.Error.WriteLine($"知らない命令: {args[0]}");
@@ -138,12 +140,76 @@ void Normalize(string inDir, string outDir)
     }
 }
 
+// 白い背景で生成された1体を切り抜いて、既存のポーズと同じ 256px の形にする（設計 §52-4）。
+// **背景は「縁から繋がった白」だけ抜く** —— 体の中の明るい所まで抜くと穴が開く。
+// 生成画像のステッカー風の白い縁も、背景と繋がっているので一緒に抜ける（既存の6枚には縁が無い）。
+void Cutout(string source, string outPath, double fill, double bottom)
+{
+    using var src = SKBitmap.Decode(source);
+    int w = src.Width, h = src.Height;
+    const int Canvas = 256;
+    static bool IsWhite(SKColor c) => c.Red > 225 && c.Green > 225 && c.Blue > 225;
+
+    var background = new bool[w * h];
+    var queue = new Queue<int>();
+    for (var x = 0; x < w; x++) { queue.Enqueue(x); queue.Enqueue((h - 1) * w + x); }
+    for (var y = 0; y < h; y++) { queue.Enqueue(y * w); queue.Enqueue(y * w + w - 1); }
+    while (queue.Count > 0)
+    {
+        var p = queue.Dequeue();
+        if (background[p] || !IsWhite(src.GetPixel(p % w, p / w))) continue;
+        background[p] = true;
+        int px = p % w, py = p / w;
+        if (px > 0) queue.Enqueue(p - 1);
+        if (px < w - 1) queue.Enqueue(p + 1);
+        if (py > 0) queue.Enqueue(p - w);
+        if (py < h - 1) queue.Enqueue(p + w);
+    }
+
+    using var art = new SKBitmap(w, h, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+    int left = w, top = h, right = 0, bottomEdge = 0;
+    for (var y = 0; y < h; y++)
+    {
+        for (var x = 0; x < w; x++)
+        {
+            if (background[y * w + x])
+            {
+                art.SetPixel(x, y, SKColors.Transparent);
+                continue;
+            }
+
+            art.SetPixel(x, y, src.GetPixel(x, y));
+            left = Math.Min(left, x); right = Math.Max(right, x);
+            top = Math.Min(top, y); bottomEdge = Math.Max(bottomEdge, y);
+        }
+    }
+
+    int bw = right - left + 1, bh = bottomEdge - top + 1;
+    using var piece = new SKBitmap(bw, bh);
+    art.ExtractSubset(piece, new SKRectI(left, top, right + 1, bottomEdge + 1));
+    var factor = Canvas * fill / Math.Max(bw, bh);
+    int sw = (int)Math.Round(bw * factor), sh = (int)Math.Round(bh * factor);
+
+    using var surface = SKSurface.Create(new SKImageInfo(Canvas, Canvas, SKColorType.Rgba8888, SKAlphaType.Premul));
+    surface.Canvas.Clear(SKColors.Transparent);
+    using (var scaled = piece.Resize(new SKImageInfo(sw, sh), sampling))
+    {
+        surface.Canvas.DrawBitmap(scaled, (Canvas - sw) / 2f, Canvas - sh - (float)(Canvas * bottom));
+    }
+
+    Save(surface, outPath);
+    Console.WriteLine($"切り抜いた: {bw}x{bh} → {sw}x{sh}（{outPath}）");
+}
+
 // 実寸で並べて見る（設計 §15-5 の判定）。
 void Sheet(string dir, string outPath)
 {
-    var bitmaps = Names.Select(n => SKBitmap.Decode(Path.Combine(dir, n + ".png"))).ToArray();
+    // **あとから足したポーズ（おじぎ、§52-4）も、あれば並べる。**
+    var bitmaps = Names.Append("bowing")
+        .Where(n => File.Exists(Path.Combine(dir, n + ".png")))
+        .Select(n => SKBitmap.Decode(Path.Combine(dir, n + ".png"))).ToArray();
     const int Cell = 96;
-    var width = Cell * 6 + 40;
+    var width = Cell * bitmaps.Length + 40;
 
     using var surface = SKSurface.Create(new SKImageInfo(width, 330));
     var canvas = surface.Canvas;

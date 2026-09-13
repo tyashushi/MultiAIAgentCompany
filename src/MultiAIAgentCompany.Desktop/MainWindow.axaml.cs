@@ -1081,6 +1081,12 @@ public partial class MainWindow : Window
             Note($"{tile.Name}: 書き込み権を返した（抱えている仕事が無くなった）");
         }
 
+        // **受理できたときだけねぎらう**（設計 §52-4）。起きたことへの反応なので、嘘にならない。
+        if (write is TaskWriteResult.Written)
+        {
+            tile.Cheer();
+        }
+
         Note(write switch
         {
             TaskWriteResult.Written => $"{tile.Name}: {state.Slug} を受理した",

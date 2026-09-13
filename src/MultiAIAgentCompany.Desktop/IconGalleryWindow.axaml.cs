@@ -34,6 +34,9 @@ public partial class IconGalleryWindow : Window
         new("相談中（Consulting）", "(b) 質問を読んで答える → .company/ の question.md へ", PoseImages.Of(DepartmentPose.Consulting)),
         new("調子が悪い（Degraded）", "動いてはいるが何かおかしい。様子を見る", PoseImages.Of(DepartmentPose.Degraded)),
         new("分からない（Unknown）", "特に行動は要らない。長く続くなら見に行く", PoseImages.Of(DepartmentPose.Unknown)),
+
+        // **状態のポーズではない**（設計 §52-4）。受理したときのねぎらいにだけ出る。
+        new("おじぎ（ねぎらい）", "状態ではない。報告を受理したときに少しだけ出る", PoseImages.Bowing),
     ];
 
     public IReadOnlyList<IconGalleryRow> Marks { get; } =

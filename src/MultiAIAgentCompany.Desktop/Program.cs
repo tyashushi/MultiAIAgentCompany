@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Media;
 
 namespace MultiAIAgentCompany.Desktop;
 
@@ -85,5 +86,15 @@ internal static class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
+
+            // **Inter に無い字は、日本語フォントで描く**（設計 §52-6、実機で踏んだ）。
+            // `Window` にフォントを指定するだけでは、**ツールチップのように窓の外に出る小窓へ届かない** ——
+            // 部門の絵のツールチップが □ になった。窓ごと・部品ごとに書くと、書き忘れた所がまた化ける。
+            // **既定は Inter のまま**にする（`WithInterFont` が入れる名前と同じ）—— 英数字の見た目を変えない。
+            .With(new FontManagerOptions
+            {
+                DefaultFamilyName = "fonts:Inter#Inter",
+                FontFallbacks = [new FontFallback { FontFamily = new FontFamily("Hiragino Sans") }],
+            })
             .LogToTrace();
 }
