@@ -29,6 +29,9 @@ public partial class DepartmentSettingsWindow : Window
     /// <summary>CLI ごとのモデル一覧。<b>1回だけ聞く</b>（ネットワークへ出るため）。</summary>
     private readonly Dictionary<AgentKind, IReadOnlyList<AgentModelChoice>> _catalog = [];
 
+    /// <summary>CLI ごとの強さの候補。<b>Codex はモデルごとに違う</b>ので、こちらは空になる。</summary>
+    private readonly Dictionary<AgentKind, IReadOnlyList<string>> _efforts = [];
+
     /// <summary>XAML プレビュー用。</summary>
     public DepartmentSettingsWindow()
     {
@@ -106,17 +109,25 @@ public partial class DepartmentSettingsWindow : Window
     /// </remarks>
     private async Task LoadModelChoicesAsync()
     {
-        foreach (var kind in _model.AgentChoices.Where(AgentModelCatalog.CanList))
+        foreach (var kind in _model.AgentChoices)
         {
             if (!_catalog.TryGetValue(kind, out var choices))
             {
-                choices = await AgentModelCatalog.ListAsync(kind, CancellationToken.None);
+                choices = await AgentModelCatalog.ListModelsAsync(kind, CancellationToken.None);
                 _catalog[kind] = choices;
+            }
+
+            if (!_efforts.TryGetValue(kind, out var efforts))
+            {
+                // **CLI に聞く**（設計 §48）。Claude は無効な値を渡すと候補を書いてくる ——
+                // `--help` と併せれば会話を1つも使わない。
+                efforts = await AgentModelCatalog.ListEffortsAsync(kind, CancellationToken.None);
+                _efforts[kind] = efforts;
             }
 
             foreach (var edit in _model.Departments.Where(edit => edit.Agent == kind))
             {
-                edit.SetModelChoices(choices);
+                edit.SetChoices(choices, efforts);
             }
         }
     }

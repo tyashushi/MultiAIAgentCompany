@@ -106,14 +106,23 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
             if (value is not null)
             {
                 Model = value.Id;
+
+                // **選んだモデルが持たない強さは、残さない**（§48）。
+                if (value.Efforts is { Count: > 0 } efforts
+                    && ReasoningEffort is { Length: > 0 } current
+                    && !efforts.Contains(current, StringComparer.Ordinal))
+                {
+                    ReasoningEffort = string.Empty;
+                }
             }
 
             Raise();
+            Raise(nameof(EffortChoices));
         }
     }
 
     /// <summary>候補を入れ直す（CLI を変えたときに呼ばれる）。</summary>
-    public void SetModelChoices(IReadOnlyList<AgentModelChoice> choices)
+    public void SetChoices(IReadOnlyList<AgentModelChoice> choices, IReadOnlyList<string> cliEfforts)
     {
         ModelChoices.Clear();
         foreach (var choice in choices)
@@ -121,27 +130,42 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
             ModelChoices.Add(choice);
         }
 
+        _cliEfforts = cliEfforts;
         SelectedModel = ModelChoices.FirstOrDefault(
             choice => string.Equals(choice.Id, Model, StringComparison.Ordinal));
         Raise(nameof(HasModelChoices));
+        Raise(nameof(EffortChoices));
     }
 
     public string Title => $"{DisplayName}（{Id}）";
 
     /// <summary>
-    /// その CLI で使える思考の強さ（設計 §46）。
+    /// その部門で選べる思考の強さ（設計 §48）。
     /// </summary>
     /// <remarks>
-    /// <b>これが全部ではない。</b> 使える値は CLI とモデルで変わる
-    /// （Codex には `xhigh` / `max` / `ultra` を持つモデルがある）——
-    /// **候補は出すが、打ち込めるようにしておく。**
+    /// <b>モデルごとに違う。</b> Codex は `gpt-5.5` が `xhigh` まで、
+    /// `gpt-5.6-terra` は `ultra` まで —— **一律に出すと、設定できるのに起動しない
+    /// 組み合わせを作れてしまう**（§47-2 で agy で踏んだのと同じ形）。
+    /// <para>
+    /// モデルが強さを持たないときは、**CLI に聞いた候補**に落とす。
+    /// それも無ければ空（＝ CLI の設定に任せる、しか選べない）。
+    /// </para>
     /// </remarks>
-    public IReadOnlyList<string> EffortChoices { get; } = ["", "low", "medium", "high", "xhigh", "max"];
+    public IReadOnlyList<string> EffortChoices =>
+        SelectedModel?.Efforts is { Count: > 0 } fromModel
+            ? ["", .. fromModel]
+            : _cliEfforts is { Count: > 0 } fromCli
+                ? ["", .. fromCli]
+                : [""];
+
+    private IReadOnlyList<string> _cliEfforts = [];
 
     /// <summary>モデル欄の下に出す例。<b>一覧は機械で取れない</b>ので、例として出す。</summary>
     public string ModelHint => Agent switch
     {
-        AgentKind.ClaudeCode => "空欄なら CLI の設定に任せる（例: claude-opus-5 / claude-sonnet-5）",
+        AgentKind.ClaudeCode =>
+            "空欄なら CLI の設定に任せる。別名も使える（opus / sonnet / fable）。"
+            + "一覧は Claude Code からは取れないので、ここは打ち込みです",
         AgentKind.CodexCli => "空欄なら CLI の設定に任せる（例: gpt-5.6-terra / gpt-5.6-sol）",
         AgentKind.AntigravityCli => "強さはモデル名に含まれます（例: Gemini 3.8 Flash (High)）",
         _ => "空欄なら CLI の設定に任せる",

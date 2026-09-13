@@ -8,6 +8,9 @@ namespace MultiAIAgentCompany.Core.Agents.CodexCli;
 public sealed class CodexAppServerSession : IStructuredSession
 {
     private readonly IAgentProcessChannel _channel;
+
+    /// <summary>渡す思考の強さ（設計 §48-1）。<b>turn ごとに渡す</b>のが公式の形。</summary>
+    private readonly string? _effort;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly DiagnosticsLog _diagnostics = new();
     private readonly Dictionary<string, CodexApprovalRequest> _approvalRequests = new(StringComparer.Ordinal);
@@ -37,7 +40,8 @@ public sealed class CodexAppServerSession : IStructuredSession
         _channel.Exited += ChannelExited;
         _channel.StandardErrorLine += StandardErrorLine;
         _readLoop = ReadLoopAsync();
-        _initialization = InitializeAsync(workspaceRoot, model, effort?.Trim());
+        _effort = effort?.Trim();
+        _initialization = InitializeAsync(workspaceRoot, model);
     }
 
     public string DepartmentId { get; }
@@ -85,11 +89,26 @@ public sealed class CodexAppServerSession : IStructuredSession
     private async Task SendCoreAsync(string text, CancellationToken ct)
     {
         await CompleteHandshakeAsync(ct).ConfigureAwait(false);
-        await WriteRequestAsync("turn/start", new
-        {
-            threadId = _threadId!,
-            input = new[] { new { type = "text", text } },
-        }, ct).ConfigureAwait(false);
+
+        // **思考の強さは `turn/start` で渡す**（設計 §48-1、Codex の指摘で直した）。
+        // 直す前は `thread/start` の `config.model_reasoning_effort` に乗せていたが、
+        // **それは公式の仕様に無い渡し方**だった（`-c` の設定キーを、そのまま app-server に
+        // 送れると推測していた）。docs は `turn/start` の `effort` が
+        // **その thread の後続 turn の既定になる**と書いている。
+        object parameters = _effort is { Length: > 0 }
+            ? new
+            {
+                threadId = _threadId!,
+                input = new[] { new { type = "text", text } },
+                effort = _effort,
+            }
+            : new
+            {
+                threadId = _threadId!,
+                input = new[] { new { type = "text", text } },
+            };
+
+        await WriteRequestAsync("turn/start", parameters, ct).ConfigureAwait(false);
     }
 
     public async Task RespondAsync(ApprovalRequest request, ApprovalDecision decision, string? reason, CancellationToken ct)
@@ -112,7 +131,7 @@ public sealed class CodexAppServerSession : IStructuredSession
         }
     }
 
-    private async Task InitializeAsync(string workspaceRoot, string model, string? effort)
+    private async Task InitializeAsync(string workspaceRoot, string model)
     {
         try
         {
@@ -133,21 +152,13 @@ public sealed class CodexAppServerSession : IStructuredSession
         try
         {
             await WriteAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", method = "initialized" }), CancellationToken.None).ConfigureAwait(false);
-            // **思考の強さは `config` で渡す**（設計 §46）。Codex CLI には `--effort` が無く、
-            // `-c model_reasoning_effort=…` で渡す仕様なので、app-server でも同じ鍵に乗せる。
-            // **効いたかどうかは、返ってくる thread の申告で確かめる**（§7）——
-            // `ObservedModel.ReasoningEffort` に出る。
-            object config = effort is { Length: > 0 }
-                ? new { sandbox_mode = "workspace-write", model_reasoning_effort = effort }
-                : new { sandbox_mode = "workspace-write" };
-
             await WriteRequestAsync("thread/start", new
             {
                 cwd = workspaceRoot,
                 model,
                 approvalPolicy = "on-request",
                 approvalsReviewer = "user",
-                config,
+                config = new { sandbox_mode = "workspace-write" },
             }, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception)
