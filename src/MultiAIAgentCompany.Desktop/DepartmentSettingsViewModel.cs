@@ -31,6 +31,7 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
         ReadsOnly = definition.ReadsOnly;
         ReportDeadlineMinutes = definition.ReportDeadlineMinutes?.ToString() ?? string.Empty;
         IsNew = isNew;
+        UpdateEffortChoices();
     }
 
     public string Id { get => field; set { field = value; Raise(); Raise(nameof(Title)); } }
@@ -56,7 +57,8 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
     /// <summary>空欄は「CLI の設定に任せる」（設計 §46）。</summary>
     public string Model { get => field; set { field = value; Raise(); } }
 
-    public string ReasoningEffort { get => field; set { field = value; Raise(); } }
+    /// <summary><b>null は空欄として持つ。</b> ComboBox は選択が外れると null を書き戻してくる。</summary>
+    public string ReasoningEffort { get => field; set { field = value ?? string.Empty; Raise(); } } = string.Empty;
 
     public bool ReadsOnly { get => field; set { field = value; Raise(); } }
 
@@ -117,7 +119,7 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
             }
 
             Raise();
-            Raise(nameof(EffortChoices));
+            UpdateEffortChoices();
         }
     }
 
@@ -134,7 +136,7 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
         SelectedModel = ModelChoices.FirstOrDefault(
             choice => string.Equals(choice.Id, Model, StringComparison.Ordinal));
         Raise(nameof(HasModelChoices));
-        Raise(nameof(EffortChoices));
+        UpdateEffortChoices();
     }
 
     public string Title => $"{DisplayName}（{Id}）";
@@ -151,12 +153,59 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
     /// それも無ければ空（＝ CLI の設定に任せる、しか選べない）。
     /// </para>
     /// </remarks>
-    public IReadOnlyList<string> EffortChoices =>
-        SelectedModel?.Efforts is { Count: > 0 } fromModel
+    public ObservableCollection<string> EffortChoices { get; } = [];
+
+    /// <summary>
+    /// 候補を<b>作り直さずに、その場で足し引きする</b>。
+    /// </summary>
+    /// <remarks>
+    /// <b>開いた直後に強さが空欄になっていた</b>（実機で分かった）。候補は CLI に聞いてから
+    /// 非同期で入るので、開いた直後は `[""]` しか無い。保存済みの `medium` が候補に無いと
+    /// ComboBox は選択を外し、**後から候補を差し替えても、同じ値を通知し直しても選び直さない**
+    /// （値が変わっていないので、ComboBox 側に変更が届かない）。部門を選び直すと出たのは、
+    /// 一度別の値を経由するから。
+    /// <para>
+    /// だから <b>保存済みの値は、候補に無くても最初から入れておく</b>。そのうえで一覧を
+    /// 丸ごと差し替えず、要らない項目を抜いて足りない項目を差し込む ——
+    /// 選んでいる項目に触らないので、選択が外れない。
+    /// </para>
+    /// </remarks>
+    private void UpdateEffortChoices()
+    {
+        List<string> target = SelectedModel?.Efforts is { Count: > 0 } fromModel
             ? ["", .. fromModel]
-            : _cliEfforts is { Count: > 0 } fromCli
-                ? ["", .. fromCli]
-                : [""];
+            : ["", .. _cliEfforts];
+        if (ReasoningEffort.Length > 0 && !target.Contains(ReasoningEffort, StringComparer.Ordinal))
+        {
+            target.Add(ReasoningEffort);
+        }
+
+        for (var i = EffortChoices.Count - 1; i >= 0; i--)
+        {
+            if (!target.Contains(EffortChoices[i], StringComparer.Ordinal))
+            {
+                EffortChoices.RemoveAt(i);
+            }
+        }
+
+        for (var i = 0; i < target.Count; i++)
+        {
+            if (i < EffortChoices.Count && string.Equals(EffortChoices[i], target[i], StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var existing = EffortChoices.IndexOf(target[i]);
+            if (existing >= 0)
+            {
+                EffortChoices.Move(existing, i);
+            }
+            else
+            {
+                EffortChoices.Insert(i, target[i]);
+            }
+        }
+    }
 
     private IReadOnlyList<string> _cliEfforts = [];
 
