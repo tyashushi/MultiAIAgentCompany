@@ -57,6 +57,7 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
             UpdatePermissionModeChoices();
             Raise();
             Raise(nameof(ModelHint));
+            CheckPermissionMode();
             Raise(nameof(SupportsEffort));
         }
     }
@@ -64,7 +65,7 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
     public DriveMode Mode { get => field; set { field = value; Raise(); Raise(nameof(IsStructured)); } }
 
     /// <summary>空欄は「CLI の設定に任せる」（設計 §46）。</summary>
-    public string Model { get => field; set { field = value; Raise(); } }
+    public string Model { get => field; set { field = value; Raise(); CheckPermissionMode(); } } = string.Empty;
 
     /// <summary><b>null は空欄として持つ。</b> ComboBox は選択が外れると null を書き戻してくる。</summary>
     public string ReasoningEffort { get => field; set { field = value ?? string.Empty; Raise(); } } = string.Empty;
@@ -78,6 +79,76 @@ public sealed class DepartmentEdit : INotifyPropertyChanged
             field = value;
             Raise();
             Raise(nameof(SelectedPermissionMode));
+            CheckPermissionMode();
+        }
+    }
+
+    /// <summary>権限モードが効かないときの一文（設計 §51-4）。<b>効くか分からないときも言う。</b></summary>
+    public string PermissionModeWarning
+    {
+        get => field;
+        private set
+        {
+            field = value;
+            Raise();
+            Raise(nameof(HasPermissionModeWarning));
+        }
+    } = string.Empty;
+
+    public bool HasPermissionModeWarning => PermissionModeWarning.Length > 0;
+
+    private CancellationTokenSource? _permissionCheck;
+
+    /// <summary>
+    /// <b>Claude では、選んだモードが実際に効くかを CLI に聞く</b>（設計 §51-4）。
+    /// </summary>
+    /// <remarks>
+    /// haiku で「自動」を選ぶと、Claude は<b>黙って通常モードで起動する</b>（実機で確かめた）。
+    /// タイルは「権限: 自動」と出すので、**ここで言わないと誰も気付けない。**
+    /// <para>
+    /// モデル欄は打ち込みなので、<b>打ち終わるまで少し待ってから</b>聞く。
+    /// 聞いている途中で値が変わったら、古い答えは捨てる。
+    /// </para>
+    /// </remarks>
+    private void CheckPermissionMode()
+    {
+        _permissionCheck?.Cancel();
+        _permissionCheck = null;
+
+        if (Agent is not AgentKind.ClaudeCode || PermissionMode is not { } mode)
+        {
+            PermissionModeWarning = string.Empty;
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _permissionCheck = cancellation;
+        var model = Blank(Model);
+        PermissionModeWarning = string.Empty;
+        _ = CheckPermissionModeAsync(model, mode, cancellation.Token);
+    }
+
+    private async Task CheckPermissionModeAsync(string? model, AgentPermissionMode mode, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(700), ct);
+            var reported = await Task.Run(() => AgentPermissionProbe.ProbeClaudeAsync(model, mode, ct), ct);
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            var label = AgentPermissionModes.Label(mode);
+            PermissionModeWarning = reported switch
+            {
+                null => $"「{label}」が効くか、Claude Code に確かめられませんでした",
+                _ when reported == AgentPermissionProbe.ExpectedClaudeReport(mode) => string.Empty,
+                _ => $"このモデルでは「{label}」になりません。Claude Code は `{reported}` で起動します（CLI に聞いた結果）",
+            };
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 

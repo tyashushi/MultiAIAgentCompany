@@ -215,4 +215,27 @@ public sealed class CodexSessionTests
         Assert.Equal("0.153.4", session.DetectedVersion);
     }
 
+    [Fact]
+    public async Task turnで変わった強さを申告値として持つ()
+    {
+        // **強さは turn/start で渡す**（§48-2）ので、thread/start の応答は CLI の既定（high）を申告する。
+        // 実際に使った値は `thread/settings/updated` で届く（2026-09-13 に実プロセスで確かめた）。
+        const string threadId = "01a07273-df61-75c2-92c8-951ea3c10c78";
+        var lines = ReadFixture("accept.stdout.jsonl").ToList();
+        lines.Insert(4,
+            "{\"method\":\"thread/settings/updated\",\"params\":{\"threadId\":\"" + threadId + "\","
+            + "\"threadSettings\":{\"model\":\"gpt-5.6-terra\",\"effort\":\"low\"}},\"emittedAtMs\":1789291365259}");
+        lines.Insert(5,
+            "{\"method\":\"thread/settings/updated\",\"params\":{\"threadId\":\"other-thread\","
+            + "\"threadSettings\":{\"model\":\"gpt-5.5\",\"effort\":\"xhigh\"}},\"emittedAtMs\":1789291365260}");
+        var channel = new FakeChannel(lines);
+        await using var session = new CodexAppServerSession(channel, "engineering", "/tmp", "gpt-5.6-terra", "low");
+
+        channel.Release();
+        await channel.Completed;
+
+        // **別の thread の通知は拾わない。**
+        Assert.Equal(new AgentModel("gpt-5.6-terra", "low"), session.ObservedModel);
+    }
+
 }

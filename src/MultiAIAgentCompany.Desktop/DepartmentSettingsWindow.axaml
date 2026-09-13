@@ -121,6 +121,11 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                        <!-- **選んだモードが効かないモデルでは言う**（設計 §51-4、実機で分かった）。
+                             Claude は haiku で「自動」を黙って通常モードに戻す。 -->
+                        <TextBlock Text="{Binding PermissionModeWarning}" IsVisible="{Binding HasPermissionModeWarning}"
+                                   Classes="caption" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource AccentBrush}" />
                     </StackPanel>
 
                     <StackPanel Spacing="4">

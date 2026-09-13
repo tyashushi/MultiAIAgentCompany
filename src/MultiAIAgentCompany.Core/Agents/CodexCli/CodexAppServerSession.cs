@@ -226,6 +226,16 @@ public sealed class CodexAppServerSession : IStructuredSession
                         SafeInvoke(() => Spoke?.Invoke(this, new LiveAgentMessage(spoken)), "Spoke");
                         break;
                     case CodexMessage.Notification notification:
+                        // **強さは turn/start で渡す**（§48-2）ので、thread/start の申告は CLI の既定のまま。
+                        // 実際に使う値は `thread/settings/updated` で届く（2026-09-13 に実プロセスで確かめた）——
+                        // 拾わないと、`low` で動いているのに `high` と表示し続ける。
+                        // 画面は観測のたびに拾い直すので、Observe より前に入れる。
+                        if (notification.Method == "thread/settings/updated"
+                            && TryReadThreadSettingsModel(line, _threadId) is { } updated)
+                        {
+                            ObservedModel = updated;
+                        }
+
                         Observe($"Codex 通知: method={notification.Method}");
                         break;
                     case CodexMessage.Unknown unknown:
@@ -318,6 +328,38 @@ public sealed class CodexAppServerSession : IStructuredSession
                 : null;
         }
         catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// `thread/settings/updated` から、<b>この thread の</b>モデルと強さを読む。読めなければ null。
+    /// </summary>
+    private static AgentModel? TryReadThreadSettingsModel(string line, string? ownThreadId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            if (ownThreadId is null
+                || !document.RootElement.TryGetProperty("params", out var parameters)
+                || !parameters.TryGetProperty("threadId", out var threadId)
+                || threadId.ValueKind != JsonValueKind.String
+                || !string.Equals(threadId.GetString(), ownThreadId, StringComparison.Ordinal)
+                || !parameters.TryGetProperty("threadSettings", out var settings)
+                || !settings.TryGetProperty("model", out var model)
+                || model.ValueKind != JsonValueKind.String
+                || model.GetString() is not { Length: > 0 } modelId)
+            {
+                return null;
+            }
+
+            var effort = settings.TryGetProperty("effort", out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+            return new AgentModel(modelId, effort);
+        }
+        catch (JsonException)
         {
             return null;
         }

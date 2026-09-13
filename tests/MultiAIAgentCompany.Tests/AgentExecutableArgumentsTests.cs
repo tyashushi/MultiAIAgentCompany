@@ -125,4 +125,31 @@ public sealed class AgentExecutableArgumentsTests
         Assert.Equal(label, AgentPermissionModes.Label(mode));
     }
 
+    [Theory]
+    [InlineData(AgentPermissionMode.Auto, "auto")]
+    [InlineData(AgentPermissionMode.Manual, "default")]
+    [InlineData(AgentPermissionMode.AcceptEdits, "acceptEdits")]
+    [InlineData(AgentPermissionMode.Plan, "plan")]
+    public void Claudeが申告するはずのモード(AgentPermissionMode mode, string expected)
+    {
+        // **`manual` は `default` と申告される**（2026-09-13 に実機で確かめた。§51-4）。
+        Assert.Equal(expected, AgentPermissionProbe.ExpectedClaudeReport(mode));
+    }
+
+    [Fact]
+    public void Claudeのinitから実際のモードを読む()
+    {
+        // 実機の init 行から、判定に使うキーだけを残したもの（haiku に auto を渡した結果）。
+        Assert.Equal("default", AgentPermissionProbe.ParseInitPermissionMode(
+            """{"type":"system","subtype":"init","model":"claude-haiku-4-5-20251001","permissionMode":"default"}"""));
+        Assert.Equal("auto", AgentPermissionProbe.ParseInitPermissionMode(
+            """{"type":"system","subtype":"init","model":"claude-sonnet-5","permissionMode":"auto"}"""));
+
+        // **init 以外の行・読めない行からは読まない。**
+        Assert.Null(AgentPermissionProbe.ParseInitPermissionMode(
+            """{"type":"system","subtype":"thinking_tokens","permissionMode":"auto"}"""));
+        Assert.Null(AgentPermissionProbe.ParseInitPermissionMode("not json"));
+        Assert.Null(AgentPermissionProbe.ParseInitPermissionMode("[1]"));
+    }
+
 }
