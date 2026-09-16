@@ -3,6 +3,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:MultiAIAgentCompany.Desktop"
+        xmlns:core="using:MultiAIAgentCompany.Core.Coordination"
+        DragDrop.AllowDrop="True"
         mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
         x:Class="MultiAIAgentCompany.Desktop.MainWindow"
         x:DataType="vm:ShellViewModel"
@@ -300,12 +302,39 @@
                                      FontSize="{DynamicResource FontSizeSmall}"
                                      Foreground="{DynamicResource TextSecondaryBrush}"
                                      TextWrapping="Wrap" Margin="0,0,0,6" />
+                <!-- 送る前の添付（設計 §58-6）。**外せるようにする** —— 落とし間違いを送らない。 -->
+                <ItemsControl ItemsSource="{Binding PendingAttachments}" IsVisible="{Binding HasPendingAttachments}"
+                              Margin="0,0,0,6">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="core:AttachmentDraft">
+                            <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                    BorderThickness="1" CornerRadius="4" Padding="8,2,2,2" Margin="0,0,6,4">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                               FontSize="{DynamicResource FontSizeSmall}" MaxWidth="240"
+                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SourcePath}" />
+                                    <TextBlock Text="{Binding Length, Converter={x:Static vm:AttachmentSize.Converter}}"
+                                               VerticalAlignment="Center" FontSize="{DynamicResource FontSizeSmall}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    <Button Content="×" Classes="quiet" Padding="6,0"
+                                            FontSize="{DynamicResource FontSizeSmall}"
+                                            ToolTip.Tip="この添付を外す" Click="OnRemoveAttachment" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <Grid ColumnDefinitions="*,Auto">
                     <!-- **素の Enter で送る**（設計 §13-7 の実測）。IME の確定 Enter は
                          KeyDown として届かないので、確定と送信は衝突しない。 -->
                     <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
                              KeyDown="OnMessageKeyDown" Classes="input"
-                             PlaceholderText="秘書に相談する（Enter で送る）" />
+                             PlaceholderText="秘書に相談する（Enter で送る。ファイルは窓に落とすと添付）" />
                     <!-- 未起動なら、その副作用として起動する（§17-4）。
                          **画面でいちばん強い操作はこれ1つ**（設計 §44）。 -->
                     <Button Grid.Column="1" Content="秘書に送る" Classes="primary"

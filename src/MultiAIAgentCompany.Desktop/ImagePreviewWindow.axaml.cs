@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -10,12 +11,21 @@ using SkiaSharp;
 
 namespace MultiAIAgentCompany.Desktop;
 
-/// <summary>画像のプレビュー。表示を差し替えるたびに、前の画像は解放する（設計 §56-5）。</summary>
+/// <summary>
+/// 画像と添付のプレビュー（設計 §56-5 / §58-5）。表示を差し替えるたびに、前の画像は解放する。
+/// </summary>
 public partial class ImagePreviewWindow : Window
 {
     private readonly DispatcherTimer _resizeTimer = new() { Interval = TimeSpan.FromMilliseconds(150) };
     private Bitmap? _bitmap;
     private string? _fullPath;
+    private bool _isImage;
+
+    /// <summary>文字として出すのは先頭のここまで（§58-5）。</summary>
+    private const int TextLimitBytes = 256 * 1024;
+
+    /// <summary>この範囲に NUL があれば文字として扱わない（§58-5）。</summary>
+    private const int BinarySniffBytes = 8 * 1024;
 
     public ImagePreviewWindow()
     {
@@ -26,7 +36,7 @@ public partial class ImagePreviewWindow : Window
         _resizeTimer.Tick += (_, _) => { _resizeTimer.Stop(); LoadImage(); };
         ImageArea.SizeChanged += (_, _) =>
         {
-            if (_fullPath is null) return;
+            if (_fullPath is null || !_isImage) return;
             _resizeTimer.Stop();
             _resizeTimer.Start();
         };
@@ -42,7 +52,64 @@ public partial class ImagePreviewWindow : Window
         RevealButton.IsEnabled = _fullPath is not null;
         PreviewMessage.Text = (resolution as ImageLinkResolution.Rejected)?.Reason;
         PreviewMessage.IsVisible = PreviewMessage.Text is not null;
-        LoadImage();
+        PreviewText.Text = null;
+        TextArea.IsVisible = false;
+        _isImage = TranscriptImageLinks.IsImage(link);
+        if (_isImage) LoadImage();
+        else LoadText();
+    }
+
+    /// <summary>
+    /// 添付を文字として出す。<b>読めなければ「プレビューできない」と言い、場所を開く方へ渡す</b>（§58-5）。
+    /// </summary>
+    private void LoadText()
+    {
+        if (_fullPath is null) return;
+        try
+        {
+            byte[] bytes;
+            long length;
+            using (var stream = File.OpenRead(_fullPath))
+            {
+                length = stream.Length;
+                bytes = new byte[(int)Math.Min(length, TextLimitBytes)];
+                stream.ReadExactly(bytes);
+            }
+
+            var count = bytes.Length;
+            if (Array.IndexOf(bytes, (byte)0, 0, Math.Min(count, BinarySniffBytes)) >= 0)
+            {
+                ShowFailure("この種類はプレビューできない");
+                return;
+            }
+            // 切った位置が文字の途中なら、文字の頭まで戻す（UTF-8 の継続バイトは 10xxxxxx）。
+            if (length > count)
+            {
+                var back = count;
+                while (back > 0 && count - back < 4 && (bytes[back - 1] & 0xC0) == 0x80) back--;
+                if (back > 0 && bytes[back - 1] >= 0xC0) count = back - 1;
+            }
+
+            string text;
+            try { text = new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes, 0, count); }
+            catch (DecoderFallbackException)
+            {
+                ShowFailure("この種類はプレビューできない");
+                return;
+            }
+
+            if (text.Length > 0 && text[0] == '\uFEFF') text = text[1..];
+            if (length > count) text += $"\n\n……（先頭 {TextLimitBytes / 1024}KB だけ表示している。全体は {Attachments.Megabytes(length)}）";
+            PreviewText.Text = text;
+            TextArea.IsVisible = true;
+            PreviewMessage.IsVisible = false;
+        }
+        catch (Exception exception)
+        {
+            // 読み込み失敗でアプリを落とさない（§49）。
+            ShowFailure(exception is FileNotFoundException or DirectoryNotFoundException
+                ? "ファイルが見つからない" : $"読めない（{exception.GetType().Name}）");
+        }
     }
 
     private void LoadImage()
@@ -92,6 +159,8 @@ public partial class ImagePreviewWindow : Window
     private void ShowFailure(string message)
     {
         ClearImage();
+        PreviewText.Text = null;
+        TextArea.IsVisible = false;
         PreviewMessage.Text = message;
         PreviewMessage.IsVisible = true;
     }

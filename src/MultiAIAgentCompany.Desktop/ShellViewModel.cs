@@ -165,8 +165,17 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public bool HasRecovery => Recovery.Count > 0;
 
+    /// <summary>
+    /// 送る前の添付（設計 §58-6）。<b>まだ複製していない</b> —— 複製は送るとき（§58-2）。
+    /// </summary>
+    public ObservableCollection<AttachmentDraft> PendingAttachments { get; } = [];
+
+    public bool HasPendingAttachments => PendingAttachments.Count > 0;
+
     public ShellViewModel()
     {
+        PendingAttachments.CollectionChanged += (_, _) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPendingAttachments)));
         // 計算プロパティなので、集合が変わったことを自分で知らせないと画面に出ない。
         Recovery.CollectionChanged += (_, _) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasRecovery)));

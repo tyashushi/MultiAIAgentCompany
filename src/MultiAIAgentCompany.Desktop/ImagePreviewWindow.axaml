@@ -1,15 +1,21 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="MultiAIAgentCompany.Desktop.ImagePreviewWindow"
-        Title="画像のプレビュー" Width="800" Height="600" MinWidth="540" MinHeight="360"
+        Title="プレビュー" Width="800" Height="600" MinWidth="540" MinHeight="360"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppBackgroundBrush}"
         Foreground="{DynamicResource TextPrimaryBrush}">
-    <!-- 画像は会話へ埋め込まず、この窓1つに出す（設計 §56-5）。 -->
+    <!-- 画像は会話へ埋め込まず、この窓1つに出す（設計 §56-5）。
+         添付の文字ファイルも同じ窓で出し分ける（§58-5）。 -->
     <Grid RowDefinitions="*,Auto" Margin="16" RowSpacing="12">
         <Border x:Name="ImageArea" Background="{DynamicResource SurfaceBrush}"
                 CornerRadius="{StaticResource CardRadius}" ClipToBounds="True">
             <Grid>
+                <ScrollViewer x:Name="TextArea" IsVisible="False"
+                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="PreviewText" Classes="body" Margin="12"
+                                         FontFamily="Menlo, Consolas, monospace" />
+                </ScrollViewer>
                 <Image x:Name="PreviewImage" Stretch="Uniform" StretchDirection="DownOnly"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                 <TextBlock x:Name="PreviewMessage" Classes="body" TextWrapping="Wrap" Margin="16"

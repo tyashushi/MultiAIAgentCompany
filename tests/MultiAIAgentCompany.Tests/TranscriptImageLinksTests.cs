@@ -84,4 +84,35 @@ public sealed class TranscriptImageLinksTests
     [Fact]
     public void 不正なパスでも例外で落とさない() =>
         Assert.IsType<ImageLinkResolution.Rejected>(TranscriptImageLinks.Resolve(new CompanyPaths(Path.GetTempPath()), ".company/\0.png"));
+
+    [Theory]
+    [InlineData("添付:\n- .company/attachments/20260916-213000-ab12/memo.txt\n", ".company/attachments/20260916-213000-ab12/memo.txt")]
+    [InlineData("- .company/attachments/x/report.pdf", ".company/attachments/x/report.pdf")]
+    [InlineData("「.company/attachments/x/a.txt」を見て", ".company/attachments/x/a.txt")]
+    [InlineData("読んだ：.company/attachments/x/Makefile。", ".company/attachments/x/Makefile")]
+    [InlineData("(.company/attachments/x/.env)", ".company/attachments/x/.env")]
+    [InlineData(@".company\attachments\x\a.csv.", @".company\attachments\x\a.csv")]
+    public void 添付は拡張子を問わずリンクにする(string text, string expected)
+    {
+        var link = Assert.Single(TranscriptImageLinks.Find(text));
+        Assert.Equal(expected, link.Link);
+        Assert.Equal(expected, text.Substring(link.Start, link.Length));
+    }
+
+    [Theory]
+    [InlineData(".company/attachments/x")]
+    [InlineData(".company/attachments/x/")]
+    [InlineData(".company/attachments/x/a/b.txt")]
+    [InlineData("foo.company/attachments/x/a.txt")]
+    public void 添付のフォルダや深いパスはリンクにしない(string text) => Assert.Empty(TranscriptImageLinks.Find(text));
+
+    [Fact]
+    public void 添付の画像は1度だけリンクにして画像として扱う()
+    {
+        const string text = "添付:\n- .company/attachments/x/a.PNG\n- .company/tasks/t/images/b.png";
+        var links = TranscriptImageLinks.Find(text);
+        Assert.Equal([".company/attachments/x/a.PNG", ".company/tasks/t/images/b.png"], links.Select(link => link.Link));
+        Assert.True(TranscriptImageLinks.IsImage(links[0].Link));
+        Assert.False(TranscriptImageLinks.IsImage(".company/attachments/x/a.txt"));
+    }
 }

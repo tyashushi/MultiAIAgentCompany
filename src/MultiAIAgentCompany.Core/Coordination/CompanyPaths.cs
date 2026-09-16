@@ -37,6 +37,9 @@ public sealed class CompanyPaths
 
     public string ArchiveRoot => Path.Combine(Root, "archive");
 
+    /// <summary>人間が秘書に添付したファイルの複製（設計 §58-2）。<b>片付けない。</b></summary>
+    public string AttachmentsRoot => Path.Combine(Root, "attachments");
+
     /// <summary>
     /// 読めなかった仕事を移す場所（設計 §16-4）。
     /// <b>消さない</b> —— 中身は残し、仕事一覧から外すだけ。

@@ -97,7 +97,7 @@ public partial class MainWindow : Window
     /// <summary>部門の設定の窓（設計 §47）。<b>1つだけ開く。</b></summary>
     private DepartmentSettingsWindow? _settings;
 
-    /// <summary>画像の窓は1つを使い回す（設計 §56-5）。</summary>
+    /// <summary>プレビューの窓は1つを使い回す（設計 §56-5 / §58-5）。</summary>
     private ImagePreviewWindow? _imagePreview;
 
     /// <summary>前回のワークスペース。<b>覚えるのはパスだけ</b>（設計 §21-3）。</summary>
@@ -138,6 +138,9 @@ public partial class MainWindow : Window
     {
         AvaloniaXamlLoader.Load(this);
         this.FindControl<TranscriptLinkTextBlock>("TranscriptLinks")!.LinkClicked += OnTranscriptImageLink;
+        // **窓のどこに落としても添付にする**（設計 §58-6）。
+        AddHandler(DragDrop.DragOverEvent, OnDragOverAttachment);
+        AddHandler(DragDrop.DropEvent, OnDropAttachment);
         Closed += (_, _) => _usageCancellation?.Cancel();
 
         // **ターミナルで信頼を与えて戻ってきたら、表示を読み直す**（設計 §54）。
@@ -1478,9 +1481,19 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnSendToSecretary(object? sender, RoutedEventArgs e)
     {
-        if (_secretary is null || _composer is null || PeekMessage() is not { } text
+        var body = PeekMessage();
+        var drafts = (DataContext as ShellViewModel)?.PendingAttachments.ToArray() ?? [];
+        // **本文が空でも添付があれば送れる**（設計 §58-4）。
+        if (_secretary is null || _composer is null || (body is null && drafts.Length == 0)
             || Busy("秘書への送信"))
         {
+            return;
+        }
+
+        // 複製の間に Enter をもう一度押されても、同じ添付を2回送らない。
+        if (_copyingAttachments)
+        {
+            Note("添付を複製している最中（終わってから送る）");
             return;
         }
 
@@ -1494,6 +1507,27 @@ public partial class MainWindow : Window
         if (!await EnsureSecretaryAsync(workspace))
         {
             return;
+        }
+
+        var text = body ?? "";
+        if (drafts.Length > 0)
+        {
+            // **複製は送るとき**（§58-2）。失敗したら送らず、入力と添付を残す（§17-4）。
+            AttachmentCopyResult copied;
+            _copyingAttachments = true;
+            try { copied = await Attachments.CopyAsync(workspace.Company, drafts, DateTimeOffset.Now, CancellationToken.None); }
+            finally { _copyingAttachments = false; }
+
+            if (copied is not AttachmentCopyResult.Copied { Links: var links })
+            {
+                Note($"送れなかった: {(copied as AttachmentCopyResult.Failed)?.Reason}（入力と添付はそのまま）");
+                return;
+            }
+            text = Attachments.Compose(body, links);
+            if (DataContext is ShellViewModel shell)
+            {
+                foreach (var draft in drafts) shell.PendingAttachments.Remove(draft);
+            }
         }
 
         ClearMessage();
@@ -1867,6 +1901,57 @@ public partial class MainWindow : Window
         });
 
         await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    /// <summary>複製の最中（設計 §58-2）。</summary>
+    private bool _copyingAttachments;
+
+    /// <summary>ファイルを含むドラッグだけを受け付ける（設計 §58-6）。</summary>
+    private void OnDragOverAttachment(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 落とされたファイルを、送る前の添付に足す（設計 §58-3）。<b>ここでは複製しない。</b>
+    /// 越えたものだけ理由を付けて弾く。
+    /// </summary>
+    private void OnDropAttachment(object? sender, DragEventArgs e)
+    {
+        if (DataContext is not ShellViewModel shell || e.DataTransfer.TryGetFiles() is not { } items)
+        {
+            return;
+        }
+        e.Handled = true;
+
+        try
+        {
+            var paths = new List<string>();
+            foreach (var item in items)
+            {
+                if (item.TryGetLocalPath() is { } path) paths.Add(path);
+                else Note($"{item.Name}: この場所のファイルは添付できない（手元のパスが無い）");
+            }
+
+            var admission = Attachments.Admit(shell.PendingAttachments.ToArray(), paths);
+            foreach (var draft in admission.Accepted) shell.PendingAttachments.Add(draft);
+            foreach (var reason in admission.Rejections) Note($"添付できない: {reason}");
+            if (admission.Accepted.Count > 0) this.FindControl<TextBox>("MessageBox")?.Focus();
+        }
+        catch (Exception exception)
+        {
+            // 落としたことでアプリを落とさない（§49）。
+            Note($"添付を受け取れなかった（{exception.GetType().Name}）");
+        }
+    }
+
+    private void OnRemoveAttachment(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: AttachmentDraft draft } && DataContext is ShellViewModel shell)
+        {
+            shell.PendingAttachments.Remove(draft);
+        }
     }
 
     /// <summary>入力欄を読むだけ。<b>消さない</b> —— 送れなかったときに人間の文章を失わない。</summary>

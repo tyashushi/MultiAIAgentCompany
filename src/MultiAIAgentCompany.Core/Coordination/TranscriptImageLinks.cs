@@ -21,10 +21,29 @@ public static partial class TranscriptImageLinks
     [GeneratedRegex(@"(?<![A-Za-z0-9_./\\:\-])\.company[/\\][^\s]+?\.(?:png|jpg|jpeg|webp|gif)(?![a-z0-9_./\\\-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LinkPattern();
 
-    public static IReadOnlyList<TranscriptImageLink> Find(string text) =>
-        LinkPattern().Matches(text)
-            .Select(match => new TranscriptImageLink(match.Index, match.Length, match.Value))
-            .ToArray();
+    // **添付は拡張子を問わない**（設計 §58-5）。名前に空白は入らない（§58-2 で `_` にしている）。
+    // 閉じ括弧・引用符は名前に含めず、末尾の句読点も含めない —— 文中に書かれても拾えるように。
+    // `<フォルダ>/<名前>` の1段だけ。深いパスの途中で切ってリンクにしない（先読みで弾く）。
+    [GeneratedRegex(@"(?<![A-Za-z0-9_./\\:\-])\.company[/\\]attachments[/\\][^\s/\\]+[/\\](?![^\s/\\。、」』）)\]`'""]*[/\\])[^\s/\\。、」』）)\]`'""]*[^\s/\\。、」』）)\]`'"",.:;!?]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AttachmentPattern();
+
+    [GeneratedRegex(@"\.(?:png|jpg|jpeg|webp|gif)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ImageExtension();
+
+    /// <summary>画像として出すか。それ以外は文字か「プレビューできない」（§58-5）。</summary>
+    public static bool IsImage(string link) => ImageExtension().IsMatch(link);
+
+    public static IReadOnlyList<TranscriptImageLink> Find(string text)
+    {
+        // 添付の画像は両方に当たる。**先に見つかった範囲と重なるものは捨てる**（同じ文字を2度リンクにしない）。
+        var links = new List<TranscriptImageLink>();
+        foreach (var match in AttachmentPattern().Matches(text).Concat(LinkPattern().Matches(text)))
+        {
+            if (links.Any(link => match.Index < link.Start + link.Length && link.Start < match.Index + match.Length)) continue;
+            links.Add(new TranscriptImageLink(match.Index, match.Length, match.Value));
+        }
+        return links.OrderBy(link => link.Start).ToArray();
+    }
 
     public static ImageLinkResolution Resolve(CompanyPaths paths, string link)
     {
