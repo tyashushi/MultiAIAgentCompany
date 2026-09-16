@@ -193,4 +193,28 @@ public sealed class SecretaryOutboxTests : IDisposable
         Assert.Contains(Directory.EnumerateFiles(_workspace.Paths.SecretaryAccepted),
             f => f.Contains("task-20260906-1", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task 監査部門があるときだけ計画の最後に監査を足せと書き例の行は計画として読める()
+    {
+        // **無い部門を足せと言わない**（設計 §59）—— 解決できない計画になる。
+        await SecretaryReadme.WriteAsync(_workspace.Paths, [], CancellationToken.None);
+        Assert.DoesNotContain("監査", await File.ReadAllTextAsync(_workspace.Paths.SecretaryReadme));
+
+        await SecretaryReadme.WriteAsync(_workspace.Paths, [], CancellationToken.None,
+            new AuditRule("audit", ["design", "implementation"]));
+        var readme = await File.ReadAllTextAsync(_workspace.Paths.SecretaryReadme);
+        Assert.Contains("`design` / `implementation`", readme);
+        Assert.Contains("department: audit", readme);
+
+        // README の例の行を、そのまま計画の最後に置いて読めること。
+        var example = readme.Split('\n').Single(line => line.StartsWith("step: audit ", StringComparison.Ordinal));
+        Publish("with-audit", $"""
+            plan: 機能を足す
+            step: implementation / 実装する
+            {example.Replace("<その計画で最後に作業ツリーを書き換えた部門ID>", "implementation", StringComparison.Ordinal)}
+            """);
+        var plan = Assert.Single(Outbox.ReadPlans());
+        Assert.Equal(new PlanStep("audit", "commit・push の前に監査する", 0), plan.Steps[1]);
+    }
 }

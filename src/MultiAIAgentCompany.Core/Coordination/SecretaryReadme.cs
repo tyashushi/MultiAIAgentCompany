@@ -58,11 +58,30 @@ public static class SecretaryReadme
     }
 
     /// <summary>protocol を書き出す。既にあれば上書きする（形式が変わることがあるため）。</summary>
+    /// <param name="audit">
+    /// 監査部門があるときだけ渡す（設計 §59）。<b>無い部門を足せと言わない</b> —— 解決できない計画になる。
+    /// </param>
     public static async Task WriteAsync(
-        CompanyPaths paths, IReadOnlyList<string> departmentLines, CancellationToken ct)
+        CompanyPaths paths, IReadOnlyList<string> departmentLines, CancellationToken ct, AuditRule? audit = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(departmentLines);
+
+        var auditSection = audit is null ? "" : $"""
+
+            ### 計画の最後に監査を足す（設計 §59）
+
+            作業ツリーを書き換える部門（{string.Join(" / ", audit.WriterIds.Select(id => $"`{id}`"))}）の工程を
+            **1つでも含む計画には、最後の工程として必ず次を足してください。** 人間に頼まれていなくても足します。
+
+            ```
+            step: {audit.AuditId} reviews=<その計画で最後に作業ツリーを書き換えた部門ID> / commit・push の前に監査する
+            ```
+
+            書き換える工程が無い計画には足しません。
+            人間に「監査して」と頼まれたら、1件の仕事として `department: {audit.AuditId}` で提案してください。
+            **監査は直しません。** 問題があれば、見られた工程へ自動で送り直され、直らないまま上限に達すると人間が呼ばれます。
+            """;
 
         Directory.CreateDirectory(paths.SecretaryRoot);
         Directory.CreateDirectory(paths.SecretaryOutbox);
@@ -124,6 +143,7 @@ public static class SecretaryReadme
             **これはアプリがその工程の `instruction.md` に書くので、あなたは書かなくて構いません。**
             判定が無い・読めないときは推測で進めず、人間を呼びます。
             計画を進めるのはアプリです。秘書は `{paths.PlansRoot}` や `plan.json` を直接作りません。
+            {auditSection}
 
             ## あなたがやらないこと
 
@@ -171,3 +191,8 @@ public static class SecretaryReadme
         await File.WriteAllTextAsync(paths.SecretaryReadme, content, ct);
     }
 }
+
+/// <summary>秘書に「計画の最後に監査を足す」と頼むための材料（設計 §59）。</summary>
+/// <param name="AuditId">監査部門の ID。</param>
+/// <param name="WriterIds">作業ツリーを書き換える部門（<c>ReadsOnly</c> でない部門）。</param>
+public sealed record AuditRule(string AuditId, IReadOnlyList<string> WriterIds);

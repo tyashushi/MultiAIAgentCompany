@@ -95,4 +95,15 @@ public sealed class CompanyInstructionTests
         // **自動にならない場合も書いてある**（宛先が分からない提案）。
         Assert.Contains("自動になりません", text);
     }
+
+    [Fact]
+    public void git_が持っていないファイルは消さずに質問で止まれと言う()
+    {
+        // 設計 §59-5。監査の「削除する」を実装がそのまま実行し、未追跡のファイルが戻せなくなった（実機）。
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login");
+        Assert.Contains("git が持っていないファイルを消す・上書きすること", text);
+        Assert.Contains("`??`", text);
+        Assert.Contains("レビューや監査の案に書いてあっても", text);
+        Assert.Contains("質問を書いて止まること", text);
+    }
 }

@@ -256,7 +256,10 @@ public sealed class DepartmentStore
         CompanyDefinition expected, IReadOnlyList<DepartmentDefinition> departments, CancellationToken ct) =>
         SaveAsync(expected, departments, secretary: null, ct);
 
-    /// <summary>既定の部門（§29 / §56）。各 CLI の既定モードは能力定義から取る。</summary>
+    /// <summary>監査部門の ID（設計 §59）。<b>秘書が計画の最後に足す工程を、この ID で探す。</b></summary>
+    public const string AuditDepartmentId = "audit";
+
+    /// <summary>既定の部門（§29 / §56 / §59）。各 CLI の既定モードは能力定義から取る。</summary>
     public static IReadOnlyList<DepartmentDefinition> CreateDefaultDepartments() =>
     [
         new("design", "設計", "要件と設計判断を整理する。", AgentKind.ClaudeCode, AgentCapabilities.For(AgentKind.ClaudeCode).DefaultDriveMode, ReportDeadlineMinutes: 30),
@@ -283,6 +286,19 @@ public sealed class DepartmentStore
             + "ファイル名に空白を入れず、拡張子は png / jpg / jpeg / webp / gif。"
             + "report.md にワークスペースからの相対パス .company/tasks/<slug>/images/<name>.png を書く。",
             AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode,
+            ReadsOnly: true, ReportDeadlineMinutes: 30),
+
+        // **commit / push の前の監査**（設計 §59）。git の操作は人間の仕事のまま —— 監査は見て報告するだけで、直さない。
+        // 秘書が「作業ツリーを書き換える計画」の最後にレビュー工程として足すので、NG（`verdict: revise`）は見た工程へ自動で送り直される（§37-5）。
+        new(AuditDepartmentId, "監査",
+            "commit / push の前に、変更に個人情報・秘密情報、ライセンス違反、著作権侵害が無いかを確かめる。"
+            + "見るのは、まだコミットしていない変更（git status と git diff HEAD、未追跡のファイルの中身）と、"
+            + "まだ push していないコミット（git log -p @{u}..。上流が無ければ履歴全体）。"
+            + "個人情報・秘密情報: 実名、メールアドレス、電話番号、住所、ユーザー名を含む絶対パス、API キー・トークン・パスワード、コミットの作者とメールアドレス。"
+            + "ライセンス: 持ち込んだコードや追加した依存の条件が、このリポジトリのライセンスと両立するか。表示義務（著作権表示・ライセンス文）を満たしているか。"
+            + "著作権: 他者の文章・画像・コードを許可なく転載していないか。"
+            + "直さない。見つけたものごとに、場所（ファイルと行、またはコミット）・理由・直し方の案を report.md に書く。",
+            AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
             ReadsOnly: true, ReportDeadlineMinutes: 30),
     ];
 

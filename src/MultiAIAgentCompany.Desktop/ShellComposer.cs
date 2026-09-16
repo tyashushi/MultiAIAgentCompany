@@ -679,7 +679,12 @@ public sealed class ShellComposer
             ? SecretaryReadme.WriteAsync(workspace.Company,
                 [.. _definitions.Values.Select(d =>
                     $"- `{d.Id}` … {d.DisplayName}（{d.Responsibility}）")],
-                ct)
+                ct,
+                // 監査部門が居るフォルダだけ、計画の最後に足させる（設計 §59）。
+                _definitions.ContainsKey(DepartmentStore.AuditDepartmentId)
+                    ? new AuditRule(DepartmentStore.AuditDepartmentId,
+                        [.. _definitions.Values.Where(d => !d.ReadsOnly).Select(d => d.Id)])
+                    : null)
             : Task.CompletedTask;
 
     /// <summary>

@@ -199,7 +199,7 @@ public sealed class DepartmentStoreTests : IDisposable
     public void 既定の部門は能力の既定モードを使う()
     {
         var departments = DepartmentStore.CreateDefaultDepartments();
-        Assert.Equal(8, departments.Count);
+        Assert.Equal(9, departments.Count);
         Assert.All(departments, d => Assert.Equal(AgentCapabilities.For(d.Agent).DefaultDriveMode, d.Mode));
     }
 
@@ -256,7 +256,7 @@ public sealed class DepartmentStoreTests : IDisposable
     public void 既定の部門は報告期限を30分と明示する()
     {
         var departments = DepartmentStore.CreateDefaultDepartments();
-        Assert.Equal(8, departments.Count);
+        Assert.Equal(9, departments.Count);
         Assert.All(departments, department => Assert.Equal(30, department.ReportDeadlineMinutes));
     }
 
@@ -401,12 +401,12 @@ public sealed class DepartmentStoreTests : IDisposable
         // 覚える羽目になる。
         var departments = DepartmentStore.CreateDefaultDepartments();
 
-        Assert.Equal(8, departments.Count);
+        Assert.Equal(9, departments.Count);
         Assert.All(departments, department => Assert.Equal(DriveMode.ExternalTerminal, department.Mode));
     }
 
     [Fact]
-    public void 設計レビューとデザイナーが読むだけの部門()
+    public void 設計レビューとデザイナーと監査が読むだけの部門()
     {
         // **書き込み権を取るかどうかが変わる**（設計 §29-1）。
         // 安全側の既定は「取る」なので、読むだけと宣言したものだけがここに出る。
@@ -415,7 +415,7 @@ public sealed class DepartmentStoreTests : IDisposable
             .Select(department => department.Id)
             .ToArray();
 
-        Assert.Equal(["design-review-consistency", "design-review-outside", "designer"], readsOnly);
+        Assert.Equal(["design-review-consistency", "design-review-outside", "designer", "audit"], readsOnly);
     }
 
     [Fact]
@@ -434,6 +434,22 @@ public sealed class DepartmentStoreTests : IDisposable
         Assert.Contains("空白を入れず", designer.Responsibility);
         Assert.Contains("report.md", designer.Responsibility);
         Assert.Contains("ワークスペースからの相対パス .company/tasks/<slug>/images/<name>.png", designer.Responsibility);
+    }
+
+    [Fact]
+    public void 監査はAntigravityで個人情報とライセンスと著作権を見て直さない()
+    {
+        // 設計 §59。git の操作は人間の仕事のまま —— 監査は見て報告するだけ。
+        var audit = Assert.Single(DepartmentStore.CreateDefaultDepartments(), department => department.Id == DepartmentStore.AuditDepartmentId);
+        Assert.Equal("監査", audit.DisplayName);
+        Assert.Equal(AgentKind.AntigravityCli, audit.Agent);
+        Assert.Equal(AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode, audit.Mode);
+        Assert.True(audit.ReadsOnly);
+        Assert.Equal(30, audit.ReportDeadlineMinutes);
+        foreach (var expected in new[] { "個人情報", "ライセンス", "著作権", "git diff HEAD", "@{u}..", "直さない", "report.md" })
+        {
+            Assert.Contains(expected, audit.Responsibility);
+        }
     }
 
     [Fact]
