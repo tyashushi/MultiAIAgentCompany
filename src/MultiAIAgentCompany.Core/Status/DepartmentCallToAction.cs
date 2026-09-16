@@ -72,9 +72,15 @@ public enum DepartmentAction
     ShowApproval,
 
     /// <summary>
-    /// <c>question.md</c> を開く。<b>活動 <c>Consulting</c> と仕事 <c>AwaitingAnswer</c> の
+    /// 質問に答える番。<b>活動 <c>Consulting</c> と仕事 <c>AwaitingAnswer</c> の
     /// どちらからでも来る</b>（§3 / §7）—— (b) の相談は経路が2つある。
     /// </summary>
+    /// <remarks>
+    /// <b>ボタンは出さない</b>（設計 §57、2026-09-16 に人間が決めた）。質問は届いた瞬間に中央へ出し、
+    /// 答えは部門の窓の入力欄に打つ。押す先は「前面に出す」である。
+    /// <b>値は残す</b> —— 人間の出番であること（<see cref="DepartmentCallToAction.NeedsHuman"/>）と、
+    /// これより下の用件を隠す順序（§15-6）は変わらない。
+    /// </remarks>
     AnswerQuestion,
 
     /// <summary>

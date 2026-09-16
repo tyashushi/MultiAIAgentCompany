@@ -706,10 +706,6 @@ public partial class MainWindow : Window
                 Note($"{tile.Name} の承認は中央ペインに出ている");
                 break;
 
-            case DepartmentAction.AnswerQuestion:
-                OpenCoordinationFile(tile, "question.md", "質問");
-                break;
-
             case DepartmentAction.ReadReport:
                 await ShowCoordinationFileAsync(tile, "report.md", "報告");
                 break;
@@ -1476,40 +1472,6 @@ public partial class MainWindow : Window
         Note($"{tile.Name} の{label}を出した: {path}");
     }
 
-    private void OpenCoordinationFile(DepartmentTile tile, string fileName, string label)
-    {
-        if (_composer?.Workspace is not { } workspace)
-        {
-            Note("先にワークスペースを選ぶ");
-            return;
-        }
-
-        if (tile.CurrentTaskSlug is not { } slug)
-        {
-            Note($"{tile.Name}: どの仕事の{label}か分からない（.company/ の経路が未接続）");
-            return;
-        }
-
-        var path = Path.Combine(workspace.Company.TaskDirectory(slug), fileName);
-        if (!File.Exists(path))
-        {
-            Note($"{tile.Name}: {label}のファイルがまだ無い（{path}）");
-            return;
-        }
-
-        try
-        {
-            using var _ = System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
-            Note($"{tile.Name}の{label}を開いた: {path}");
-        }
-        catch (Exception exception)
-        {
-            // 開けなかったことを、開いたことにしない。
-            Note($"{tile.Name}: {label}を開けなかった（{exception.GetType().Name}）。場所は {path}");
-        }
-    }
-
     /// <summary>
     /// 秘書に送る。<b>未起動ならその副作用として起動する</b>（設計 §17-4）——
     /// ワークスペース選択に起動を隠さない。
@@ -2057,7 +2019,8 @@ public partial class MainWindow : Window
 
             // **報告は、出た瞬間に中央へ出す**（設計 §19-4、2026-09-11 に人間が決めた）。
             // ボタンを1つ挟むと、**報告が来たこと自体に気付いてから読む**ことになる。
-            if (applied.To is CoreTaskStatus.Reported)
+            // **質問も同じ**（設計 §57、2026-09-16 に人間が決めた）。「質問に答える」ボタンは廃した。
+            if (applied.To is CoreTaskStatus.Reported or CoreTaskStatus.AwaitingAnswer)
             {
                 arrived.Add(applied);
             }
@@ -2109,7 +2072,14 @@ public partial class MainWindow : Window
         // 報告を読ませることになる（§7 の「観測してから言う」）。
         foreach (var applied in arrived)
         {
-            await ShowArrivedReportAsync(applied.Slug);
+            if (applied.To is CoreTaskStatus.Reported)
+            {
+                await ShowArrivedReportAsync(applied.Slug);
+            }
+            else
+            {
+                await ShowArrivedQuestionAsync(applied.Slug);
+            }
         }
 
         await DeliverAnswersAsync();
@@ -2151,6 +2121,52 @@ public partial class MainWindow : Window
         Say(content.Length > limit
             ? $"【{slug} の報告】\n{content[..limit]}\n\n（長いので残り {content.Length - limit} 文字は省いた。全文は {path}）"
             : $"【{slug} の報告】\n{content}");
+    }
+
+    /// <summary>
+    /// 出たばかりの質問を、中央ペインへ出す（設計 §57）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ボタンを待たない</b>のは報告（§19-4）と同じ。<b>答え方も一緒に言う</b> ——
+    /// ボタンが無くなったので、どこに答えるかを示すのはこの1行だけになった。
+    /// </remarks>
+    private async Task ShowArrivedQuestionAsync(string slug)
+    {
+        if (_composer?.Workspace is not { } workspace || _composer.Tasks is not { } tasks)
+        {
+            return;
+        }
+
+        var path = Path.Combine(workspace.Company.TaskDirectory(slug), "question.md");
+        string content;
+        try
+        {
+            content = await File.ReadAllTextAsync(path, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // **読めなかったことを、読んだことにしない**（§7）。
+            Note($"{slug}: 質問が出たが読めなかった（{exception.GetType().Name}）。場所は {path}");
+            return;
+        }
+
+        var department = await tasks.ReadAsync(slug, CancellationToken.None) is TaskReadResult.Found found
+            ? _composer.Shell.Departments.FirstOrDefault(tile => tile.Id == found.State.DepartmentId)
+            : null;
+        var who = department?.Name ?? "部門";
+
+        // 答え方は駆動モードで違う。**外部ターミナルは窓の入力欄**（§32）、構造化は answer.md（§7）。
+        var external = department is not null
+            && _composer.DefinitionOf(department.Id).Mode is DriveMode.ExternalTerminal;
+        var how = external
+            ? $"答えは {who} のターミナルの入力欄に打ってください（タイルの「前面に出す」で窓へ行けます）"
+            : $"答えは {workspace.Company.Answer(slug)} に書いてください";
+
+        const int limit = 4000;
+        var body = content.Length > limit
+            ? $"{content[..limit]}\n\n（長いので残り {content.Length - limit} 文字は省いた。全文は {path}）"
+            : content.TrimEnd();
+        Say($"【{slug} の質問（{who}）】\n{body}\n\n（{how}）");
     }
 
     /// <summary>

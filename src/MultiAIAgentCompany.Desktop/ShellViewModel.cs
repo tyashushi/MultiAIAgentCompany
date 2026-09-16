@@ -454,7 +454,6 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     {
         DepartmentAction.Investigate => "原因を見る",
         DepartmentAction.ShowApproval => "承認を見る",
-        DepartmentAction.AnswerQuestion => "質問に答える",
         DepartmentAction.ReadReport => "報告をもう一度読む",
         DepartmentAction.CheckDelivery => "送信を確認する",
         DepartmentAction.CheckMissingReport => "報告を確かめる",
@@ -464,7 +463,8 @@ public sealed class DepartmentTile : INotifyPropertyChanged
         _ => string.Empty,
     };
 
-    public bool HasAction => Call.Action is not DepartmentAction.None;
+    /// <remarks>質問はボタンにしない（設計 §57）—— 中央に出ていて、答えは部門の窓で打つ。</remarks>
+    public bool HasAction => Call.Action is not (DepartmentAction.None or DepartmentAction.AnswerQuestion);
 
     /// <summary>
     /// 起動は仕事の用件と別枠（設計 §15-6）。<b>用件を隠さない。</b>
