@@ -256,7 +256,7 @@ public sealed class DepartmentStore
         CompanyDefinition expected, IReadOnlyList<DepartmentDefinition> departments, CancellationToken ct) =>
         SaveAsync(expected, departments, secretary: null, ct);
 
-    /// <summary>v1 の既定5部門。各 CLI の既定モードは能力定義から取る。</summary>
+    /// <summary>既定の部門（§29 / §56）。各 CLI の既定モードは能力定義から取る。</summary>
     public static IReadOnlyList<DepartmentDefinition> CreateDefaultDepartments() =>
     [
         new("design", "設計", "要件と設計判断を整理する。", AgentKind.ClaudeCode, AgentCapabilities.For(AgentKind.ClaudeCode).DefaultDriveMode, ReportDeadlineMinutes: 30),
@@ -276,6 +276,14 @@ public sealed class DepartmentStore
             "その設計で作られたものを使う人が、何に困るかを見る。",
             AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
             Model: null, ReadsOnly: true, ReportDeadlineMinutes: 30),
+
+        // **画像は仕事の成果物にする**（設計 §56-3）。約束はこの部門の責務に収める。
+        new("designer", "デザイナー",
+            "画像生成で画像・イラスト・バナーを作る。仕事のフォルダ（instruction.md と同じ場所）の images/ に置く。"
+            + "ファイル名に空白を入れず、拡張子は png / jpg / jpeg / webp / gif。"
+            + "report.md にワークスペースからの相対パス .company/tasks/<slug>/images/<name>.png を書く。",
+            AgentKind.CodexCli, AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode,
+            ReadsOnly: true, ReportDeadlineMinutes: 30),
     ];
 
     private static string? Validate(IReadOnlyList<DepartmentDefinition>? departments)

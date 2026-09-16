@@ -199,7 +199,7 @@ public sealed class DepartmentStoreTests : IDisposable
     public void 既定の部門は能力の既定モードを使う()
     {
         var departments = DepartmentStore.CreateDefaultDepartments();
-        Assert.Equal(7, departments.Count);
+        Assert.Equal(8, departments.Count);
         Assert.All(departments, d => Assert.Equal(AgentCapabilities.For(d.Agent).DefaultDriveMode, d.Mode));
     }
 
@@ -253,10 +253,10 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
-    public void 既定の7部門は報告期限を30分と明示する()
+    public void 既定の部門は報告期限を30分と明示する()
     {
         var departments = DepartmentStore.CreateDefaultDepartments();
-        Assert.Equal(7, departments.Count);
+        Assert.Equal(8, departments.Count);
         Assert.All(departments, department => Assert.Equal(30, department.ReportDeadlineMinutes));
     }
 
@@ -401,12 +401,12 @@ public sealed class DepartmentStoreTests : IDisposable
         // 覚える羽目になる。
         var departments = DepartmentStore.CreateDefaultDepartments();
 
-        Assert.Equal(7, departments.Count);
+        Assert.Equal(8, departments.Count);
         Assert.All(departments, department => Assert.Equal(DriveMode.ExternalTerminal, department.Mode));
     }
 
     [Fact]
-    public void 設計レビューだけが読むだけの部門()
+    public void 設計レビューとデザイナーが読むだけの部門()
     {
         // **書き込み権を取るかどうかが変わる**（設計 §29-1）。
         // 安全側の既定は「取る」なので、読むだけと宣言したものだけがここに出る。
@@ -415,7 +415,25 @@ public sealed class DepartmentStoreTests : IDisposable
             .Select(department => department.Id)
             .ToArray();
 
-        Assert.Equal(["design-review-consistency", "design-review-outside"], readsOnly);
+        Assert.Equal(["design-review-consistency", "design-review-outside", "designer"], readsOnly);
+    }
+
+    [Fact]
+    public void デザイナーには画像の置き場所と報告の約束を渡す()
+    {
+        // **責務は秘書が振り分ける根拠にもなる**（設計 §56-2 / §56-3）。
+        var designer = Assert.Single(DepartmentStore.CreateDefaultDepartments(), department => department.Id == "designer");
+        Assert.Equal("デザイナー", designer.DisplayName);
+        Assert.Equal(AgentKind.CodexCli, designer.Agent);
+        Assert.Equal(AgentCapabilities.For(AgentKind.CodexCli).DefaultDriveMode, designer.Mode);
+        Assert.True(designer.ReadsOnly);
+        Assert.Equal(30, designer.ReportDeadlineMinutes);
+        Assert.Contains("画像生成", designer.Responsibility);
+        Assert.Contains("instruction.md と同じ場所", designer.Responsibility);
+        Assert.Contains("images/", designer.Responsibility);
+        Assert.Contains("空白を入れず", designer.Responsibility);
+        Assert.Contains("report.md", designer.Responsibility);
+        Assert.Contains("ワークスペースからの相対パス .company/tasks/<slug>/images/<name>.png", designer.Responsibility);
     }
 
     [Fact]

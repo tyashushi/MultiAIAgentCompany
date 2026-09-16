@@ -97,6 +97,9 @@ public partial class MainWindow : Window
     /// <summary>部門の設定の窓（設計 §47）。<b>1つだけ開く。</b></summary>
     private DepartmentSettingsWindow? _settings;
 
+    /// <summary>画像の窓は1つを使い回す（設計 §56-5）。</summary>
+    private ImagePreviewWindow? _imagePreview;
+
     /// <summary>前回のワークスペース。<b>覚えるのはパスだけ</b>（設計 §21-3）。</summary>
     private readonly WorkspaceMemory _memory = WorkspaceMemory.CreateDefault();
 
@@ -134,6 +137,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         AvaloniaXamlLoader.Load(this);
+        this.FindControl<TranscriptLinkTextBlock>("TranscriptLinks")!.LinkClicked += OnTranscriptImageLink;
         Closed += (_, _) => _usageCancellation?.Cancel();
 
         // **ターミナルで信頼を与えて戻ってきたら、表示を読み直す**（設計 §54）。
@@ -2353,6 +2357,32 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             Note($"{item.Slug}: フォルダを開けなかった（{exception.GetType().Name}）。場所は {directory}");
+        }
+    }
+
+    private void OnTranscriptImageLink(string link)
+    {
+        if (_composer?.Workspace is not { } workspace) return;
+        try
+        {
+            // **会話の文字列をそのまま開かない。** .company の内側へ解決できたものだけ（§56）。
+            var resolution = TranscriptImageLinks.Resolve(workspace.Company, link);
+            if (_imagePreview is null)
+            {
+                _imagePreview = new ImagePreviewWindow();
+                _imagePreview.Closed += (_, _) => _imagePreview = null;
+                _imagePreview.SetImage(link, resolution);
+                _imagePreview.Show(this);
+            }
+            else
+            {
+                _imagePreview.SetImage(link, resolution);
+            }
+            _imagePreview.Activate();
+        }
+        catch (Exception exception)
+        {
+            Note($"画像のプレビューを開けなかった（{exception.GetType().Name}）");
         }
     }
 

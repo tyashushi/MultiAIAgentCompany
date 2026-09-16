@@ -1,0 +1,29 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MultiAIAgentCompany.Desktop.ImagePreviewWindow"
+        Title="画像のプレビュー" Width="800" Height="600" MinWidth="540" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+    <!-- 画像は会話へ埋め込まず、この窓1つに出す（設計 §56-5）。 -->
+    <Grid RowDefinitions="*,Auto" Margin="16" RowSpacing="12">
+        <Border x:Name="ImageArea" Background="{DynamicResource SurfaceBrush}"
+                CornerRadius="{StaticResource CardRadius}" ClipToBounds="True">
+            <Grid>
+                <Image x:Name="PreviewImage" Stretch="Uniform" StretchDirection="DownOnly"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <TextBlock x:Name="PreviewMessage" Classes="body" TextWrapping="Wrap" Margin="16"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+        <StackPanel Grid.Row="1" Spacing="12">
+            <SelectableTextBlock x:Name="PreviewPath" Classes="body" TextWrapping="Wrap"
+                                 MaxHeight="72" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button x:Name="RevealButton" Classes="quiet" Click="OnReveal" />
+                <Button Content="パスをコピー" Classes="quiet" Click="OnCopyPath" />
+                <Button Content="閉じる" Classes="quiet" Click="OnClose" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

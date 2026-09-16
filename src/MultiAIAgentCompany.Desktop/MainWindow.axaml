@@ -451,7 +451,7 @@
                     <!-- **1つの部品にまとめる**（2026-09-11、人間の要望）。
                          発言ごとに分けると、またいで選べない ——
                          まとめるとドラッグで複数選べるし、Cmd+A で全部選べる。 -->
-                    <SelectableTextBlock Text="{Binding TranscriptText}" Classes="body"
+                    <vm:TranscriptLinkTextBlock x:Name="TranscriptLinks" Transcript="{Binding TranscriptText}" Classes="body"
                                          TextWrapping="Wrap" Margin="14,12"
                                          HorizontalAlignment="Stretch" />
                 </ScrollViewer>

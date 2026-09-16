@@ -17,3 +17,6 @@ docs/
 spikes/probes/
 .claude/
 .codex/
+
+# Claude Code と Codex の受け渡し用の一時ファイル
+.claude/handoffs/
