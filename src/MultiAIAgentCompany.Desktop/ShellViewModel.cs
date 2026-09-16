@@ -748,14 +748,17 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// そこに初期化時の根拠（「状態検出器を初期化した」）を出すと、
     /// **観測が止まっているように見える** —— 実機で人間が引っかかった（2026-09-09）。
     /// <para>
-    /// <b>根拠を作り替えてはいない。</b> <see cref="Status"/> はそのままで、
-    /// **画面が自分の限界を説明している**だけである。
+    /// その説明の1行も**出さない**（2026-09-16、人間の要望）。今の部門は全部外部ターミナルなので、
+    /// どのタイルにも同じ文が並ぶだけだった。<b>根拠を作り替えてはいない</b> —— 行を消すだけで、
+    /// 構造化の部門や観測できた活動には、これまでどおり根拠を出す。
     /// </para>
     /// </remarks>
     public string EvidenceText =>
         Mode is DriveMode.ExternalTerminal && Status.Activity.Value is ActivityState.Unknown
-            ? "活動は観測できない（外部ターミナルなので、何をしているかはその窓で見る）"
+            ? string.Empty
             : $"{Status.Activity.Evidence.Source} / {Status.Activity.Evidence.RedactedSummary}";
+
+    public bool HasEvidenceText => EvidenceText.Length > 0;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

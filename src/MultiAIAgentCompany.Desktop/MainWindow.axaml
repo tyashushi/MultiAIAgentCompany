@@ -590,7 +590,7 @@
                                     </TextBlock>
                                     <!-- 状態だけを見せない。根拠を必ず添える（設計 §7）。 -->
                                     <TextBlock Classes="caption-1line" Text="{Binding EvidenceText}"
-                                               ToolTip.Tip="{Binding EvidenceText}" />
+                                               ToolTip.Tip="{Binding EvidenceText}" IsVisible="{Binding HasEvidenceText}" />
 
                                     <!-- **どの仕事なのかを出す**（設計 §44-4、人間が実機で見つけた）。
                                          「この仕事を渡す」だけでは、何を渡すのか分からなかった。
