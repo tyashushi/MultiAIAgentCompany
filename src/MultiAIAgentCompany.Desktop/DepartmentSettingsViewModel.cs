@@ -403,7 +403,30 @@ public sealed class DepartmentSettingsViewModel : INotifyPropertyChanged
     public bool HasSelection => Selected is not null;
 
     /// <summary>秘書の設定（設計 §46-3）。</summary>
-    public AgentKind SecretaryAgent { get => field; set { field = value; Raise(); } } = AgentKind.ClaudeCode;
+    public AgentKind SecretaryAgent
+    {
+        get => field;
+        set
+        {
+            field = value;
+            Raise();
+            Raise(nameof(SecretaryTrustText));
+        }
+    } = AgentKind.ClaudeCode;
+
+    /// <summary>
+    /// いま開いているフォルダの trust を CLI ごとに引く（設計 §54-2）。<b>読むだけ</b>。
+    /// </summary>
+    /// <remarks>メイン画面の trust の行をそのまま使う —— 別に読むと、2か所で食い違い得る。</remarks>
+    public Func<AgentKind, TrustRow?>? TrustOf { get; set; }
+
+    /// <summary>
+    /// <b>選んでいる CLI の</b> trust（設計 §54-2、人間の要望）。秘書を Codex にしたら Codex の trust を出す。
+    /// </summary>
+    public string SecretaryTrustText => TrustOf?.Invoke(SecretaryAgent) is { } row
+        ? $"このフォルダでの {row.AgentText}: {row.StateText}"
+            + (row.CanOpenTerminal ? "（メイン画面の「ターミナルで開く」から信頼を与える）" : string.Empty)
+        : string.Empty;
 
     public string SecretaryModel { get => field; set { field = value; Raise(); } } = string.Empty;
 

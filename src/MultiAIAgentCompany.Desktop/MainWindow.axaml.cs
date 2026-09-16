@@ -411,16 +411,19 @@ public partial class MainWindow : Window
 
         // trust を状態に含める（設計 §17-4）。**未 trust と判定不能を分ける**（§13-9）——
         // 読めていないだけなのに「未 trust」と言い切らない。
-        var trust = shell.Trust.FirstOrDefault(row => row.Agent == AgentKind.ClaudeCode)?.State;
+        // **秘書の CLI の trust を見る**（§54-2、人間の要望）。Claude 決め打ちだったので、
+        // 秘書を Codex にしても Claude の trust で文言を作っていた。
+        var agent = _secretary.Definition.Agent;
+        var trust = shell.Trust.FirstOrDefault(row => row.Agent == agent)?.State;
         shell.SecretaryStatus = (_secretary.State, trust) switch
         {
             (SecretaryState.Running, _) => "秘書と会話できる",
             (SecretaryState.Starting, _) => "秘書を起動中",
             (SecretaryState.Failed, _) => $"秘書を起動できなかった / 落ちた: {_secretary.FailureReason}",
             (_, WorkspaceTrustState.NotTrusted) =>
-                "Claude Code がこのフォルダを trust していない。アプリは trust を書かない（その CLI で一度起動して信頼を与える）",
+                $"{agent} がこのフォルダを trust していない。アプリは trust を書かない（上の「ターミナルで開く」から信頼を与える）",
             (_, WorkspaceTrustState.Unknown) =>
-                "Claude Code の trust を判定できない。未 trust とは限らない",
+                $"{agent} の trust を判定できない。未 trust とは限らない",
             _ => "秘書はまだ起動していない。最初の送信で起動する",
         };
     }
@@ -769,7 +772,8 @@ public partial class MainWindow : Window
                 {
                     await _runner.StopAsync(departmentId);
                 }
-            });
+            },
+            agent => (DataContext as ShellViewModel)?.Trust.FirstOrDefault(row => row.Agent == agent));
 
         _settings = window;
         window.Closed += async (_, _) =>

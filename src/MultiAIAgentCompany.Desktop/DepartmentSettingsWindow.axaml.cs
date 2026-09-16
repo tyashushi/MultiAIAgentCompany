@@ -45,9 +45,11 @@ public partial class DepartmentSettingsWindow : Window
     public DepartmentSettingsWindow(
         DepartmentStore store,
         Func<string, Task<DepartmentRemovalDecision>> canRemove,
-        Func<string, Task> stopSession) : this()
+        Func<string, Task> stopSession,
+        Func<AgentKind, TrustRow?>? trustOf = null) : this()
     {
         _store = store;
+        _model.TrustOf = trustOf;
         _canRemove = canRemove;
         _stopSession = stopSession;
     }
