@@ -66,6 +66,22 @@ public sealed class DepartmentStatusTrackerTests
     }
 
     [Fact]
+    public void まだ起動していない部門はRestingで時間が経っても消えず起動したらUnknownになる()
+    {
+        // 2026-09-17、人間の要望。起動前は「手が空いている」。
+        var tracker = Create();
+        Assert.Equal(ActivityState.Resting, tracker.Current.Activity.Value);
+        Assert.True(tracker.NotStartedYet);
+
+        _clock.Advance(TimeSpan.FromHours(3));
+        Assert.Equal(ActivityState.Resting, tracker.Current.Activity.Value);
+
+        tracker.OnStarting();
+        Assert.False(tracker.NotStartedYet);
+        Assert.Equal(ActivityState.Unknown, tracker.Current.Activity.Value);
+    }
+
+    [Fact]
     public void Dispatch根拠の観測はWorkingにしない()
     {
         var tracker = Create();

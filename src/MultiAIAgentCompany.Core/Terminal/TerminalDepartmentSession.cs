@@ -33,6 +33,11 @@ public sealed class TerminalDepartmentSession : IAgentSession
     private readonly List<Evidence> _pending = [];
     private readonly object _gate = new();
     private int _disposed;
+    private Activity.ActivityLaunch? _activityLaunch;
+    private Activity.ActivityReader? _activityReader;
+    private Task? _activityWatching;
+    private Task? _processWatching;
+    private int _activityStarted;
 
     private TerminalDepartmentSession(
         string departmentId, AgentKind agent, TerminalHandle handle,
@@ -62,9 +67,12 @@ public sealed class TerminalDepartmentSession : IAgentSession
         ArgumentNullException.ThrowIfNull(launcher);
         ArgumentNullException.ThrowIfNull(clock);
 
+        // 窓が CLI を起こすより前に、リポジトリの外へ記録先を用意する（設計 §61-2）。
+        request.Activity?.Prepare(agent);
         var launched = await launcher.LaunchAsync(request, ct);
         if (launched is TerminalLaunchResult.Failed failed)
         {
+            request.Activity?.Delete();
             return new TerminalStartResult.Failed(failed.Reason);
         }
 
@@ -72,6 +80,7 @@ public sealed class TerminalDepartmentSession : IAgentSession
         // 呼び出し側は、その窓の handle を捨てずに付け直す。
         if (launched is TerminalLaunchResult.WindowBusy busy)
         {
+            request.Activity?.Delete();
             return new TerminalStartResult.WindowBusy(busy.Reason);
         }
 
@@ -80,6 +89,17 @@ public sealed class TerminalDepartmentSession : IAgentSession
         var identity = new ProcessIdentity(pid, 0, pid, clock.GetUtcNow());
 
         var session = new TerminalDepartmentSession(departmentId, agent, handle, launcher, identity, clock);
+        if (request.Activity is { } activity)
+        {
+            session._activityLaunch = activity;
+            // agy はログの形の検証を版ごとに覚えるので、`agy --version` で版を読む。
+            // 読めなければ null のまま（版を推測で埋めない。設計 §61-3）。
+            var version = agent is AgentKind.AntigravityCli
+                ? await Activity.AgyVersion.DetectAsync(request.Command, ct)
+                : null;
+            session._activityReader = new Activity.ActivityReader(activity, agent, clock, version);
+            session._activityReader.Observed += (_, observation) => session.ActivityObserved?.Invoke(session, observation);
+        }
 
         // **ここで raise しない**（§22-2 と同じ）。購読するのは、このメソッドが
         // セッションを返したあとなので、いま出すと**誰も聞いていない。**
@@ -163,6 +183,11 @@ public sealed class TerminalDepartmentSession : IAgentSession
 
     public event EventHandler<Evidence>? Observed;
 
+    /// <summary>外部ターミナルの活動は構造化の承認キューを通さない（設計 §61-3）。</summary>
+    public event EventHandler<Observed<ActivityState>>? ActivityObserved;
+    public bool ObservesActivity => _activityReader is not null;
+    public bool HasHookEvent => _activityReader?.HasHookEvent ?? false;
+
     /// <summary>
     /// <b>発火しない。</b> 終了コードを観測する経路が無い（§32-2e）。
     /// 窓が閉じられたことは <see cref="Disappeared"/> で伝える。
@@ -213,6 +238,8 @@ public sealed class TerminalDepartmentSession : IAgentSession
         }
 
         await _watching.CancelAsync();
+        if (_activityWatching is { } reading) await reading;
+        if (_processWatching is { } watching) await watching;
         try
         {
             await StopAsync(CancellationToken.None);
@@ -222,6 +249,8 @@ public sealed class TerminalDepartmentSession : IAgentSession
             // 終了させられなくても、片付けは続ける（§9）。
         }
 
+        // 終了のシグナルだけでは消さず、消滅を確認できた場合だけ片付ける（設計 §61-2）。
+        if (Identity.Pid > 0 && !IsAlive(Identity.Pid)) _activityLaunch?.Delete();
         _watching.Dispose();
     }
 
@@ -239,9 +268,9 @@ public sealed class TerminalDepartmentSession : IAgentSession
             return;
         }
 
-        _ = Task.Run(async () =>
+        var token = _watching.Token;
+        _processWatching = Task.Run(async () =>
         {
-            var token = _watching.Token;
             while (!token.IsCancellationRequested)
             {
                 try
@@ -253,11 +282,15 @@ public sealed class TerminalDepartmentSession : IAgentSession
                     return;
                 }
 
+                if (token.IsCancellationRequested) return;
                 if (IsAlive(Identity.Pid))
                 {
                     continue;
                 }
 
+                await _watching.CancelAsync();
+                if (_activityWatching is { } reading) await reading;
+                _activityLaunch?.Delete();
                 Disappeared?.Invoke(this, EventArgs.Empty);
                 return;
             }
@@ -321,6 +354,26 @@ public sealed class TerminalDepartmentSession : IAgentSession
         {
             Observed?.Invoke(this, evidence);
         }
+        StartActivityWatching();
+    }
+
+    /// <summary>購読後に1秒周期を始め、初回までの追記も取りこぼさない（設計 §61-1）。</summary>
+    private void StartActivityWatching()
+    {
+        if (_activityReader is null || Interlocked.Exchange(ref _activityStarted, 1) != 0) return;
+        var token = _watching.Token;
+        _activityWatching = Task.Run(async () =>
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), _clock, token);
+                    if (!token.IsCancellationRequested) _activityReader.Read();
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        });
     }
 
     internal void Note(string text)

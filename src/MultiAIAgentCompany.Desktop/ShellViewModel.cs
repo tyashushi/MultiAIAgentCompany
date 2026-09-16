@@ -462,7 +462,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     public string ActionLabel => Call.Action switch
     {
         DepartmentAction.Investigate => "原因を見る",
-        DepartmentAction.ShowApproval => "承認を見る",
+        DepartmentAction.ShowApproval => DepartmentCallToAction.ApprovalLabel(Mode is DriveMode.ExternalTerminal),
         DepartmentAction.ReadReport => "報告をもう一度読む",
         DepartmentAction.CheckDelivery => "送信を確認する",
         DepartmentAction.CheckMissingReport => "報告を確かめる",
@@ -702,7 +702,8 @@ public sealed class DepartmentTile : INotifyPropertyChanged
 
     public string RuntimeText => Status.Runtime.Value.ToString();
 
-    public string ActivityText => Status.Activity.Value.ToString();
+    public string ActivityText => Status.Activity.Value is ActivityState.WorkingOrAwaitingApproval
+        ? "作業中か承認待ち" : Status.Activity.Value.ToString();
 
     public string WorkText => Status.Work is null ? "—" : Status.Work.Value.ToString();
 
@@ -743,8 +744,8 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// 活動状態の根拠。<b>分からないなら、なぜ分からないかを出す。</b>
     /// </summary>
     /// <remarks>
-    /// 外部ターミナルの部門は<b>構造化イベントを受け取らない</b>ので、
-    /// 活動は原理的に <c>Unknown</c> のままになる（設計 §32-4）。
+    /// 外部ターミナルの部門はフックを観測するまでは <c>Unknown</c>（設計 §61-1）。
+    /// 観測後はイベントの固定文と時刻を表示する（設計 §61-4）。
     /// そこに初期化時の根拠（「状態検出器を初期化した」）を出すと、
     /// **観測が止まっているように見える** —— 実機で人間が引っかかった（2026-09-09）。
     /// <para>
@@ -754,9 +755,16 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// </para>
     /// </remarks>
     public string EvidenceText =>
-        Mode is DriveMode.ExternalTerminal && Status.Activity.Value is ActivityState.Unknown
-            ? string.Empty
-            : $"{Status.Activity.Evidence.Source} / {Status.Activity.Evidence.RedactedSummary}";
+        // 案内は macOS の新規起動だけ。最初のフックで消す（設計 §61-5 / §61-8）。
+        Mode is DriveMode.ExternalTerminal && Agent is AgentKind.CodexCli && SessionRunning
+            && _tracker.AwaitingFirstLifecycleHook
+            ? "Codex の窓に「Hooks need review」が出ていたら、中身（printf … MAAC_ACTIVITY_EVENTS）を確かめて信頼してください"
+            // 起動前の「手が空いている」は根拠の行を出さない（どのタイルにも同じ文が並ぶだけ）。
+            : (Mode is DriveMode.ExternalTerminal && Status.Activity.Value is ActivityState.Unknown) || _tracker.NotStartedYet
+                ? string.Empty
+                : Status.Activity.Evidence.Source is EvidenceSource.LifecycleHook
+                    ? $"{Status.Activity.Evidence.RedactedSummary}（最後の観測 {Status.Activity.Evidence.ObservedAt.ToLocalTime():HH:mm}）"
+                    : $"{Status.Activity.Evidence.Source} / {Status.Activity.Evidence.RedactedSummary}";
 
     public bool HasEvidenceText => EvidenceText.Length > 0;
 

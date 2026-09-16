@@ -10,6 +10,7 @@ public sealed class DepartmentStatusTracker
     private readonly TimeSpan _evidenceMaxAge;
     private readonly Dictionary<string, PendingApproval> _pendingApprovals = new(StringComparer.Ordinal);
     private DepartmentStatus _status;
+    private readonly Evidence _notStarted;
     private bool _isUpdating;
     private bool _changedDuringUpdate;
 
@@ -22,9 +23,12 @@ public sealed class DepartmentStatusTracker
         _clock = clock;
         _evidenceMaxAge = evidenceMaxAge;
         var initial = NewEvidence(EvidenceSource.Dispatch, "状態検出器を初期化した");
+        // **まだ何も起動していない部門は「手が空いている」**（2026-09-17、人間の要望）。
+        // 観測ではなく「アプリがまだ起動していない」というアプリ自身の事実。起動したら外す（OnStarting）。
+        _notStarted = NewEvidence(EvidenceSource.Dispatch, "まだ起動していない");
         _status = new DepartmentStatus(
             new Observed<RuntimeState>(RuntimeState.Starting, initial),
-            new Observed<ActivityState>(ActivityState.Unknown, initial),
+            new Observed<ActivityState>(ActivityState.Resting, _notStarted),
             Work: null);
     }
 
@@ -41,6 +45,8 @@ public sealed class DepartmentStatusTracker
         get
         {
             if (!HasPendingApproval
+                && !NotStartedYet
+                && _status.Activity.Evidence.Source is not EvidenceSource.LifecycleHook
                 && !_status.Activity.Evidence.IsFreshAt(_clock.GetUtcNow(), _evidenceMaxAge))
             {
                 Update(() => SetActivity(ActivityState.Unknown, _status.Activity.Evidence));
@@ -55,13 +61,24 @@ public sealed class DepartmentStatusTracker
 
     public event EventHandler<DepartmentStatus>? Changed;
 
-    public void OnStarting() => Update(() => SetRuntime(RuntimeState.Starting, NewEvidence(EvidenceSource.Dispatch, "プロセスを開始した")));
+    /// <summary>まだ一度も起動していないので「手が空いている」と出しているか。時間では消さない。</summary>
+    public bool NotStartedYet => ReferenceEquals(_status.Activity.Evidence, _notStarted);
+
+    public void OnStarting() => Update(() =>
+    {
+        var evidence = NewEvidence(EvidenceSource.Dispatch, "プロセスを開始した");
+        SetRuntime(RuntimeState.Starting, evidence);
+        // 起動したら「まだ起動していない」は事実でなくなる。次の観測までは分からない。
+        if (NotStartedYet) SetActivity(ActivityState.Unknown, evidence);
+    });
 
     public void OnObserved(Evidence evidence)
     {
         ArgumentNullException.ThrowIfNull(evidence);
         Update(() =>
         {
+            // 何か観測が来たなら、もう「まだ起動していない」ではない。
+            if (NotStartedYet) SetActivity(ActivityState.Unknown, evidence);
             if (_status.Runtime.Value is not (RuntimeState.Exited or RuntimeState.Failed)) SetRuntime(RuntimeState.Running, evidence);
             // **未解決の承認・相談が活動状態を握り続ける。**
             // 承認待ちの最中にも構造化イベントは流れてくるが、それで Working に戻すと、
@@ -78,6 +95,50 @@ public sealed class DepartmentStatusTracker
             {
                 SetActivity(ActivityState.Working, evidence);
             }
+        });
+    }
+
+    /// <summary>起動ごとのフック未観測の案内。付け直しには立てない（設計 §61-5）。</summary>
+    public bool AwaitingFirstLifecycleHook { get; private set; }
+
+    public void OnLifecycleStarted() => Update(() =>
+    {
+        AwaitingFirstLifecycleHook = true;
+        ClearPreviousLifecycleActivity();
+        NotifyChanged();
+    });
+
+    /// <summary>付け直しで観測先が分からなければ前の起動の状態を引き継がない（設計 §61-2 / §61-5）。</summary>
+    public void OnLifecycleUnavailable() => Update(() =>
+    {
+        AwaitingFirstLifecycleHook = false;
+        ClearPreviousLifecycleActivity();
+        NotifyChanged();
+    });
+
+    private void ClearPreviousLifecycleActivity()
+    {
+        if (!HasPendingApproval && _status.Activity.Evidence.Source is EvidenceSource.LifecycleHook)
+            SetActivity(ActivityState.Unknown, NewEvidence(EvidenceSource.Dispatch, "起動後のフックの観測を待っている"));
+    }
+
+    /// <summary>外部ターミナル専用。構造化の承認・相談には触れない（設計 §61-3 / §61-4）。</summary>
+    public void OnLifecycleActivity(Observed<ActivityState> observation, bool hasHookEvent = true)
+    {
+        if (observation.Evidence.Source != EvidenceSource.LifecycleHook)
+            throw new ArgumentException("フックの根拠が必要です", nameof(observation));
+        Update(() =>
+        {
+            if (_status.Runtime.Value is RuntimeState.Exited or RuntimeState.Failed) return;
+            if (hasHookEvent) AwaitingFirstLifecycleHook = false;
+            if (!HasPendingApproval)
+            {
+                SetRuntime(RuntimeState.Running, observation.Evidence);
+                // 秒が同じでも、最後の行の根拠を採る（設計 §61-3 / §61-4）。
+                _status = _status with { Activity = observation };
+            }
+            // 同じ状態でもイベント名・時刻と信頼の案内を更新する（設計 §61-4 / §61-5）。
+            NotifyChanged();
         });
     }
 

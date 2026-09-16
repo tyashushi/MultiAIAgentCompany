@@ -706,7 +706,9 @@ public partial class MainWindow : Window
                 break;
 
             case DepartmentAction.ShowApproval:
-                Note($"{tile.Name} の承認は中央ペインに出ている");
+                // 外部ターミナルの承認は、その窓で答える（設計 §61-6b）。
+                if (tile.Mode is DriveMode.ExternalTerminal) await FocusDepartmentAsync(tile);
+                else Note($"{tile.Name} の承認は中央ペインに出ている");
                 break;
 
             case DepartmentAction.ReadReport:
@@ -973,6 +975,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>起動。<b>仕事の用件とは別枠</b>（設計 §15-6）。</summary>
+    private async Task FocusDepartmentAsync(DepartmentTile tile)
+    {
+        // 通常の前面化と承認の用件で同じ処理を使う（設計 §61-6b）。
+        if (!await _runner!.FocusAsync(tile.Id, CancellationToken.None))
+            Note($"{tile.Name}: ターミナルを前面に出せなかった（窓が閉じられている可能性があります）");
+    }
+
     private async void OnDepartmentStart(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not DepartmentTile tile || Busy("部門の起動"))
@@ -986,11 +995,7 @@ public partial class MainWindow : Window
         // あちらは窓を**仕事を渡したときに**開くので、ここで起こすものが無い。
         if (tile.Call.Lifecycle is DepartmentLifecycle.Focus)
         {
-            if (!await _runner!.FocusAsync(tile.Id, CancellationToken.None))
-            {
-                // **前面に出せなかったことを言う**（§7）。窓は人間が閉じたのかもしれない。
-                Note($"{tile.Name}: ターミナルを前面に出せなかった（窓が閉じられている可能性があります）");
-            }
+            await FocusDepartmentAsync(tile);
 
             return;
         }

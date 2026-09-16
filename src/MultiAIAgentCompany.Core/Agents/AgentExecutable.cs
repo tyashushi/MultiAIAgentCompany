@@ -48,9 +48,10 @@ public static class AgentExecutable
     /// <c>-c model_reasoning_effort=…</c> で渡す。
     /// </param>
     /// <param name="permissionMode">権限モード。<b>CLI が持たない値は渡さない</b>（設計 §51-3）。</param>
+    /// <param name="activity">macOS の観測先。Windows の構成では null（設計 §61-8）。</param>
     public static IReadOnlyList<string> InteractiveArguments(
         AgentKind kind, string prompt, string? model = null, string? effort = null,
-        AgentPermissionMode? permissionMode = null)
+        AgentPermissionMode? permissionMode = null, Activity.ActivityLaunch? activity = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
 
@@ -131,6 +132,10 @@ public static class AgentExecutable
                 throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
         }
 
+        // 観測の指定は既存の旗の後、指示の直前に置く（設計 §61-1 / §61-8）。
+        if (activity is not null)
+            arguments.InsertRange(arguments.Count - (kind is AgentKind.AntigravityCli ? 2 : 1),
+                Activity.ActivityHooks.Arguments(kind, activity));
         return arguments;
     }
 

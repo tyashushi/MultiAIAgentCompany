@@ -194,6 +194,9 @@ public sealed record DepartmentCallToAction(
     /// </summary>
     public DepartmentLifecycle Lifecycle { get; init; } = DepartmentLifecycle.None;
 
+    /// <summary>承認の行き先を押す前に知らせる（設計 §61-6b）。</summary>
+    public static string ApprovalLabel(bool externalTerminal) => externalTerminal ? "窓で承認する" : "承認を見る";
+
     /// <summary>
     /// 人間の出番があるか。<b><see cref="Action"/> と必ず一致する</b> ——
     /// 「要対応と出ているのに押すものが無い」を作らないため（§15-6）。
@@ -323,7 +326,7 @@ public sealed record DepartmentCallToAction(
 
     private static DepartmentPose PoseOf(ActivityState activity) => activity switch
     {
-        ActivityState.Working => DepartmentPose.Working,
+        ActivityState.Working or ActivityState.WorkingOrAwaitingApproval => DepartmentPose.Working,
         ActivityState.Resting => DepartmentPose.Resting,
         ActivityState.AwaitingApproval => DepartmentPose.AwaitingApproval,
         ActivityState.Consulting => DepartmentPose.Consulting,

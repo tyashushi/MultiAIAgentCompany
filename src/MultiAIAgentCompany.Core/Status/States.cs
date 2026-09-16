@@ -39,4 +39,7 @@ public enum ActivityState
     Consulting,
 
     Degraded,
+
+    /// <summary>agy のログの版を未検証なので、承認待ちを区別できない（設計 §61-3）。</summary>
+    WorkingOrAwaitingApproval,
 }

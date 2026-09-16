@@ -17,12 +17,16 @@ namespace MultiAIAgentCompany.Core.Terminal;
 /// <param name="ReuseWindowId">
 /// 既にある窓のタブとして開くなら、その窓（設計 §33-5）。null なら新しい窓。
 /// </param>
+/// <param name="EnvironmentVariables">macOS の起動スクリプトで export する値（設計 §61-1）。</param>
+/// <param name="Activity">起動前に準備し、セッションが読む記録先。永続化しない（設計 §61-2）。</param>
 public sealed record TerminalLaunchRequest(
     string Title,
     string WorkingDirectory,
     string Command,
     IReadOnlyList<string> Arguments,
-    string? ReuseWindowId = null);
+    string? ReuseWindowId = null,
+    IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
+    Activity.ActivityLaunch? Activity = null);
 
 /// <summary>
 /// 起動した窓（タブ）を指すハンドル。

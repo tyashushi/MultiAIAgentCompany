@@ -381,6 +381,16 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         DepartmentDefinition department, WorkspaceRef workspace,
         IAgentSession session, DepartmentStatusTracker tracker)
     {
+        if (session is TerminalDepartmentSession { ObservesActivity: true } terminal)
+        {
+            tracker.OnLifecycleStarted();
+            terminal.ActivityObserved += (_, observation) =>
+            {
+                tracker.OnLifecycleActivity(observation, terminal.HasHookEvent);
+                if (StillOurs(workspace)) Observed?.Invoke(this, (department.Id, observation.Evidence));
+            };
+        }
+        else if (session is TerminalDepartmentSession) tracker.OnLifecycleUnavailable();
         session.Observed += (_, evidence) =>
         {
             tracker.OnObserved(evidence);

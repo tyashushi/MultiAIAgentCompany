@@ -1,7 +1,7 @@
 namespace MultiAIAgentCompany.Core.Status;
 
 /// <summary>
-/// 根拠の出どころ。設計 §7 の信頼順そのもので、数値が小さいほど信頼できる。
+/// 根拠の出どころ。設計 §7 の信頼順そのもので、比較は Evidence.Stronger で行う（設計 §61-4）。
 /// </summary>
 /// <remarks>
 /// 生の PTY バイト列に正規表現を当てた観測は、この列挙に居場所が無い。
@@ -25,12 +25,15 @@ public enum EvidenceSource
 
     /// <summary>プロセスの終了。</summary>
     ProcessExit = 5,
+
+    /// <summary>CLI のフックと agy の所定のログ。構造化イベントと同じ強さ（設計 §61-4）。</summary>
+    LifecycleHook = 6,
 }
 
 /// <summary>
 /// 状態が「なぜそう言えるのか」。設計 §7。状態は必ずこれと一緒に持つ。文字列1つでは足りない。
 /// </summary>
-/// <param name="Source">出どころ。信頼順は <see cref="EvidenceSource"/> の値の昇順。</param>
+/// <param name="Source">出どころ。信頼順は <see cref="Evidence.Stronger"/> で比較する（設計 §61-4）。</param>
 /// <param name="ObservedAt">観測時刻。鮮度の判定に使う。古い根拠は現在の証拠ではない。</param>
 /// <param name="SessionId">観測元のセッション。</param>
 /// <param name="TurnId">観測元の turn。</param>
@@ -58,9 +61,11 @@ public sealed record Evidence(
     /// </summary>
     public static Evidence Stronger(Evidence a, Evidence b)
     {
-        if (a.Source != b.Source)
+        // 種類を別の値に保ち、信頼の強さだけを揃える（設計 §61-4）。
+        static int Strength(EvidenceSource source) => source == EvidenceSource.LifecycleHook ? 2 : (int)source;
+        if (Strength(a.Source) != Strength(b.Source))
         {
-            return a.Source < b.Source ? a : b;
+            return Strength(a.Source) < Strength(b.Source) ? a : b;
         }
 
         return a.ObservedAt >= b.ObservedAt ? a : b;

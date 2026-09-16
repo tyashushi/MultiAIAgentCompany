@@ -36,6 +36,11 @@ public static class MacTerminalScript
         builder.AppendLine($"printf '\\033]0;%s\\007' {Quote(request.Title)}");
         builder.AppendLine($"cd {Quote(request.WorkingDirectory)} || exit 1");
 
+        // フックの中身は固定し、起動の行き先だけを環境で渡す（設計 §61-1）。
+        if (request.EnvironmentVariables is { } environment)
+            foreach (var (name, value) in environment)
+                builder.AppendLine($"export {name}={Quote(value)}");
+
         var command = new StringBuilder(Quote(request.Command));
         foreach (var argument in request.Arguments)
         {

@@ -14,13 +14,16 @@ public sealed class TaskDispatcher
     private readonly TaskStore _tasks;
     private readonly LeaseStore _leases;
     private readonly TimeProvider _clock;
+    private readonly string? _activityDataRoot;
 
-    public TaskDispatcher(CompanyPaths paths, TaskStore tasks, LeaseStore leases, TimeProvider clock)
+    public TaskDispatcher(CompanyPaths paths, TaskStore tasks, LeaseStore leases, TimeProvider clock, string? activityDataRoot = null)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _leases = leases ?? throw new ArgumentNullException(nameof(leases));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        // macOS の構成元だけが観測用の保存先を渡す（設計 §61-8）。
+        _activityDataRoot = activityDataRoot;
     }
 
     public async Task<DispatchResult> DispatchAsync(
@@ -453,12 +456,15 @@ public sealed class TaskDispatcher
 
         var command = AgentExecutable.ResolveCommand(AgentExecutable.NameOf(department.Agent));
         var prompt = DepartmentReadme.LaunchPrompt(_paths, slug);
+        var activity = _activityDataRoot is null ? null : Activity.ActivityLaunch.Create(
+            _activityDataRoot, _paths.WorkspaceRoot, department.Id, _clock.GetLocalNow());
         return new TerminalLaunchRequest(
             $"MultiAI-{department.Id}",
             _paths.WorkspaceRoot,
             command,
             AgentExecutable.InteractiveArguments(
-                department.Agent, prompt, department.Model, department.ReasoningEffort, department.PermissionMode));
+                department.Agent, prompt, department.Model, department.ReasoningEffort, department.PermissionMode, activity),
+            EnvironmentVariables: activity?.EnvironmentVariables, Activity: activity);
     }
 
     /// <summary>BOM 付きで publish されても本文だけを送る。</summary>

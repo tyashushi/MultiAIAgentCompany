@@ -38,14 +38,35 @@ public static class DepartmentWarnings
             && !AgentCapabilities.For(department.Agent).SupportsRuntimeApprovalRoundTrip;
     }
 
+    /// <summary>hooks.state 以外のフック定義を見る純粋な判定（設計 §61-5）。</summary>
+    public static IReadOnlyList<string> CodexHookOverrides(string config)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in config.Split('\n'))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(line,
+                """^\s*(?:\[\[?\s*hooks\s*\.\s*(?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+))\s*(?:\.|\])|hooks\s*\.\s*(?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+))\s*=)""");
+            if (!match.Success) continue;
+            var name = match.Groups.Values.Skip(1).First(g => g.Success).Value;
+            if (name != "state") found.Add(name);
+        }
+        return Activity.ActivityHooks.Events.Where(found.Contains)
+            .Concat(found.Where(e => !Activity.ActivityHooks.Events.Contains(e)).Order(StringComparer.Ordinal)).ToArray();
+    }
+
     /// <summary>人間に見せる1行を作る。<b>何が起きるかと、どう直すかを書く。</b></summary>
-    public static IReadOnlyList<DepartmentWarning> For(IReadOnlyList<DepartmentDefinition> departments)
+    public static IReadOnlyList<DepartmentWarning> For(IReadOnlyList<DepartmentDefinition> departments, string? codexConfig = null)
     {
         ArgumentNullException.ThrowIfNull(departments);
 
         var warnings = new List<DepartmentWarning>();
         foreach (var department in departments)
         {
+            // 設定の読み取りは呼び出し側。ここではイベント名だけを警告にする（設計 §61-5）。
+            if (department.Agent is AgentKind.CodexCli && department.Mode is DriveMode.ExternalTerminal)
+                foreach (var eventName in CodexHookOverrides(codexConfig ?? string.Empty))
+                    warnings.Add(new DepartmentWarning(department.Id,
+                        $"Codex の config.toml のフック（{eventName}）は、部門の起動時に置き換わる"));
             if (CannotAskHuman(department))
             {
                 warnings.Add(new DepartmentWarning(

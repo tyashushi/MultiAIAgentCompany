@@ -253,7 +253,11 @@ public sealed class ShellComposer
         Tasks = new TaskStore(paths, _clock);
         Leases = new LeaseStore(paths, _clock);
         Threads = new ThreadStore(paths, _clock);
-        Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock);
+        // Windows には観測の引数・環境・ファイル操作を足さない（設計 §61-8）。
+        var activityRoot = OperatingSystem.IsMacOS() ? WorkspaceMemory.RuntimeRoot : null;
+        if (activityRoot is not null)
+            Core.Activity.ActivityLaunch.Cleanup(activityRoot, paths.WorkspaceRoot, _clock.GetUtcNow());
+        Dispatcher = new TaskDispatcher(paths, Tasks, Leases, _clock, activityRoot);
         Scanner = new CompanyScanner(paths, Tasks, Leases, _clock);
         Outbox = new SecretaryOutbox(paths);
         Plans = new PlanStore(paths, _clock);
@@ -712,8 +716,21 @@ public sealed class ShellComposer
     /// </remarks>
     private async Task AddConfigurationWarningsAsync(CancellationToken ct)
     {
+        // 利用者の設定は読むだけ。Windows ではフックを上書きしない（設計 §61-5 / §61-8）。
+        string? codexConfig = null;
+        if (OperatingSystem.IsMacOS())
+        {
+            var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
+            if (string.IsNullOrWhiteSpace(codexHome))
+                codexHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+            try { codexConfig = await File.ReadAllTextAsync(Path.Combine(codexHome, "config.toml"), ct); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // 設定が無い・読めないときにフックの存在を推測しない（設計 §61-5）。
+            }
+        }
         // ① 動かない組み合わせ（§30-1 の実測）。
-        foreach (var warning in DepartmentWarnings.For([.. _definitions.Values]))
+        foreach (var warning in DepartmentWarnings.For([.. _definitions.Values], codexConfig))
         {
             Shell.Recovery.Add(
                 new RecoveryItem(RecoveryKind.Configuration, "departments.json", warning.Message)
