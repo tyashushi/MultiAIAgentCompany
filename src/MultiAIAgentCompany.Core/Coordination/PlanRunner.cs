@@ -73,6 +73,11 @@ public sealed class PlanRunner(
             plan = observed;
         }
 
+        // **受理された工程の追記を、毎周もれなく共有文書へ**（設計 §62-4。レビューで発覚）。
+        // 受理のその場だけで足すと、人間がボタンで受理した工程（止まった工程を先へ進めたとき・最後の工程）と、
+        // 受理を書いてから足すまでに落ちた工程が漏れる。足すのは同じ出典が無いときだけ。
+        await CopyAcceptedToBriefAsync(plan, states, ct);
+
         if (!plan.StoppedByHuman && await IncompleteReportAsync(plan, states, ct) is { } incomplete)
         {
             return incomplete;
@@ -117,10 +122,24 @@ public sealed class PlanRunner(
         for (var index = 0; index < steps.Length; index++)
         {
             var step = steps[index];
-            if (!step.IsReview || step.Verdict is not null
+            if (!step.IsReview
                 || step.TaskSlug is not { Length: > 0 } slug
-                || !states.TryGetValue(slug, out var state)
-                || state.Status is not TaskStatus.Reported)
+                || !states.TryGetValue(slug, out var state))
+            {
+                continue;
+            }
+
+            // **報告待ちに戻ったレビューの判定は消す**（レビューで発覚）。人間がレビューを差し戻すと
+            // 仕事は次の試行へ進むが、計画には前の試行の判定が残り、**新しい報告を読まないまま
+            // 古い ok で通る。** 報告が出ている（Reported / Accepted）あいだだけ、判定は有効。
+            if (step.Verdict is not null && state.Status is not (TaskStatus.Reported or TaskStatus.Accepted))
+            {
+                steps[index] = step with { Verdict = null };
+                changed = true;
+                continue;
+            }
+
+            if (step.Verdict is not null || state.Status is not TaskStatus.Reported)
             {
                 continue;
             }
@@ -139,6 +158,31 @@ public sealed class PlanRunner(
         return await plans.WriteAsync(plan, plan with { Steps = steps }, ct) is PlanWriteResult.Written written
             ? written.Plan
             : null;
+    }
+
+    /// <summary>受理済みの工程のうち、まだ共有文書に足していないものを足す（設計 §62-4）。</summary>
+    /// <remarks>
+    /// 差し戻されたレビューは計画から外れている（仕事の欄を消してある）ので、ここには来ない。
+    /// 差し戻された試行も <c>Accepted</c> にならないので来ない。
+    /// </remarks>
+    private async Task CopyAcceptedToBriefAsync(
+        Plan plan, IReadOnlyDictionary<string, TaskState> states, CancellationToken ct)
+    {
+        if (!File.Exists(paths.Brief(plan.Id)))
+        {
+            return;
+        }
+
+        for (var index = 0; index < plan.Steps.Count; index++)
+        {
+            var step = plan.Steps[index];
+            if (step.TaskSlug is { Length: > 0 } slug
+                && states.TryGetValue(slug, out var state)
+                && state.Status is TaskStatus.Accepted)
+            {
+                await CopyToBriefAsync(plan, index, step, state, ct);
+            }
+        }
     }
 
     /// <summary>
@@ -342,7 +386,9 @@ public sealed class PlanRunner(
             await dispatcher.ReleaseWriteLeaseIfIdleAsync(department, ct);
         }
 
-        return new PlanTick.Acted(plan, $"{slug} を受理した（工程 {next.Index + 1}）{await CopyToBriefAsync(plan, next, slug, state, ct)}");
+        return new PlanTick.Acted(
+            plan,
+            $"{slug} を受理した（工程 {next.Index + 1}）{await CopyToBriefAsync(plan, next.Index, next.Step, write is TaskWriteResult.Written { State: var accepted } ? accepted : state, ct)}");
     }
 
     /// <summary>
@@ -354,12 +400,12 @@ public sealed class PlanRunner(
     /// <b>足せなくても計画は止めない</b> —— 文書は補助で、報告そのものは次の工程へ渡る。
     /// </remarks>
     private async Task<string> CopyToBriefAsync(
-        Plan plan, PlanNext.AcceptStep next, string slug, TaskState state, CancellationToken ct)
+        Plan plan, int index, PlanStep step, TaskState state, CancellationToken ct)
     {
         try
         {
-            var addition = PlanBrief.ExtractAddition(await ReadTextAsync(paths.Report(slug), ct));
-            var heading = PlanBrief.SourceHeading(next.Index, next.Step.DepartmentId, slug, state.AttemptId);
+            var addition = PlanBrief.ExtractAddition(await ReadTextAsync(paths.Report(state.Slug), ct));
+            var heading = PlanBrief.SourceHeading(index, step.DepartmentId, state.Slug, state.AttemptId);
             return await PlanBrief.AppendAsync(paths, plan.Id, heading, addition, ct)
                 ? "。共有文書に追記した"
                 : "";

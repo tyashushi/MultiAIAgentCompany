@@ -196,4 +196,18 @@ public sealed class PlanStoreTests : IDisposable
     public void 追記節は次の見出しまで(string report, string? expected) =>
         Assert.Equal(expected, PlanBrief.ExtractAddition(report));
 
+
+    [Fact]
+    public async Task 共有文書を書けなければ_計画も作らない()
+    {
+        // レビューで発覚。作ってしまうと、秘書が書いた前提がどこにも残らないまま工程が進む。
+        Directory.CreateDirectory(_workspace.Paths.Brief("plan-c"));
+
+        var result = await _store.CreateAsync(
+            "plan-c", "目的", [new PlanStep("design", "設計する")], CancellationToken.None, "- 対象外: 再設定");
+
+        Assert.IsType<PlanWriteResult.Rejected>(result);
+        Assert.False(File.Exists(_workspace.Paths.PlanFile("plan-c")));
+    }
+
 }

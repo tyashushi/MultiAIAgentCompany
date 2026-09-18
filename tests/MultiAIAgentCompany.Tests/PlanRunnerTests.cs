@@ -14,16 +14,15 @@ public sealed class PlanRunnerTests : IDisposable
     private readonly TestTimeProvider _clock = new(new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero));
     private readonly TaskStore _tasks;
     private readonly PlanStore _plans;
+    private readonly TaskDispatcher _dispatcher;
     private readonly PlanRunner _runner;
 
     public PlanRunnerTests()
     {
         _tasks = new TaskStore(_workspace.Paths, _clock);
         _plans = new PlanStore(_workspace.Paths, _clock);
-        _runner = new PlanRunner(
-            _workspace.Paths, _plans, _tasks,
-            new TaskDispatcher(_workspace.Paths, _tasks, new LeaseStore(_workspace.Paths, _clock), _clock),
-            _clock);
+        _dispatcher = new TaskDispatcher(_workspace.Paths, _tasks, new LeaseStore(_workspace.Paths, _clock), _clock);
+        _runner = new PlanRunner(_workspace.Paths, _plans, _tasks, _dispatcher, _clock);
     }
 
     public void Dispose() => _workspace.Dispose();
@@ -390,6 +389,61 @@ public sealed class PlanRunnerTests : IDisposable
         await ReportAsync(plan.Steps[1].TaskSlug!, $"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}\n良いです");
 
         Assert.IsType<PlanTick.Acted>(await StepAsync(plan));
+    }
+
+    [Fact]
+    public async Task 人間がレビューを差し戻したら_前の試行の判定で通さない()
+    {
+        // レビューで発覚。止まった読むだけのレビューを人間が差し戻したとき、古い ok が残って通っていた。
+        WorktreeSnapshotTests.Git(_workspace.Path, "init", "-q");
+        var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0), Step("implementation"));
+        var design = plan.Steps[0].TaskSlug!;
+        await ReportAsync(design, "設計です");
+        plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;
+        var review = plan.Steps[1].TaskSlug!;
+
+        await File.WriteAllTextAsync(Path.Combine(_workspace.Path, "written-by-review.txt"), "書いた");
+        await ReportAsync(review, $"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}");
+        Assert.IsType<PlanTick.Stopped>(await StepAsync(plan));
+        Assert.Equal(ReviewVerdict.Ok, (await ReadPlanAsync()).Steps[1].Verdict);
+
+        // 人間がレビューを差し戻して、送り直す。
+        var rejected = ((TaskWriteResult.Written)await _tasks.TransitionAsync(
+            await ReadAsync(review), CoreTaskStatus.Rejected, TransitionOrigin.Human, "書き換えた", CancellationToken.None)).State;
+        await File.WriteAllTextAsync(_workspace.Paths.NextInstruction(review), "もう一度見る");
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.RedispatchAsync(rejected, CancellationToken.None, TransitionOrigin.Human));
+
+        Assert.IsType<PlanTick.Idle>(await StepAsync(await ReadPlanAsync()));
+        Assert.Null((await ReadPlanAsync()).Steps[1].Verdict);
+
+        // 新しい試行の判定で決まる。
+        await ReportAsync(review, $"{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}\nR1: 直す");
+        Assert.IsType<PlanTick.Acted>(await StepAsync(await ReadPlanAsync()));
+        Assert.NotEqual(CoreTaskStatus.Accepted, (await ReadAsync(design)).Status);
+        Assert.Equal(1, (await ReadPlanAsync()).Revisions);
+    }
+
+    [Fact]
+    public async Task 人間が受理した工程の追記も_共有文書に足す()
+    {
+        // レビューで発覚。止まった工程を人間がボタンで受理すると、転記を通らなかった。
+        var plan = await DispatchedAsync(Step("research"), Step("design"));
+        var slug = plan.Steps[0].TaskSlug!;
+        await ReportAsync(slug, $"{PlanBrief.AdditionHeading}\n\n- 決定: 半分でよい\n\n{ReportOutcomes.Key}: {ReportOutcomes.PartialValue}");
+        Assert.IsType<PlanTick.Stopped>(await StepAsync(plan));
+
+        // アプリの受理と同じく、書き込み権も返す。
+        await _tasks.TransitionAsync(
+            await ReadAsync(slug), CoreTaskStatus.Accepted, TransitionOrigin.Human, "人間が受理した", CancellationToken.None);
+        await _dispatcher.ReleaseWriteLeaseIfIdleAsync(Departments[0], CancellationToken.None);
+        Assert.IsType<PlanTick.Acted>(await StepAsync(await ReadPlanAsync()));   // 次の工程を渡す
+
+        var brief = await File.ReadAllTextAsync(_workspace.Paths.Brief(plan.Id));
+        Assert.Contains($"{PlanBrief.SourceHeading(0, "research", slug, 0)}\n\n- 決定: 半分でよい", brief);
+
+        // 毎周確かめても、2度は足さない。
+        await StepAsync(await ReadPlanAsync());
+        Assert.Equal(brief, await File.ReadAllTextAsync(_workspace.Paths.Brief(plan.Id)));
     }
 
     [Fact]

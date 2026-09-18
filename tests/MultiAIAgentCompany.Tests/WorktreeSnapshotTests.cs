@@ -117,6 +117,24 @@ public sealed class WorktreeSnapshotTests : IDisposable
     }
 
     [Fact]
+    public async Task 先頭に空白のあるフォルダでも_接頭辞を外して比べる()
+    {
+        // レビューで発覚。接頭辞を Trim() すると ` app/` の空白まで消え、別の場所を読んでいた。
+        Git(_workspace.Path, "init", "-q");
+        var inner = Path.Combine(_workspace.Path, " app");
+        Directory.CreateDirectory(inner);
+        await File.WriteAllTextAsync(Path.Combine(inner, "a.txt"), "前から変わっている");
+        var paths = new CompanyPaths(inner);
+
+        await WorktreeSnapshot.SaveBeforeAsync(paths, "task", 0, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(inner, "a.txt"), "さらに変えた");
+
+        var changed = Assert.IsType<WorktreeCheck.Changed>(
+            await WorktreeSnapshot.CheckAsync(paths, "task", 0, CancellationToken.None));
+        Assert.Equal(["a.txt"], changed.Paths);
+    }
+
+    [Fact]
     public async Task git_でなければ_確かめられなかったと言う()
     {
         await SaveAsync();

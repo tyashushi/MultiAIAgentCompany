@@ -256,6 +256,9 @@ public sealed class TaskDispatcher
             return new DispatchResult.LaunchTerminal(expected, TerminalRequestFor(department, expected.Slug));
         }
 
+        // 構造化の送り直しでも同じ（設計 §62-6。レビューで発覚）。
+        await SaveWorktreeBeforeAsync(department, expected.Slug, expected.AttemptId, ct);
+
         try
         {
             await session!.SendUserMessageAsync(instruction, ct);

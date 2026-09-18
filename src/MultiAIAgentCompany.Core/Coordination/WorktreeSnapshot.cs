@@ -43,7 +43,8 @@ public sealed record WorktreeSnapshot(bool Available, string? Reason, IReadOnlyD
             return Unavailable("git の作業ツリーではない（または git を起動できない）");
         }
 
-        prefix = prefix.Trim();
+        // **改行だけを削る**（レビューで発覚）。Trim() だと ` app/` のような先頭の空白まで消え、接頭辞を外せなくなる。
+        prefix = prefix.TrimEnd('\r', '\n');
 
         // **ワークスペースの下だけを見る**（pathspec `.`）。リポジトリの別の場所の変化は、この部門と関係が薄い。
         var (code, output) = await RunGitAsync(

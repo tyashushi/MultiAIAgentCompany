@@ -98,14 +98,16 @@ public sealed class PlanStore
         }
 
         // **共有文書は計画より先に置く**（設計 §62-4）。計画があって文書が無いと、
-        // 最初の工程は文書を知らないまま渡る。書けなくても計画は作る —— 工程の指示書が
-        // 文書に触れなくなるだけで、これまでの計画と同じに動く。
+        // 最初の工程は文書を知らないまま渡る。
+        // **書けなければ計画も作らない**（レビューで発覚）。作ってしまうと、秘書が書いた
+        // 受入条件・対象外が**どこにも残らないまま**工程が進む。提案は outbox に残り、人間に見える。
         try
         {
             await PlanBrief.WriteInitialAsync(_paths, id, goal, steps, secretaryBrief, ct);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            return new PlanWriteResult.Rejected($"共有文書（brief.md）を書けなかった: {exception.Message}");
         }
 
         var now = _clock.GetUtcNow();

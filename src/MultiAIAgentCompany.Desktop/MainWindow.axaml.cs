@@ -2174,6 +2174,11 @@ public partial class MainWindow : Window
             case WorktreeCheck.Unavailable unavailable:
                 Note($"{slug}: 読むだけの{name}が作業ツリーを書き換えていないかは確かめられなかった（{unavailable.Reason}）");
                 break;
+
+            // 送る前の控えが無い（取るのに失敗した・この機能より前に送った）。**「変わっていない」とは言わない。**
+            case WorktreeCheck.NoBaseline:
+                Note($"{slug}: 読むだけの{name}が作業ツリーを書き換えていないかは確かめられなかった（送る前の控えが無い）");
+                break;
         }
     }
 
