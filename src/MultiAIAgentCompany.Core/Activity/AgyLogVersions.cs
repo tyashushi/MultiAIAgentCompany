@@ -70,6 +70,7 @@ public static partial class AgyVersion
                 var info = new System.Diagnostics.ProcessStartInfo(executable)
                 {
                     RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
+                    StandardOutputEncoding = Sessions.ProcessEncoding.Utf8, StandardErrorEncoding = Sessions.ProcessEncoding.Utf8,
                 };
                 info.ArgumentList.Add("--version");
                 using var process = System.Diagnostics.Process.Start(info);

@@ -115,6 +115,8 @@ public static class CompanyGitIgnore
                 WorkingDirectory = workingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardOutputEncoding = Sessions.ProcessEncoding.Utf8,
+                StandardErrorEncoding = Sessions.ProcessEncoding.Utf8,
                 UseShellExecute = false,
             };
 

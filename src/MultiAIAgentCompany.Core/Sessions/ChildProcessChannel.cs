@@ -44,6 +44,9 @@ public sealed class ChildProcessChannel : IAgentProcessChannel
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardInputEncoding = ProcessEncoding.Utf8,
+            StandardOutputEncoding = ProcessEncoding.Utf8,
+            StandardErrorEncoding = ProcessEncoding.Utf8,
         };
         foreach (var argument in arguments)
         {

@@ -76,6 +76,8 @@ public static class AgentPermissionProbe
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Sessions.ProcessEncoding.Utf8,
+            StandardErrorEncoding = Sessions.ProcessEncoding.Utf8,
             UseShellExecute = false,
         };
 

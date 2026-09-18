@@ -47,6 +47,8 @@ public static class AgentUsageCatalog
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardOutputEncoding = Sessions.ProcessEncoding.Utf8,
+                StandardErrorEncoding = Sessions.ProcessEncoding.Utf8,
                 RedirectStandardInput = kind is AgentKind.CodexCli,
                 CreateNoWindow = true,
             };

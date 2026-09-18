@@ -182,6 +182,8 @@ public static class AgentModelCatalog
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardOutputEncoding = Sessions.ProcessEncoding.Utf8,
+                StandardErrorEncoding = Sessions.ProcessEncoding.Utf8,
                 UseShellExecute = false,
             };
 
