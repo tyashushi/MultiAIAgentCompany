@@ -36,9 +36,9 @@
                               SelectedItem="{Binding SecretaryAgent}" HorizontalAlignment="Stretch" />
                     <TextBlock Grid.Column="2" Text="モデル" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
                     <TextBox Grid.Column="3" Text="{Binding SecretaryModel}" Classes="input"
-                             Watermark="空欄なら CLI の設定に任せる" />
+                             PlaceholderText="空欄なら CLI の設定に任せる" />
                     <TextBlock Grid.Column="4" Text="強さ" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
-                    <TextBox Grid.Column="5" Text="{Binding SecretaryEffort}" Classes="input" Watermark="空欄可" />
+                    <TextBox Grid.Column="5" Text="{Binding SecretaryEffort}" Classes="input" PlaceholderText="空欄可" />
                 </Grid>
                 <!-- **選んだ CLI の trust を出す**（設計 §54-2）。秘書を Codex にしたら Codex のもの。 -->
                 <TextBlock Text="{Binding SecretaryTrustText}" Classes="caption" TextWrapping="Wrap" />
@@ -99,7 +99,7 @@
                     <StackPanel Spacing="4">
                         <TextBlock Text="責務（1行）" Classes="meta" />
                         <TextBox Text="{Binding Responsibility}" Classes="input"
-                                 Watermark="この部門が何をするか" />
+                                 PlaceholderText="この部門が何をするか" />
                     </StackPanel>
 
                     <Grid ColumnDefinitions="*,12,*">
@@ -160,7 +160,7 @@
                         <StackPanel Grid.Column="0" Spacing="4">
                             <TextBlock Text="報告を待つ分数" Classes="meta" />
                             <TextBox Text="{Binding ReportDeadlineMinutes}" Classes="input"
-                                     Watermark="空欄なら 30 分" />
+                                     PlaceholderText="空欄なら 30 分" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Bottom">
                             <CheckBox IsChecked="{Binding ReadsOnly}" Content="読むだけ（書き込み権を取らない）" />
