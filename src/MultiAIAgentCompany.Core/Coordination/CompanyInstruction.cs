@@ -1,3 +1,4 @@
+using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Workspace;
 
 namespace MultiAIAgentCompany.Core.Coordination;
@@ -99,7 +100,11 @@ public static class CompanyInstruction
         var directory = paths.TaskDirectory(slug);
         var report = paths.Report(slug);
         var question = paths.Question(slug);
-        var answer = paths.Answer(slug);
+
+        // **質問のあとの続け方は1つだけ**（設計 §62-3）。CLI の種類ではなく、駆動モードで決まる。
+        var afterQuestion = department.Mode == DriveMode.ExternalTerminal
+            ? "turn を終える。人間がこのターミナルの入力欄で答える。シェルで入力を待たない。"
+            : $"人間の回答は `{paths.Answer(slug)}` に置かれる。置かれたら続きをやってよい。";
 
         // **責務は定義の文言をそのまま渡す**（設計 §62-1）。秘書の書き忘れに左右されない。
         var readsOnly = department.ReadsOnly
@@ -134,11 +139,14 @@ public static class CompanyInstruction
             **途中まで書いたファイルを最終名で置かないこと。** こちらは最終名の出現を
             「書き終わった」の合図として読むので、書きかけを置かれると途中を読んでしまう。
 
-            ### 判断に迷ったら、自分で埋めずに止まる
+            ### 自分で決めてよいことと、質問して止まること
 
-            依頼に書かれていない判断が必要になったら、**勝手に決めない**。
+            依頼と既存の規約の範囲での局所的な実装判断は、自分で決めてよい。決めたことは報告に書く。
+            仕様の変更・範囲の拡大・依頼の対象外に触れること・戻せない操作・依頼どうしの矛盾は、質問を書いて止まること。
+
+            質問には「何を決めたいか / 選択肢 / 推奨とその理由 / 決めないと何が止まるか」を書く。
             同じ手順（tmp に書いて rename）で `{question}` に質問を書き、そこで止まること。
-            人間の回答は `{answer}` に置かれる。置かれたら続きをやってよい。
+            {afterQuestion}
 
             ### やらないこと
 

@@ -73,15 +73,46 @@ public sealed class CompanyInstructionTests
         Assert.Contains("rename", text, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void 迷ったら止まる約束を含む()
+    [Theory]
+    [InlineData(AgentKind.ClaudeCode, DriveMode.ExternalTerminal)]
+    [InlineData(AgentKind.CodexCli, DriveMode.ExternalTerminal)]
+    [InlineData(AgentKind.AntigravityCli, DriveMode.ExternalTerminal)]
+    [InlineData(AgentKind.ClaudeCode, DriveMode.Structured)]
+    [InlineData(AgentKind.CodexCli, DriveMode.Structured)]
+    [InlineData(AgentKind.AntigravityCli, DriveMode.Structured)]
+    public void 質問のあとの続け方はCLIではなく駆動モードで1通りだけ書く(AgentKind agent, DriveMode mode)
     {
-        // Codex への指示書に毎回入れている停止条件と同じ形（§3 の (b)）。
-        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department);
+        // 設計 §62-3。外部ターミナルでは、回答ファイルを待たせない。
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department with { Agent = agent, Mode = mode });
 
         Assert.Contains(Paths.Question("add-login"), text, StringComparison.Ordinal);
-        Assert.Contains(Paths.Answer("add-login"), text, StringComparison.Ordinal);
-        Assert.Contains("勝手に決めない", text, StringComparison.Ordinal);
+        Assert.Contains("同じ手順（tmp に書いて rename）", text, StringComparison.Ordinal);
+        if (mode == DriveMode.ExternalTerminal)
+        {
+            Assert.DoesNotContain("answer.md", text, StringComparison.Ordinal);
+            Assert.Contains("turn を終える。人間がこのターミナルの入力欄で答える。シェルで入力を待たない。", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("置かれたら続きをやってよい", text, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains($"人間の回答は `{Paths.Answer("add-login")}` に置かれる。置かれたら続きをやってよい。", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("turn を終える", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("ターミナルの入力欄", text, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData(DriveMode.ExternalTerminal)]
+    [InlineData(DriveMode.Structured)]
+    public void 任せる範囲と止まる条件と質問の形を伝える(DriveMode mode)
+    {
+        // 設計 §62-3。局所的な実装判断まで、全面禁止にしない。
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department with { Mode = mode });
+
+        Assert.Contains("依頼と既存の規約の範囲での局所的な実装判断は、自分で決めてよい。決めたことは報告に書く。", text, StringComparison.Ordinal);
+        Assert.Contains("仕様の変更・範囲の拡大・依頼の対象外に触れること・戻せない操作・依頼どうしの矛盾は、質問を書いて止まること。", text, StringComparison.Ordinal);
+        Assert.Contains("質問には「何を決めたいか / 選択肢 / 推奨とその理由 / 決めないと何が止まるか」を書く。", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("勝手に決めない", text, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -120,9 +120,19 @@ public sealed class TerminalLaunchTests
         var text = await File.ReadAllTextAsync(DepartmentReadme.PathIn(workspace.Paths));
 
         Assert.Contains("question.md", text);
-        Assert.Contains("turn を終え", text);
-        Assert.Contains("read", text);          // シェルで待つな、と名指ししている
+        Assert.Contains("そこで turn を終える", text);
+        Assert.Contains("人間がこのターミナルの入力欄で答える", text);
+        Assert.DoesNotContain("answer.md", text);
+        Assert.Contains("自分から人間に聞きに行こうとしない", text);
+        Assert.Contains("シェルを使って入力を待つ（`read` など）ことはしない", text);
         Assert.Contains("report.md", text);
+
+        // 設計 §62-3。指示書と同じ範囲を任せ、質問に必要な4項目を揃える。
+        Assert.Contains("依頼と既存の規約の範囲での局所的な実装判断は、自分で決めてよい。決めたことは報告に書く。", text);
+        Assert.Contains("仕様の変更・範囲の拡大・依頼の対象外に触れること・戻せない操作・依頼どうしの矛盾は、質問を書いて止まること。", text);
+        Assert.Contains("質問には「何を決めたいか / 選択肢 / 推奨とその理由 / 決めないと何が止まるか」を書く。", text);
+        Assert.DoesNotContain("自分で決めないでください", text);
+        Assert.DoesNotContain("何を聞きたいかを1〜2行で", text);
     }
 
     [Theory]
