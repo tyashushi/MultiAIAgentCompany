@@ -84,8 +84,9 @@ public sealed class PlanStore
         }
     }
 
+    /// <param name="secretaryBrief">秘書が <c>brief:</c> の下に書いた前提（設計 §62-4）。</param>
     public async Task<PlanWriteResult> CreateAsync(
-        string id, string goal, IReadOnlyList<PlanStep> steps, CancellationToken ct)
+        string id, string goal, IReadOnlyList<PlanStep> steps, CancellationToken ct, string? secretaryBrief = null)
     {
         ct.ThrowIfCancellationRequested();
         var directory = _paths.PlanDirectory(id);
@@ -94,6 +95,17 @@ public sealed class PlanStore
         if (File.Exists(planPath))
         {
             return new PlanWriteResult.Conflicted("既にある");
+        }
+
+        // **共有文書は計画より先に置く**（設計 §62-4）。計画があって文書が無いと、
+        // 最初の工程は文書を知らないまま渡る。書けなくても計画は作る —— 工程の指示書が
+        // 文書に触れなくなるだけで、これまでの計画と同じに動く。
+        try
+        {
+            await PlanBrief.WriteInitialAsync(_paths, id, goal, steps, secretaryBrief, ct);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
         }
 
         var now = _clock.GetUtcNow();

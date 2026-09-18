@@ -19,6 +19,33 @@ public sealed class SecretaryOutboxTests : IDisposable
     }
 
     [Fact]
+    public void brief_から後ろは前提として受け取り_工程として読まない()
+    {
+        // 設計 §62-4。
+        Publish("login", """
+            plan: ログイン画面を作る
+            step: design / 設計する
+            brief: 受入条件
+            - メールでログインできる
+
+            step: implementation / これは工程ではない
+            """);
+
+        var plan = Assert.Single(Outbox.ReadPlans());
+        Assert.Equal(["design"], plan.Steps.Select(step => step.DepartmentId));
+        Assert.Equal("受入条件\n\n- メールでログインできる\n\nstep: implementation / これは工程ではない", plan.Brief);
+    }
+
+    [Theory]
+    [InlineData("plan: 目的\nstep: design / やる")]
+    [InlineData("plan: 目的\nstep: design / やる\nbrief:\n\n")]
+    public void brief_が無い_空なら_前提は無い(string content)
+    {
+        Publish("login", content);
+        Assert.Null(Assert.Single(Outbox.ReadPlans()).Brief);
+    }
+
+    [Fact]
     public void 計画の目的と工程とレビュー先を読む()
     {
         Publish("login", """

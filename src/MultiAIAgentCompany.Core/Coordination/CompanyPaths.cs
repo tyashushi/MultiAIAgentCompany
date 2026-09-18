@@ -96,6 +96,9 @@ public sealed class CompanyPaths
 
     public string PlanFile(string id) => Path.Combine(PlanDirectory(id), "plan.json");
 
+    /// <summary>計画の共有文書（設計 §62-4）。<b>アプリだけが書く</b>。</summary>
+    public string Brief(string id) => Path.Combine(PlanDirectory(id), "brief.md");
+
     public string Instruction(string slug) => Path.Combine(TaskDirectory(slug), "instruction.md");
 
     public string Report(string slug) => Path.Combine(TaskDirectory(slug), "report.md");

@@ -1574,7 +1574,7 @@ public partial class MainWindow : Window
             // **outbox から移すこと**で防ぐ（§17-6 の提案と同じ形）。
             var id = $"plan-{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4]}";
             var created = await store.CreateAsync(
-                id, published.Goal, published.Steps, CancellationToken.None);
+                id, published.Goal, published.Steps, CancellationToken.None, published.Brief);
             Note(created is PlanWriteResult.Written
                 ? $"計画を受け取った: {published.Goal}（{published.Steps.Count} 工程）"
                 : $"計画を作れなかった: {published.Id}");

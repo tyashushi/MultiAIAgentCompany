@@ -11,7 +11,11 @@ namespace MultiAIAgentCompany.Core.Coordination;
 public sealed record SecretaryProposal(string Id, string? DepartmentId, string Body);
 
 /// <summary>秘書が publish した計画。仕事1件の提案と混ぜず、工程の列として渡す（§37）。</summary>
-public sealed record SecretaryPlanProposal(string Id, string Goal, IReadOnlyList<PlanStep> Steps);
+/// <param name="Brief">
+/// 秘書が <c>brief:</c> の下に書いた前提（設計 §62-4）。書いていなければ null。
+/// </param>
+public sealed record SecretaryPlanProposal(
+    string Id, string Goal, IReadOnlyList<PlanStep> Steps, string? Brief = null);
 
 /// <summary>
 /// 秘書の outbox を読む。<b>ここが未処理の提案の正本</b>（設計 §17-6）。
@@ -107,8 +111,11 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
         }
 
         var steps = new List<PlanStep>();
-        foreach (var raw in lines.Skip(1))
+        string? brief = null;
+        for (var number = 1; number < lines.Length; number++)
         {
+            var raw = lines[number];
+
             // **空行で計画を落とさない。** 秘書は人間が読む文書を書くので、
             // 見出しや箇条書きの間に空行が入る。ここで厳しくすると、
             // **正しい計画が「宛先不明の提案」に化けて自動にならない。**
@@ -116,6 +123,16 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
             if (line.Length is 0)
             {
                 continue;
+            }
+
+            // **`brief:` から後ろは前提の文章**（設計 §62-4）。秘書が人間に向けて書く文書なので、
+            // 行の形を問わない —— `step:` と書いてあっても工程として読まない。
+            if (line.StartsWith("brief:", StringComparison.Ordinal))
+            {
+                var first = line["brief:".Length..].Trim();
+                var rest = string.Join("\n", lines.Skip(number + 1)).Trim('\n');
+                brief = string.Join("\n\n", new[] { first, rest }.Where(part => part.Trim().Length > 0));
+                break;
             }
 
             if (!line.StartsWith("step:", StringComparison.Ordinal))
@@ -162,7 +179,9 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
 
         // **工程が1つも無い計画は計画ではない。** 空のまま受け取ると、
         // `PlanAdvance` が「工程が1つも無い」で止めることになり、**理由が1段遠くなる。**
-        return steps.Count is 0 ? null : new SecretaryPlanProposal(id, goal, steps);
+        return steps.Count is 0
+            ? null
+            : new SecretaryPlanProposal(id, goal, steps, string.IsNullOrWhiteSpace(brief) ? null : brief);
     }
 
     /// <summary>

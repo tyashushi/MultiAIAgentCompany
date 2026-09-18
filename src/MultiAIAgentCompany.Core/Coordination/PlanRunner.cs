@@ -303,7 +303,32 @@ public sealed class PlanRunner(
             await dispatcher.ReleaseWriteLeaseIfIdleAsync(department, ct);
         }
 
-        return new PlanTick.Acted(plan, $"{slug} を受理した（工程 {next.Index + 1}）");
+        return new PlanTick.Acted(plan, $"{slug} を受理した（工程 {next.Index + 1}）{await CopyToBriefAsync(plan, next, slug, state, ct)}");
+    }
+
+    /// <summary>
+    /// 受理した報告の追記節を共有文書へ足す（設計 §62-4）。作業ログに添える一言を返す。
+    /// </summary>
+    /// <remarks>
+    /// <b>受理の書き込みが済んでから足す</b>（§37 の順序は変えない）。
+    /// 差し戻された試行はここを通らないので、受理されていない案は足さない。
+    /// <b>足せなくても計画は止めない</b> —— 文書は補助で、報告そのものは次の工程へ渡る。
+    /// </remarks>
+    private async Task<string> CopyToBriefAsync(
+        Plan plan, PlanNext.AcceptStep next, string slug, TaskState state, CancellationToken ct)
+    {
+        try
+        {
+            var addition = PlanBrief.ExtractAddition(await ReadTextAsync(paths.Report(slug), ct));
+            var heading = PlanBrief.SourceHeading(next.Index, next.Step.DepartmentId, slug, state.AttemptId);
+            return await PlanBrief.AppendAsync(paths, plan.Id, heading, addition, ct)
+                ? "。共有文書に追記した"
+                : "";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return $"。共有文書に追記できなかった（{exception.GetType().Name}）";
+        }
     }
 
     private async Task<PlanTick> SendBackAsync(
@@ -438,6 +463,11 @@ public sealed class PlanRunner(
 
                 parts.Add(CompanyInstruction.Material($"{plan.Steps[source].DepartmentId} の報告", origin, report));
             }
+        }
+
+        if (PlanBrief.ReadingInstruction(paths, plan.Id) is { } brief)
+        {
+            parts.Add(brief);
         }
 
         if (step.IsReview)

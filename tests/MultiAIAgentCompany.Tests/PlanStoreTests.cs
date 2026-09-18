@@ -169,4 +169,31 @@ public sealed class PlanStoreTests : IDisposable
         public CompanyPaths Paths { get; }
         public void Dispose() => Directory.Delete(Path, recursive: true);
     }
+
+    [Fact]
+    public async Task 秘書の前提を共有文書に入れ_既にある文書は上書きしない()
+    {
+        // 設計 §62-4。
+        var steps = new[] { new PlanStep("design", "設計する"), new PlanStep("review", "見る", 0) };
+        Assert.IsType<PlanWriteResult.Written>(
+            await _store.CreateAsync("plan-b", "目的", steps, CancellationToken.None, "- 対象外: 再設定"));
+
+        var path = _workspace.Paths.Brief("plan-b");
+        var brief = await File.ReadAllTextAsync(path);
+        Assert.Contains("- 対象外: 再設定", brief);
+        Assert.Contains("2. `review`（工程 1 を見る） —— 見る", brief);
+
+        await File.AppendAllTextAsync(path, "追記");
+        await PlanBrief.WriteInitialAsync(_workspace.Paths, "plan-b", "別の目的", steps, null, CancellationToken.None);
+        Assert.EndsWith("追記", await File.ReadAllTextAsync(path));
+    }
+
+    [Theory]
+    [InlineData("## 結果\n\nできた", null)]
+    [InlineData("## 共有文書への追記\n\n\n## 次", null)]
+    [InlineData("## 共有文書への追記\n- A\n### 小見出し\n- B\n## 次\n- C", "- A\n### 小見出し\n- B")]
+    [InlineData("## 共有文書への追記\r\n\r\n- A\r\n", "- A")]
+    public void 追記節は次の見出しまで(string report, string? expected) =>
+        Assert.Equal(expected, PlanBrief.ExtractAddition(report));
+
 }

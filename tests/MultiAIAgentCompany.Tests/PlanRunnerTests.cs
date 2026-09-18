@@ -298,6 +298,68 @@ public sealed class PlanRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task 共有文書を作り_工程の指示書で場所を示す()
+    {
+        // 設計 §62-4。
+        var plan = await DispatchedAsync(Step("research"), Step("design"));
+        var brief = await File.ReadAllTextAsync(_workspace.Paths.Brief(plan.Id));
+        Assert.Contains("ログイン画面を作る", brief);
+        Assert.Contains("1. `research` —— 調べる", brief);
+        Assert.Contains("（秘書は前提を書いていない）", brief);
+        Assert.Contains(PlanBrief.DecisionsHeading, brief);
+
+        var instruction = await File.ReadAllTextAsync(_workspace.Paths.Instruction(plan.Steps[0].TaskSlug!));
+        Assert.Contains($"最初に `{_workspace.Paths.Brief(plan.Id)}` を読むこと", instruction);
+        Assert.Contains(PlanBrief.AdditionHeading, instruction);
+    }
+
+    [Fact]
+    public async Task 受理した報告の追記節を_出典付きでそのまま共有文書に足し_二度足さない()
+    {
+        var plan = await DispatchedAsync(Step("research"), Step("design"));
+        var slug = plan.Steps[0].TaskSlug!;
+        await ReportAsync(slug, $"## 結果\n\nできた\n\n{PlanBrief.AdditionHeading}\n\n- 決定: 認証は既存の仕組みを使う\n\n## 残っていること\n\nなし");
+
+        var acted = Assert.IsType<PlanTick.Acted>(await StepAsync(plan));
+        Assert.Contains("共有文書に追記した", acted.Note);
+
+        var heading = PlanBrief.SourceHeading(0, "research", slug, 0);
+        var brief = await File.ReadAllTextAsync(_workspace.Paths.Brief(plan.Id));
+        Assert.EndsWith($"{heading}\n\n- 決定: 認証は既存の仕組みを使う\n", brief);
+        Assert.DoesNotContain("なし", brief);
+
+        // **落ちて同じ受理をやり直しても重複しない。**
+        Assert.False(await PlanBrief.AppendAsync(_workspace.Paths, plan.Id, heading, "- 決定: 認証は既存の仕組みを使う", CancellationToken.None));
+        Assert.Equal(brief, await File.ReadAllTextAsync(_workspace.Paths.Brief(plan.Id)));
+    }
+
+    [Fact]
+    public async Task 追記節の無い報告と_差し戻された試行は_共有文書に足さない()
+    {
+        var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0), Step("implementation"));
+        var design = plan.Steps[0].TaskSlug!;
+        var before = await File.ReadAllTextAsync(_workspace.Paths.Brief(plan.Id));
+
+        await ReportAsync(design, $"{PlanBrief.AdditionHeading}\n\n- 決定: 差し戻される案");
+        plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;          // レビューを渡す
+        await ReportAsync(plan.Steps[1].TaskSlug!, $"{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}\nR1: 直す");
+        Assert.IsType<PlanTick.Acted>(await StepAsync(plan));         // 差し戻す
+
+        Assert.Equal(before, await File.ReadAllTextAsync(_workspace.Paths.Brief(plan.Id)));
+    }
+
+    [Fact]
+    public async Task 共有文書の無い古い計画では_指示書に触れない()
+    {
+        var plan = await CreateAsync(Step("research"));
+        File.Delete(_workspace.Paths.Brief(plan.Id));
+
+        var acted = Assert.IsType<PlanTick.Acted>(await StepAsync(plan));
+        var instruction = await File.ReadAllTextAsync(_workspace.Paths.Instruction(acted.Plan.Steps[0].TaskSlug!));
+        Assert.DoesNotContain("brief.md", instruction);
+    }
+
+    [Fact]
     public async Task 人間が止めたら_渡さない()
     {
         var plan = await CreateAsync(Step("research"));
