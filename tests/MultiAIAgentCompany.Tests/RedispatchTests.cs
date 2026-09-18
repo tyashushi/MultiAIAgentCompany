@@ -130,4 +130,70 @@ public sealed class RedispatchTests : IDisposable
 
         Assert.IsType<TaskWriteResult.Rejected>(await _tasks.RedispatchAsync(created, CancellationToken.None));
     }
+
+    private string Sealed(string fileName) =>
+        Path.Combine(_workspace.Paths.AttemptDirectory("feature", 0), fileName);
+
+    [Fact]
+    public async Task 昇格まで済んで落ちた送り直しは_もう一度押すと状態だけを書いて終える()
+    {
+        // Codex のレビューで発覚。昇格したあと状態を書く前に落ちると、二度と送り直せなかった。
+        var state = await RejectedTaskAsync();
+        Directory.CreateDirectory(_workspace.Paths.AttemptDirectory("feature", 0));
+        File.Move(_workspace.Paths.Instruction("feature"), Sealed("instruction.md"));
+        File.Move(_workspace.Paths.Report("feature"), Sealed("report.md"));
+        File.Move(_workspace.Paths.Rejection("feature"), Sealed("rejection.md"));
+        await File.WriteAllTextAsync(_workspace.Paths.Instruction("feature"), "次の指示");
+
+        var next = Assert.IsType<TaskWriteResult.Written>(await _tasks.RedispatchAsync(state, CancellationToken.None)).State;
+
+        Assert.Equal(CoreTaskStatus.Dispatched, next.Status);
+        Assert.Equal(1, next.AttemptId);
+        Assert.Equal("次の指示", await File.ReadAllTextAsync(_workspace.Paths.Instruction("feature")));
+        Assert.Equal("最初の指示", await File.ReadAllTextAsync(Sealed("instruction.md")));
+    }
+
+    [Fact]
+    public async Task 封じる途中で落ちた送り直しは_残りを封じて昇格する()
+    {
+        var state = await RejectedTaskAsync();
+        Directory.CreateDirectory(_workspace.Paths.AttemptDirectory("feature", 0));
+        File.Move(_workspace.Paths.Instruction("feature"), Sealed("instruction.md"));
+        await _tasks.WriteNextInstructionAsync("feature", "次の指示", CancellationToken.None);
+
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.RedispatchAsync(state, CancellationToken.None));
+
+        Assert.Equal("次の指示", await File.ReadAllTextAsync(_workspace.Paths.Instruction("feature")));
+        Assert.Equal("最初の指示", await File.ReadAllTextAsync(Sealed("instruction.md")));
+        Assert.Equal("最初の報告", await File.ReadAllTextAsync(Sealed("report.md")));
+        Assert.False(File.Exists(_workspace.Paths.NextInstruction("feature")));
+    }
+
+    [Fact]
+    public async Task 封じ先に同じ名前があっても_上書きせずに並べる()
+    {
+        // 落ちたあとに部門が報告を書き足した、など。**どちらも消さない。**
+        var state = await RejectedTaskAsync();
+        Directory.CreateDirectory(_workspace.Paths.AttemptDirectory("feature", 0));
+        await File.WriteAllTextAsync(Sealed("report.md"), "先に封じた報告");
+        await _tasks.WriteNextInstructionAsync("feature", "次の指示", CancellationToken.None);
+
+        Assert.IsType<TaskWriteResult.Written>(await _tasks.RedispatchAsync(state, CancellationToken.None));
+
+        var reports = Directory.GetFiles(_workspace.Paths.AttemptDirectory("feature", 0), "report*.md")
+            .Select(File.ReadAllText).ToHashSet();
+        Assert.Equal(new HashSet<string> { "先に封じた報告", "最初の報告" }, reports);
+    }
+
+    [Fact]
+    public async Task 次の指示書は書き終えてから最終名に置く()
+    {
+        await RejectedTaskAsync();
+
+        await _tasks.WriteNextInstructionAsync("feature", "次の指示", CancellationToken.None);
+
+        Assert.Equal("次の指示", await File.ReadAllTextAsync(_workspace.Paths.NextInstruction("feature")));
+        Assert.Empty(Directory.GetFiles(_workspace.Paths.TaskDirectory("feature"), "*.tmp"));
+    }
+
 }

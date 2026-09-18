@@ -1276,8 +1276,8 @@ public partial class MainWindow : Window
         // ここから先で落ちても、仕事は Rejected として残る。
         // 「差し戻した仕事を送り直す」で拾える（§15-6 の不変条件）。
         await File.WriteAllTextAsync(workspace.Company.Rejection(state.Slug), reason, CancellationToken.None);
-        await File.WriteAllTextAsync(
-            workspace.Company.NextInstruction(state.Slug),
+        await tasks.WriteNextInstructionAsync(
+            state.Slug,
             await CompanyInstruction.ComposeRevisionAsync(
                 workspace.Company, state.Slug, _composer.DefinitionOf(tile.Id),
                 "差し戻しの理由", "人間", reason, CancellationToken.None),

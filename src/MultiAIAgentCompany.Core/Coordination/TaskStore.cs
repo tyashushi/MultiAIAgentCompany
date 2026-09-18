@@ -277,16 +277,27 @@ public sealed class TaskStore
             return new TaskWriteResult.Rejected(check.Reason);
         }
 
-        // **書き始める前に確かめる。** 昇格するものが無いなら、封じた時点で
-        // 過去の試行だけが消えて次の指示は現れない。
+        // **前の送り直しが、昇格まで済ませて落ちていたら、状態だけを書く**（Codex のレビューで発覚）。
+        // 状態は古い試行の Rejected のまま、次の指示書はもう instruction.md になっている ——
+        // ここで staging を求めると「無い」で止まり、**二度と送り直せなくなる。**
         var staging = _paths.NextInstruction(expected.Slug);
-        if (!File.Exists(staging) || (await File.ReadAllTextAsync(staging, ct)).Trim().Length is 0)
-        {
-            return new TaskWriteResult.Rejected("next-instruction.md が無いか空です");
-        }
+        var sealedInstruction = Path.Combine(_paths.AttemptDirectory(expected.Slug, current.AttemptId), "instruction.md");
+        var alreadyPromoted = !File.Exists(staging)
+            && File.Exists(sealedInstruction)
+            && File.Exists(_paths.Instruction(expected.Slug));
 
-        MoveCurrentAttempt(expected.Slug, current.AttemptId);
-        File.Move(staging, _paths.Instruction(expected.Slug), overwrite: true);
+        if (!alreadyPromoted)
+        {
+            // **書き始める前に確かめる。** 昇格するものが無いなら、封じた時点で
+            // 過去の試行だけが消えて次の指示は現れない。
+            if (!File.Exists(staging) || (await File.ReadAllTextAsync(staging, ct)).Trim().Length is 0)
+            {
+                return new TaskWriteResult.Rejected("next-instruction.md が無いか空です");
+            }
+
+            MoveCurrentAttempt(expected.Slug, current.AttemptId);
+            File.Move(staging, _paths.Instruction(expected.Slug), overwrite: true);
+        }
 
         var next = current with
         {
@@ -337,6 +348,10 @@ public sealed class TaskStore
         return new TaskRecoveryScan(dispatched, unreadable);
     }
 
+    /// <remarks>
+    /// <b>途中で落ちた封じ込みの続きもできる</b>（Codex のレビューで発覚）。封じ先に同じ名前が既にあれば
+    /// 上書きせず、別の名前で並べる —— どちらも消さない（落ちたあとに部門が書き足したものかもしれない）。
+    /// </remarks>
     private void MoveCurrentAttempt(string slug, int attemptId)
     {
         var taskDirectory = _paths.TaskDirectory(slug);
@@ -346,9 +361,44 @@ public sealed class TaskStore
         foreach (var fileName in AttemptFiles)
         {
             var source = Path.Combine(taskDirectory, fileName);
-            if (File.Exists(source))
+            if (!File.Exists(source))
             {
-                File.Move(source, Path.Combine(destination, fileName));
+                continue;
+            }
+
+            var target = Path.Combine(destination, fileName);
+            if (File.Exists(target))
+            {
+                target = Path.Combine(destination,
+                    $"{Path.GetFileNameWithoutExtension(fileName)}.{_clock.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..4]}{Path.GetExtension(fileName)}");
+            }
+
+            File.Move(source, target);
+        }
+    }
+
+    /// <summary>
+    /// 差し戻しの次の指示書（<c>next-instruction.md</c>）を置く。<b>書き終えてから最終名にする</b>。
+    /// </summary>
+    /// <remarks>
+    /// 最終名へ直接書くと、書きかけで落ちたとき、送り直しが<b>途中までの指示を昇格して送る</b>
+    /// （空でないかしか見ていない。Codex のレビューで発覚）。
+    /// </remarks>
+    public async Task WriteNextInstructionAsync(string slug, string content, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        var path = _paths.NextInstruction(slug);
+        var temporaryPath = Path.Combine(Path.GetDirectoryName(path)!, $".next-instruction.md.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllTextAsync(temporaryPath, content, ct);
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
             }
         }
     }

@@ -450,8 +450,8 @@ public sealed class PlanRunner(
 
         // ここから落ちても、仕事は `Rejected` として残る（§19-1 の不変条件）。
         await File.WriteAllTextAsync(paths.Rejection(targetSlug), reason, ct);
-        await File.WriteAllTextAsync(
-            paths.NextInstruction(targetSlug),
+        await tasks.WriteNextInstructionAsync(
+            targetSlug,
             await CompanyInstruction.ComposeRevisionAsync(
                 paths, targetSlug, department, "レビューの指摘",
                 $"工程 {next.ReviewIndex + 1}・部門 {review.DepartmentId}・仕事 {reviewSlug}・試行 {reviewState.AttemptId}", reason, ct),
