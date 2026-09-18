@@ -110,7 +110,7 @@ public sealed class ActivityObservationTests : IDisposable
     {
         var script = MacTerminalScript.Build(new TerminalLaunchRequest("title", "/workspace", "/cli", ["prompt"],
             EnvironmentVariables: new Dictionary<string, string> { ["MAAC_DEPARTMENT"] = "a'b", ["MAAC_ACTIVITY_EVENTS"] = "/a b/events" }), "/pid");
-        Assert.Contains("export MAAC_DEPARTMENT='a'\\''b'\nexport MAAC_ACTIVITY_EVENTS='/a b/events'\nexec '/cli' 'prompt'", script);
+        Assert.Contains("export MAAC_DEPARTMENT='a'\\''b'\nexport MAAC_ACTIVITY_EVENTS='/a b/events'\nexec '/cli' 'prompt'", script.ReplaceLineEndings("\n"));
     }
 
     private (ActivityReader Reader, List<Observed<ActivityState>> Seen) Reader(AgentKind kind, bool verified = false, ActivityLaunch? launch = null, string? version = "v1")
@@ -369,7 +369,7 @@ public sealed class ActivityObservationTests : IDisposable
     {
         var old = Launch;
         old.Prepare(AgentKind.CodexCli);
-        Assert.Matches(@"/activity/[0-9a-f]{16}/implementation/\d{8}-\d{6}-[0-9a-f]{4}$", old.DirectoryPath);
+        Assert.Matches(@"[\\/]activity[\\/][0-9a-f]{16}[\\/]implementation[\\/]\d{8}-\d{6}-[0-9a-f]{4}$", old.DirectoryPath);
         File.WriteAllText(old.EventsPath, "event\n");
         File.SetLastWriteTimeUtc(old.EventsPath, _clock.GetUtcNow().UtcDateTime.AddDays(-8));
         Directory.SetLastWriteTimeUtc(old.DirectoryPath, _clock.GetUtcNow().UtcDateTime.AddDays(-8));
