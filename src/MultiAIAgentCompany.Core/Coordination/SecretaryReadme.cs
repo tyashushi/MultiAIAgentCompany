@@ -142,6 +142,7 @@ public static class SecretaryReadme
             `{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}` の行が要ります。
             **これはアプリがその工程の `instruction.md` に書くので、あなたは書かなくて構いません。**
             判定が無い・読めないときは推測で進めず、人間を呼びます。
+            途中の工程が報告に `{ReportOutcomes.Key}: {ReportOutcomes.PartialValue}` か `{ReportOutcomes.Key}: {ReportOutcomes.BlockedValue}` を書くと、計画は止まり人間が呼ばれます（設計 §62-5）。
             計画を進めるのはアプリです。秘書は `{paths.PlansRoot}` や `plan.json` を直接作りません。
             {auditSection}
 

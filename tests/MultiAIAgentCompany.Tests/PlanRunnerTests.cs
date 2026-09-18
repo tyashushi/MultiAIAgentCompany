@@ -252,6 +252,51 @@ public sealed class PlanRunnerTests : IDisposable
         Assert.Contains("受理", stopped.Reason);
     }
 
+    [Theory]
+    [InlineData("partial")]
+    [InlineData("blocked")]
+    public async Task やり終えていない報告では_止まり続けて次を渡さない(string value)
+    {
+        var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0), Step("implementation"));
+        var slug = plan.Steps[0].TaskSlug!;
+        await ReportAsync(slug, $"## 結果\n\n半分まで\n\n{ReportOutcomes.Key}: {value}");
+
+        // 設計 §62-5。**レビューにも回さない** —— やり終えていない成果物を見せない。
+        var stopped = Assert.IsType<PlanTick.Stopped>(await StepAsync(plan));
+        Assert.Contains($"{ReportOutcomes.Key}: {value}", stopped.Reason);
+        Assert.Contains("工程 1（design）", stopped.Reason);
+
+        // **止まり続ける。** 次の周でも勝手に進まない。
+        Assert.IsType<PlanTick.Stopped>(await StepAsync(await ReadPlanAsync()));
+        Assert.Null((await ReadPlanAsync()).Steps[1].TaskSlug);
+        Assert.Equal(CoreTaskStatus.Reported, (await ReadAsync(slug)).Status);
+    }
+
+    [Theory]
+    [InlineData("終わりました")]
+    [InlineData("outcome: done")]
+    [InlineData("outcome: よく分からない")]
+    public async Task 結果の行が無い_やり終えた_読めない報告は_これまでどおり進む(string report)
+    {
+        // 設計 §62-5。**古い部門と書き忘れで計画を止めない。**
+        var plan = await DispatchedAsync(Step("research"), Step("design"));
+        await ReportAsync(plan.Steps[0].TaskSlug!, report);
+        Assert.IsType<PlanTick.Acted>(await StepAsync(plan));
+    }
+
+    [Fact]
+    public async Task レビュー工程の結果の行は見ない()
+    {
+        var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0), Step("implementation"));
+        await ReportAsync(plan.Steps[0].TaskSlug!, "設計です");
+        plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;          // レビューを渡す
+
+        // **レビューは verdict が決める**（§62-5）。
+        await ReportAsync(plan.Steps[1].TaskSlug!,
+            $"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}\n{ReportOutcomes.Key}: {ReportOutcomes.PartialValue}");
+        Assert.IsType<PlanTick.Acted>(await StepAsync(plan));
+    }
+
     [Fact]
     public async Task 人間が止めたら_渡さない()
     {

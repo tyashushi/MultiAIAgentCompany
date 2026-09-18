@@ -57,7 +57,7 @@ public static class ReviewVerdicts
 
         foreach (var raw in report.Split('\n'))
         {
-            if (ValueOf(raw) is not { } value)
+            if (ValueOf(raw, Key) is not { } value)
             {
                 continue;
             }
@@ -90,23 +90,23 @@ public static class ReviewVerdicts
     }
 
     /// <summary>
-    /// その行が判定行なら、値を小文字で返す。
+    /// その行が <paramref name="key"/> の行なら、値を小文字で返す（<see cref="ReportOutcomes"/> も使う）。
     /// </summary>
     /// <remarks>
     /// <b>飾りは剥がす</b>（Markdown の見出し・太字・引用・箇条書き）——
     /// 部門は人間が読む文書を書くので、素の <c>verdict: ok</c> で来るとは限らない。
     /// </remarks>
-    private static string? ValueOf(string line)
+    internal static string? ValueOf(string line, string key)
     {
         var text = line.Trim().TrimStart('#', '>', '-', '*', ' ', '\t');
         text = text.Replace("**", string.Empty).Replace("`", string.Empty).Trim();
 
-        if (!text.StartsWith(Key, StringComparison.OrdinalIgnoreCase))
+        if (!text.StartsWith(key, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        var rest = text[Key.Length..].TrimStart();
+        var rest = text[key.Length..].TrimStart();
         if (rest.StartsWith(':') || rest.StartsWith('：'))
         {
             return rest[1..].Trim().TrimEnd('.', '。').ToLowerInvariant();

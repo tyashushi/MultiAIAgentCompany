@@ -73,6 +73,11 @@ public sealed class PlanRunner(
             plan = observed;
         }
 
+        if (!plan.StoppedByHuman && await IncompleteReportAsync(plan, states, ct) is { } incomplete)
+        {
+            return incomplete;
+        }
+
         return PlanAdvance.Decide(plan, states) switch
         {
             PlanNext.Done => new PlanTick.Done(),
@@ -129,6 +134,45 @@ public sealed class PlanRunner(
         return await plans.WriteAsync(plan, plan with { Steps = steps }, ct) is PlanWriteResult.Written written
             ? written.Plan
             : null;
+    }
+
+    /// <summary>
+    /// 部門が自分で「やり終えていない」と書いた報告で止まる（設計 §62-5）。
+    /// </summary>
+    /// <remarks>
+    /// <b>受理の手前ではなく、報告が出た時点で見る。</b> 見られる工程が <c>Reported</c> のまま
+    /// 次の工程（レビュー）が渡るので、受理のときに見るのでは、やり終えていない成果物を
+    /// レビューに回してしまう。
+    /// <para>
+    /// <b>止まり続ける。</b> 報告が <c>Reported</c> のあいだは毎周同じ理由で止まる。
+    /// 抜けるのは人間が受理・差し戻し・取り消し・計画の停止をしたとき。
+    /// レビュー工程は <c>verdict</c> が決めるので見ない。
+    /// </para>
+    /// </remarks>
+    private async Task<PlanTick.Stopped?> IncompleteReportAsync(
+        Plan plan, IReadOnlyDictionary<string, TaskState> states, CancellationToken ct)
+    {
+        for (var index = 0; index < plan.Steps.Count; index++)
+        {
+            var step = plan.Steps[index];
+            if (step.IsReview
+                || step.TaskSlug is not { Length: > 0 } slug
+                || !states.TryGetValue(slug, out var state)
+                || state.Status is not TaskStatus.Reported)
+            {
+                continue;
+            }
+
+            var outcome = ReportOutcomes.Parse(await ReadTextAsync(paths.Report(slug), ct));
+            if (ReportOutcomes.StopsPlan(outcome))
+            {
+                return new PlanTick.Stopped(
+                    $"工程 {index + 1}（{step.DepartmentId}）の報告が {ReportOutcomes.Key}: {ReportOutcomes.Describe(outcome)}。"
+                    + "やり終えていないので次へ進めない。報告を読んで、受理か差し戻しを決める");
+            }
+        }
+
+        return null;
     }
 
     private async Task<IReadOnlyDictionary<string, TaskState>> ReadStatesAsync(Plan plan, CancellationToken ct)

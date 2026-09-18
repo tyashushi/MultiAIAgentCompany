@@ -313,4 +313,19 @@ public sealed class CompanyInstructionTests
         Assert.Contains("レビューや監査の案に書いてあっても", text);
         Assert.Contains("質問を書いて止まること", text);
     }
+
+    [Fact]
+    public void 報告の節と結果の行を頼む()
+    {
+        // 設計 §62-5。後の工程と人間は、この形を当てにして読む。
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department);
+        foreach (var heading in new[] { "`## 結果`", "`## やったこと`", "`## 成果物の場所`", "`## 確かめたこと`", "`## 残っていること`" })
+        {
+            Assert.Contains(heading, text);
+        }
+
+        Assert.Contains(ReportOutcomes.RequestText, text);
+        Assert.Contains(Path.Combine(Paths.TaskDirectory("add-login"), "logs"), text);
+    }
+
 }
