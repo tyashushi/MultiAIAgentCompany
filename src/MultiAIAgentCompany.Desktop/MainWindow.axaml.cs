@@ -1276,7 +1276,7 @@ public partial class MainWindow : Window
         await File.WriteAllTextAsync(workspace.Company.Rejection(state.Slug), reason, CancellationToken.None);
         await File.WriteAllTextAsync(
             workspace.Company.NextInstruction(state.Slug),
-            CompanyInstruction.Compose(NextInstructionText(reason), workspace.Company, state.Slug),
+            CompanyInstruction.Compose(NextInstructionText(reason), workspace.Company, state.Slug, _composer.DefinitionOf(tile.Id)),
             CancellationToken.None);
 
         tile.RejectionDraft = string.Empty;
@@ -1882,7 +1882,7 @@ public partial class MainWindow : Window
         // 人間の文章だけでは足りない —— 部門は報告をどこにどう書くかを知らない（§16-1）。
         await File.WriteAllTextAsync(
             workspace.Company.Instruction(slug),
-            CompanyInstruction.Compose(text, workspace.Company, slug),
+            CompanyInstruction.Compose(text, workspace.Company, slug, _composer.DefinitionOf(tile.Id)),
             CancellationToken.None);
 
         var result = await LaunchIfTerminalAsync(
@@ -2705,6 +2705,11 @@ public partial class MainWindow : Window
         ProposalCard card, string departmentId, TaskStore tasks, TaskDispatcher dispatcher,
         MultiAIAgentCompany.Core.Workspace.WorkspaceRef workspace, SecretaryOutbox outbox)
     {
+        if (_composer is not { } composer)
+        {
+            return;
+        }
+
         var slug = $"task-{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4]}";
         if (await tasks.CreateAsync(slug, departmentId, CancellationToken.None) is not TaskWriteResult.Written created)
         {
@@ -2714,16 +2719,11 @@ public partial class MainWindow : Window
 
         await File.WriteAllTextAsync(
             workspace.Company.Instruction(slug),
-            CompanyInstruction.Compose(card.Body, workspace.Company, slug),
+            CompanyInstruction.Compose(card.Body, workspace.Company, slug, composer.DefinitionOf(departmentId)),
             CancellationToken.None);
 
         // ここまで済んでから移す（§17-6）。
         outbox.Accept(card.Id, slug, DateTimeOffset.Now);
-
-        if (_composer is not { } composer)
-        {
-            return;
-        }
 
         var result = await LaunchIfTerminalAsync(
             await dispatcher.DispatchAsync(

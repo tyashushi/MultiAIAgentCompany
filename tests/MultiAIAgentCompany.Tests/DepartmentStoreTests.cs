@@ -458,13 +458,19 @@ public sealed class DepartmentStoreTests : IDisposable
         // 同じ問いを2人に投げると、費用は2倍で発見はほとんど増えない（§29-2）。
         var paths = new CompanyPaths(_root);
         var consistency = CompanyInstruction.ComposeDesignReview(
-            "docs/x.md", DesignReviewLens.Consistency, paths, "task-1");
+            "docs/x.md", DesignReviewLens.Consistency, paths, "task-1",
+            DepartmentStore.CreateDefaultDepartments().Single(d => d.Id == "design-review-consistency"));
         var outside = CompanyInstruction.ComposeDesignReview(
-            "docs/x.md", DesignReviewLens.Outside, paths, "task-1");
+            "docs/x.md", DesignReviewLens.Outside, paths, "task-1",
+            DepartmentStore.CreateDefaultDepartments().Single(d => d.Id == "design-review-outside"));
 
         Assert.Contains("矛盾している", consistency, StringComparison.Ordinal);
         Assert.Contains("使う人が、何に困るか", outside, StringComparison.Ordinal);
         Assert.NotEqual(consistency, outside);
+
+        // 設計 §62-1。レビュー専用の組み立てでも、受け取った部門の役割を落とさない。
+        Assert.StartsWith("## あなたの役割\n\nあなたは **設計レビュー（整合）** 部門（`design-review-consistency`）です。", consistency);
+        Assert.StartsWith("## あなたの役割\n\nあなたは **設計レビュー（外から）** 部門（`design-review-outside`）です。", outside);
 
         // どちらも「作業ツリーは書き換えない」と言う（読むだけの部門なので）。
         Assert.All([consistency, outside],

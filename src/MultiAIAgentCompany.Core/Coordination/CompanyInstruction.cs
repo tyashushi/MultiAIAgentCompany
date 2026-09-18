@@ -1,3 +1,5 @@
+using MultiAIAgentCompany.Core.Workspace;
+
 namespace MultiAIAgentCompany.Core.Coordination;
 
 /// <summary>
@@ -14,6 +16,9 @@ namespace MultiAIAgentCompany.Core.Coordination;
 /// </remarks>
 public static class CompanyInstruction
 {
+    /// <summary>依頼の始まり。差し戻しでも元の依頼を取り出せるようにする（設計 §62-1 / §62-2）。</summary>
+    public const string RequestHeading = "## 依頼";
+
     /// <summary>
     /// 設計レビューの依頼文（設計 §29-2）。
     /// </summary>
@@ -25,13 +30,14 @@ public static class CompanyInstruction
     /// <param name="lens">どちらの目で見るか。</param>
     /// <param name="paths">ワークスペースの調整基盤。</param>
     /// <param name="slug">この仕事。</param>
+    /// <param name="department">指示を受け取る部門。</param>
     /// <returns>
     /// <b>そのまま <c>instruction.md</c> に書ける形。</b> publish 契約（§16-1）まで含む ——
     /// 「本文だけ返して、呼び出し側が <see cref="Compose"/> に通す」形にしていたら、
     /// **通し忘れると報告の書き方を知らないまま終わる罠**になる（レビューで指摘）。
     /// </returns>
     public static string ComposeDesignReview(
-        string documentPath, DesignReviewLens lens, CompanyPaths paths, string slug)
+        string documentPath, DesignReviewLens lens, CompanyPaths paths, string slug, DepartmentDefinition department)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(documentPath);
         ArgumentNullException.ThrowIfNull(paths);
@@ -74,26 +80,42 @@ public static class CompanyInstruction
             // 仕事は Dispatched のまま永久に止まる。禁じるのは作業ツリーの書き換え。
             + "- **作業ツリーのファイルを書き換えない。** この部門は読むだけ\n"
             + "- ただし**報告と質問は書く。** 書き方は下の約束に従う",
-            paths, slug);
+            paths, slug, department);
     }
 
     /// <summary>
-    /// 人間の指示に、調整基盤の約束を添える。
+    /// 人間の指示に、部門の役割（設計 §62-1）と調整基盤の約束を添える。
     /// </summary>
     /// <param name="humanText">人間（または秘書）が書いた指示。</param>
     /// <param name="paths">ワークスペースの調整基盤。</param>
     /// <param name="slug">この仕事。</param>
-    public static string Compose(string humanText, CompanyPaths paths, string slug)
+    /// <param name="department">指示を受け取る部門。</param>
+    public static string Compose(string humanText, CompanyPaths paths, string slug, DepartmentDefinition department)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(humanText);
         ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(department);
 
         var directory = paths.TaskDirectory(slug);
         var report = paths.Report(slug);
         var question = paths.Question(slug);
         var answer = paths.Answer(slug);
 
+        // **責務は定義の文言をそのまま渡す**（設計 §62-1）。秘書の書き忘れに左右されない。
+        var readsOnly = department.ReadsOnly
+            ? $"\n\n作業ツリーを書き換えない。書いてよいのはこの仕事のフォルダ（`{directory}`）の中だけ —— "
+                + "`report.md` / `question.md` と、担当業務に書かれた成果物。"
+            : string.Empty;
+
         return $"""
+            ## あなたの役割
+
+            あなたは **{department.DisplayName}** 部門（`{department.Id}`）です。
+
+            担当業務: {department.Responsibility}{readsOnly}
+
+            {RequestHeading}
+
             {humanText.TrimEnd()}
 
             ---

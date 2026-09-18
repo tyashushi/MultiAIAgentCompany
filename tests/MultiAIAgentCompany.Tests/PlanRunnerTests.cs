@@ -42,6 +42,11 @@ public sealed class PlanRunnerTests : IDisposable
         var instruction = await File.ReadAllTextAsync(_workspace.Paths.Instruction(slug));
         Assert.Contains("調べる", instruction);
         Assert.Contains("ログイン画面を作る", instruction);
+
+        // 設計 §62-1。計画が作る仕事にも、その工程の部門の役割を渡す。
+        Assert.StartsWith("## あなたの役割\n\nあなたは **調査** 部門（`research`）です。", instruction);
+        Assert.Contains("担当業務: 調べる", instruction);
+        Assert.DoesNotContain("作業ツリーを書き換えない", instruction);
     }
 
     [Fact]
@@ -100,6 +105,10 @@ public sealed class PlanRunnerTests : IDisposable
             _workspace.Paths.Instruction(plan.Steps[1].TaskSlug!));
         Assert.Contains($"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}", instruction);
         Assert.Contains($"{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}", instruction);
+
+        Assert.StartsWith("## あなたの役割\n\nあなたは **レビュー** 部門（`review`）です。", instruction);
+        Assert.Contains("担当業務: 見る", instruction);
+        Assert.Contains("作業ツリーを書き換えない", instruction);
     }
 
     [Fact]
@@ -129,7 +138,13 @@ public sealed class PlanRunnerTests : IDisposable
         Assert.Equal(TransitionOrigin.Plan, state.LastTransitionOrigin);
 
         // **指摘はそのまま次の指示書に入る**（要約しない）。
-        Assert.Contains("3件あります", await File.ReadAllTextAsync(_workspace.Paths.Instruction(design)));
+        var instruction = await File.ReadAllTextAsync(_workspace.Paths.Instruction(design));
+        Assert.Contains("3件あります", instruction);
+
+        // 設計 §62-1。差し戻す側ではなく、やり直す部門の役割を渡す。
+        Assert.StartsWith("## あなたの役割\n\nあなたは **設計** 部門（`design`）です。", instruction);
+        Assert.Contains("担当業務: 設計する", instruction);
+        Assert.DoesNotContain("作業ツリーを書き換えない", instruction);
 
         // レビューは終わり、**次の周で新しい仕事として渡し直す**。
         Assert.Equal(CoreTaskStatus.Accepted, (await ReadAsync(review)).Status);

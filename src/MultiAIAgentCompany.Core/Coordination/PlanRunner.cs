@@ -180,7 +180,7 @@ public sealed class PlanRunner(
 
         await File.WriteAllTextAsync(
             paths.Instruction(slug),
-            CompanyInstruction.Compose(await ComposeStepTextAsync(plan, next.Index, states, ct), paths, slug),
+            CompanyInstruction.Compose(await ComposeStepTextAsync(plan, next.Index, states, ct), paths, slug, department),
             ct);
 
         // **渡す前に、計画へ書く**（§14-1 と同じ順序）。あとにすると、
@@ -306,7 +306,7 @@ public sealed class PlanRunner(
 
                 {reason.Trim()}
                 """,
-                paths, targetSlug),
+                paths, targetSlug, department),
             ct);
 
         // **レビューの仕事はここで終わり。** 見つけるべきものを見つけたので受理する。

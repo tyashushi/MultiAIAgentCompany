@@ -1,4 +1,6 @@
+using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
+using MultiAIAgentCompany.Core.Workspace;
 using Xunit;
 
 namespace MultiAIAgentCompany.Tests;
@@ -10,19 +12,61 @@ public sealed class CompanyInstructionTests
 {
     private static readonly CompanyPaths Paths = new("/tmp/ws");
 
-    [Fact]
-    public void 人間の指示が先頭に残る()
-    {
-        var text = CompanyInstruction.Compose("README を読んで報告して", Paths, "add-login");
+    private static readonly DepartmentDefinition Department = new(
+        "design", "設計", " 要件と設計判断を整理する。\n成果物を報告する。 ",
+        AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
 
-        Assert.StartsWith("README を読んで報告して", text, StringComparison.Ordinal);
+    [Fact]
+    public void 役割節が先頭に入り_人間の指示は依頼見出しのあとに残る()
+    {
+        var text = CompanyInstruction.Compose("README を読んで報告して", Paths, "add-login", Department);
+
+        // 設計 §62-1。責務は改行も空白も削らず、定義からそのまま渡す。
+        Assert.StartsWith("## あなたの役割\n\nあなたは **設計** 部門（`design`）です。", text, StringComparison.Ordinal);
+        Assert.Contains($"担当業務: {Department.Responsibility}\n\n{CompanyInstruction.RequestHeading}\n\nREADME を読んで報告して", text, StringComparison.Ordinal);
+        Assert.Contains("README を読んで報告して\n\n---\n\n## この仕事の約束", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void 読むだけの約束はReadsOnlyの部門だけに渡す(bool readsOnly)
+    {
+        // 設計 §62-1。部門の名前や CLI ではなく、定義の ReadsOnly で決まる。
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department with { ReadsOnly = readsOnly });
+        var restriction = $"作業ツリーを書き換えない。書いてよいのはこの仕事のフォルダ（`{Paths.TaskDirectory("add-login")}`）の中だけ —— "
+            + "`report.md` / `question.md` と、担当業務に書かれた成果物。";
+
+        if (readsOnly)
+        {
+            Assert.Contains(restriction + $"\n\n{CompanyInstruction.RequestHeading}", text, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.DoesNotContain("作業ツリーを書き換えない", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("書いてよいのはこの仕事のフォルダ", text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void デザイナー本人に既定のimagesの約束を渡す()
+    {
+        // 設計 §62-1。秘書の一覧だけに出しても、画像を作る本人には届かない。
+        var designer = DepartmentStore.CreateDefaultDepartments().Single(d => d.Id == "designer");
+        var text = CompanyInstruction.Compose("バナーを作る", Paths, "make-banner", designer);
+
+        Assert.Contains($"担当業務: {designer.Responsibility}", text, StringComparison.Ordinal);
+        Assert.Contains("images/ に置く", text, StringComparison.Ordinal);
+        Assert.Contains("拡張子は png / jpg / jpeg / webp / gif", text, StringComparison.Ordinal);
+        Assert.Contains("report.md にワークスペースからの相対パス .company/tasks/<slug>/images/<name>.png を書く", text, StringComparison.Ordinal);
+        Assert.Contains("担当業務に書かれた成果物", text, StringComparison.Ordinal);
     }
 
     [Fact]
     public void publish手順を具体的な道で示す()
     {
         // 「report.md に書け」だけでは、書きかけを最終名で置かれる。
-        var text = CompanyInstruction.Compose("やること", Paths, "add-login");
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department);
 
         Assert.Contains(Paths.Report("add-login"), text, StringComparison.Ordinal);
         Assert.Contains(".tmp.", text, StringComparison.Ordinal);
@@ -33,7 +77,7 @@ public sealed class CompanyInstructionTests
     public void 迷ったら止まる約束を含む()
     {
         // Codex への指示書に毎回入れている停止条件と同じ形（§3 の (b)）。
-        var text = CompanyInstruction.Compose("やること", Paths, "add-login");
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department);
 
         Assert.Contains(Paths.Question("add-login"), text, StringComparison.Ordinal);
         Assert.Contains(Paths.Answer("add-login"), text, StringComparison.Ordinal);
@@ -43,7 +87,7 @@ public sealed class CompanyInstructionTests
     [Fact]
     public void git操作をしないことと秘密値を書かないことを伝える()
     {
-        var text = CompanyInstruction.Compose("やること", Paths, "add-login");
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department);
 
         Assert.Contains("git", text, StringComparison.Ordinal);   // 設計 §8
         Assert.Contains("トークン", text, StringComparison.Ordinal); // 設計 §10 / §14-5
@@ -100,7 +144,7 @@ public sealed class CompanyInstructionTests
     public void git_が持っていないファイルは消さずに質問で止まれと言う()
     {
         // 設計 §59-5。監査の「削除する」を実装がそのまま実行し、未追跡のファイルが戻せなくなった（実機）。
-        var text = CompanyInstruction.Compose("やること", Paths, "add-login");
+        var text = CompanyInstruction.Compose("やること", Paths, "add-login", Department);
         Assert.Contains("git が持っていないファイルを消す・上書きすること", text);
         Assert.Contains("`??`", text);
         Assert.Contains("レビューや監査の案に書いてあっても", text);

@@ -96,7 +96,8 @@ public sealed class ReviewVerdictLiveTests(ITestOutputHelper output)
             await DepartmentReadme.WriteAsync(paths, CancellationToken.None);
             await File.WriteAllTextAsync(
                 paths.Instruction(slug),
-                CompanyInstruction.Compose(ReviewStepText(reviewed), paths, slug),
+                CompanyInstruction.Compose(ReviewStepText(reviewed), paths, slug,
+                    DepartmentStore.CreateDefaultDepartments().Single(d => d.DisplayName == departmentName)),
                 CancellationToken.None);
 
             var session = (IStructuredSession)await adapter.StartAsync(
