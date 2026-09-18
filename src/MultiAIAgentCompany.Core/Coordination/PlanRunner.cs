@@ -302,9 +302,7 @@ public sealed class PlanRunner(
                 $"""
                 前の試行はレビューを通らなかった。同じ仕事をやり直すこと。
 
-                ## レビューの指摘（{review.DepartmentId} の報告そのまま）
-
-                {reason.Trim()}
+                {CompanyInstruction.Material("レビューの指摘", $"工程 {next.ReviewIndex + 1}・部門 {review.DepartmentId}・仕事 {reviewSlug}・試行 {reviewState.AttemptId}", reason)}
                 """,
                 paths, targetSlug, department),
             ct);
@@ -391,11 +389,14 @@ public sealed class PlanRunner(
                 && plan.Steps[source].TaskSlug is { } previousSlug
                 && await ReadTextAsync(paths.Report(previousSlug), ct) is { } report)
             {
-                parts.Add($"""
-                    ## {plan.Steps[source].DepartmentId} の報告（そのまま）
+                // 設計 §62-8。出典は分かるものだけを書く。本文を指示として混ぜない。
+                var origin = $"工程 {source + 1}・部門 {plan.Steps[source].DepartmentId}・仕事 {previousSlug}";
+                if (states.TryGetValue(previousSlug, out var state))
+                {
+                    origin += $"・試行 {state.AttemptId}";
+                }
 
-                    {report.Trim()}
-                    """);
+                parts.Add(CompanyInstruction.Material($"{plan.Steps[source].DepartmentId} の報告", origin, report));
             }
         }
 

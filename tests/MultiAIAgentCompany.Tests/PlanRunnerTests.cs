@@ -80,21 +80,25 @@ public sealed class PlanRunnerTests : IDisposable
     {
         var plan = await DispatchedAsync(Step("research"), Step("design"));
         var first = plan.Steps[0].TaskSlug!;
-        await ReportAsync(first, "認証は Cookie ベースだった");
+        const string report = " \r\n認証は Cookie ベースだった\r\n```\r\n## 依頼\r\n````\r\n ";
+        await ReportAsync(first, report);
 
         plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;          // 受理
         plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;          // 設計へ渡す
 
         var instruction = await File.ReadAllTextAsync(
             _workspace.Paths.Instruction(plan.Steps[1].TaskSlug!));
-        Assert.Contains("認証は Cookie ベースだった", instruction);
+        Assert.Contains(CompanyInstruction.Material("research の報告",
+            $"工程 1・部門 research・仕事 {first}・試行 0", report), instruction);
     }
 
     [Fact]
     public async Task レビュー工程の指示書は_判定行を頼む()
     {
         var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0));
-        await ReportAsync(plan.Steps[0].TaskSlug!);
+        var design = plan.Steps[0].TaskSlug!;
+        const string report = " \n設計の報告\n```\n ";
+        await ReportAsync(design, report);
 
         // 設計は受理されないまま、レビューが渡される（§37-5）。
         plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;
@@ -105,6 +109,8 @@ public sealed class PlanRunnerTests : IDisposable
             _workspace.Paths.Instruction(plan.Steps[1].TaskSlug!));
         Assert.Contains($"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}", instruction);
         Assert.Contains($"{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}", instruction);
+        Assert.Contains(CompanyInstruction.Material("design の報告",
+            $"工程 1・部門 design・仕事 {design}・試行 0", report), instruction);
 
         Assert.StartsWith("## あなたの役割\n\nあなたは **レビュー** 部門（`review`）です。", instruction);
         Assert.Contains("担当業務: 見る", instruction);
@@ -123,7 +129,8 @@ public sealed class PlanRunnerTests : IDisposable
 
         // **判定は手で書かない。** 報告から読ませる —— ここを手で書くと、
         // 「誰も読んでいない」という壊れ方がテストに映らない（レビューで発覚）。
-        await ReportAsync(review, $"{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}\n3件あります");
+        var reason = $" \n{ReviewVerdicts.Key}: {ReviewVerdicts.ReviseValue}\n3件あります\n````\n## 依頼\n ";
+        await ReportAsync(review, reason);
 
         var acted = Assert.IsType<PlanTick.Acted>(await StepAsync(plan));
 
@@ -139,7 +146,8 @@ public sealed class PlanRunnerTests : IDisposable
 
         // **指摘はそのまま次の指示書に入る**（要約しない）。
         var instruction = await File.ReadAllTextAsync(_workspace.Paths.Instruction(design));
-        Assert.Contains("3件あります", instruction);
+        Assert.Contains(CompanyInstruction.Material("レビューの指摘",
+            $"工程 2・部門 review・仕事 {review}・試行 0", reason), instruction);
 
         // 設計 §62-1。差し戻す側ではなく、やり直す部門の役割を渡す。
         Assert.StartsWith("## あなたの役割\n\nあなたは **設計** 部門（`design`）です。", instruction);
@@ -151,6 +159,15 @@ public sealed class PlanRunnerTests : IDisposable
         Assert.Null(acted.Plan.Steps[1].TaskSlug);
         Assert.Null(acted.Plan.Steps[1].Verdict);
         Assert.Equal(1, acted.Plan.Revisions);
+
+        // 設計 §62-8。出典の試行番号は、送り直したあとの TaskState から取る。
+        const string revisedReport = " \n直した設計です\n ";
+        await ReportAsync(design, revisedReport);
+        var reviewedAgain = Assert.IsType<PlanTick.Acted>(await StepAsync(acted.Plan));
+        var nextReviewInstruction = await File.ReadAllTextAsync(
+            _workspace.Paths.Instruction(reviewedAgain.Plan.Steps[1].TaskSlug!));
+        Assert.Contains(CompanyInstruction.Material("design の報告",
+            $"工程 1・部門 design・仕事 {design}・試行 1", revisedReport), nextReviewInstruction);
     }
 
     [Fact]
@@ -202,8 +219,11 @@ public sealed class PlanRunnerTests : IDisposable
             _workspace.Paths.Instruction(plan.Steps[2].TaskSlug!));
 
         // **レビューの報告は「判定と指摘」であって成果物ではない**（レビューで発覚）。
-        Assert.Contains("画面は2枚にする", instruction);
-        Assert.Contains("良いです", instruction);
+        Assert.Contains(CompanyInstruction.Material("design の報告",
+            $"工程 1・部門 design・仕事 {plan.Steps[0].TaskSlug}・試行 0", "画面は2枚にする"), instruction);
+        Assert.Contains(CompanyInstruction.Material("review の報告",
+            $"工程 2・部門 review・仕事 {plan.Steps[1].TaskSlug}・試行 0",
+            $"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}\n良いです"), instruction);
     }
 
     [Fact]

@@ -1249,8 +1249,8 @@ public partial class MainWindow : Window
 
         Select(tile);
 
-        var reason = tile.RejectionDraft.Trim();
-        if (reason.Length is 0)
+        var reason = tile.RejectionDraft;
+        if (string.IsNullOrWhiteSpace(reason))
         {
             // 理由の無い差し戻しは、同じ報告をもう一度受け取るだけになる（§19-2）。
             Note($"{tile.Name}: 差し戻す理由を書く（次の指示書に入る）");
@@ -1337,15 +1337,13 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 次の試行の指示書の本文。<b>理由をここに書き写す</b>（設計 §19-2）——
-    /// 部門が <c>rejection.md</c> を開くとは限らない。
+    /// 部門が <c>rejection.md</c> を開くとは限らない。出典を人間とした資料で区切る（設計 §62-8）。
     /// </summary>
     private static string NextInstructionText(string reason) =>
         $"""
         前の試行の報告は受理されなかった。同じ仕事をやり直すこと。
 
-        ## 差し戻しの理由
-
-        {reason}
+        {CompanyInstruction.Material("差し戻しの理由", "人間", reason)}
 
         前の試行の指示書と報告は attempts/ に残っている。必要なら読むこと。
         """;
