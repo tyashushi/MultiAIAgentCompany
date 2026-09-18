@@ -29,6 +29,15 @@
             <!-- 人間の出番があることを示す色。**赤にしない** —— 異常ではなく順番の話（§15-2）。 -->
             <SolidColorBrush x:Key="NeedsHumanBrush" Color="#B8791F" />
             <SolidColorBrush x:Key="NeedsHumanSoftBrush" Color="#FCF3E3" />
+
+            <!-- 報告の Markdown 表示（LiveMarkdown.Avalonia の鍵。§62-9）。
+                 **ライブラリの既定はダーク向けの固定値**なので、ライトでは地が濃い灰色になる。 -->
+            <Color x:Key="BorderColor">#E3E3E6</Color>
+            <Color x:Key="ForegroundColor">#1C1C1E</Color>
+            <Color x:Key="CardBackgroundColor">#F2F2F4</Color>
+            <Color x:Key="SecondaryCardBackgroundColor">#F0F0F2</Color>
+            <Color x:Key="CodeInlineColor">#A0452B</Color>
+            <Color x:Key="QuoteBorderColor">#B8791F</Color>
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Dark">
@@ -48,6 +57,13 @@
 
             <SolidColorBrush x:Key="NeedsHumanBrush" Color="#E0A44A" />
             <SolidColorBrush x:Key="NeedsHumanSoftBrush" Color="#3A2E1A" />
+
+            <Color x:Key="BorderColor">#3A3A3E</Color>
+            <Color x:Key="ForegroundColor">#F2F2F7</Color>
+            <Color x:Key="CardBackgroundColor">#2D2D31</Color>
+            <Color x:Key="SecondaryCardBackgroundColor">#161618</Color>
+            <Color x:Key="CodeInlineColor">#D7BA7D</Color>
+            <Color x:Key="QuoteBorderColor">#E0A44A</Color>
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 

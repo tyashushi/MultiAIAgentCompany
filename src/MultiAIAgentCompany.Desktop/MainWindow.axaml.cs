@@ -713,8 +713,10 @@ public partial class MainWindow : Window
                 else Note($"{tile.Name} の承認は中央ペインに出ている");
                 break;
 
+            // **報告はプレビューで読む**（設計 §62-9）。中央に全文を流さない。
             case DepartmentAction.ReadReport:
-                await ShowCoordinationFileAsync(tile, "report.md", "報告");
+                if (tile.CurrentTaskSlug is { } reportSlug) OnTranscriptImageLink(ReportLink(reportSlug));
+                else Note($"{tile.Name}: どの仕事の報告か分からない（.company/ の経路が未接続）");
                 break;
 
             // §14-1: Dispatched は「送ったかもしれない」。**自動再送しない。**
@@ -1408,66 +1410,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// 調整文書を OS の既定アプリで開く。§14-2 が「人間が手で直せる」ことに寄りかかっているので、
-    /// アプリの中に編集画面を持たない。
-    /// </summary>
-    /// <remarks>
-    /// <b>ボタンは文言どおりのことをする</b>（§15-6）。開けないなら、
-    /// 何が無いのかを言う —— 「開く」と書いてあるのに何も起きない、を作らない。
-    /// </remarks>
-    /// <summary>
-    /// 調整文書の中身を中央の会話に出す（設計 §17-5）。
-    /// </summary>
-    /// <remarks>
-    /// <b>外部アプリで開かず、その場で読ませる。</b> 報告を読むのに窓を移ると、
-    /// そのまま受理か差し戻しかを決める流れ（§19-3）が切れる。
-    /// <para>
-    /// <b>ライブ表示専用。</b> 会話は正本ではない（§17-3）。
-    /// 長い報告は途中で切るが、<b>切ったことを黙らない</b>（§22-2 と同じ理由）。
-    /// </para>
-    /// </remarks>
-    private async Task ShowCoordinationFileAsync(DepartmentTile tile, string fileName, string label)
-    {
-        if (_composer?.Workspace is not { } workspace)
-        {
-            Note("先にワークスペースを選ぶ");
-            return;
-        }
-
-        if (tile.CurrentTaskSlug is not { } slug)
-        {
-            Note($"{tile.Name}: どの仕事の{label}か分からない（.company/ の経路が未接続）");
-            return;
-        }
-
-        var path = Path.Combine(workspace.Company.TaskDirectory(slug), fileName);
-        if (!File.Exists(path))
-        {
-            Note($"{tile.Name}: {label}のファイルがまだ無い（{path}）");
-            return;
-        }
-
-        string content;
-        try
-        {
-            content = await File.ReadAllTextAsync(path, CancellationToken.None);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // 読めなかったことを、読んだことにしない。
-            Note($"{tile.Name}: {label}を読めなかった（{exception.GetType().Name}）。場所は {path}");
-            return;
-        }
-
-        const int limit = 4000;
-        Say(content.Length > limit
-            ? $"{tile.Name}: {content[..limit]}\n\n（長いので残り {content.Length - limit} 文字は省いた。全文は {path}）"
-            : $"{tile.Name}: {content}");
-
-        // 出どころを左に残す。会話は落ちたら失われてよいが、場所は追える（§17-3）。
-        Note($"{tile.Name} の{label}を出した: {path}");
-    }
 
     /// <summary>
     /// 秘書に送る。<b>未起動ならその副作用として起動する</b>（設計 §17-4）——
@@ -2166,11 +2108,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 出たばかりの報告を、中央ペインへ出す（設計 §19-4）。
+    /// 出たばかりの報告を、中央ペインへ知らせる（設計 §19-4 / §62-9）。
     /// </summary>
     /// <remarks>
-    /// <b>ボタンを待たない。</b> 人間が「報告を読む」を押すまで中身が出ないと、
+    /// <b>ボタンを待たない。</b> 人間が「報告を読む」を押すまで何も出ないと、
     /// **報告が来たこと自体に気付く工程**が1つ増える。
+    /// <para>
+    /// <b>全文は出さず、押せる場所だけ出す</b>（§62-9）。報告は節立ての長い文書になった（§62-5）ので、
+    /// 会話に流すと秘書とのやり取りが埋もれる。押すとプレビューで整形して読める。
+    /// </para>
     /// <para>
     /// <b>用件のボタンは残す</b>（§15-6）—— あれは読み直しと、
     /// 受理・差し戻しへの入口を兼ねている。<b>出すのと、決めるのは別。</b>
@@ -2178,30 +2124,24 @@ public partial class MainWindow : Window
     /// </remarks>
     private async Task ShowArrivedReportAsync(string slug)
     {
-        if (_composer?.Workspace is not { } workspace)
+        if (_composer is not { Workspace: { } workspace } composer)
         {
             return;
         }
 
-        var path = Path.Combine(workspace.Company.TaskDirectory(slug), "report.md");
-        string content;
-        try
-        {
-            content = await File.ReadAllTextAsync(path, CancellationToken.None);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // **読めなかったことを、読んだことにしない**（§7）。
-            Note($"{slug}: 報告が出たが読めなかった（{exception.GetType().Name}）。場所は {path}");
-            return;
-        }
+        var who = composer.Tasks is { } tasks
+            && await tasks.ReadAsync(slug, CancellationToken.None) is TaskReadResult.Found found
+            && composer.KnowsDepartment(found.State.DepartmentId)
+                ? composer.DefinitionOf(found.State.DepartmentId).DisplayName
+                : "部門";
 
-        // **長い報告は切るが、切ったことを黙らない**（§22-2 と同じ理由）。
-        const int limit = 4000;
-        Say(content.Length > limit
-            ? $"【{slug} の報告】\n{content[..limit]}\n\n（長いので残り {content.Length - limit} 文字は省いた。全文は {path}）"
-            : $"【{slug} の報告】\n{content}");
+        // **読めなかったことを、読んだことにしない**（§7）。場所は出すので、押せば理由が窓に出る。
+        var note = File.Exists(workspace.Company.Report(slug)) ? "" : "（いまは読めない）";
+        Say($"【{slug} の報告】{who} から報告が届いた: {ReportLink(slug)}{note}");
     }
+
+    /// <summary>報告の場所を、会話の中で押せる形（ワークスペースからの相対パス）で返す（§62-9）。</summary>
+    private static string ReportLink(string slug) => $".company/tasks/{slug}/report.md";
 
     /// <summary>
     /// 読むだけの部門の報告が出たら、そのあいだに作業ツリーが変わっていないかを確かめる（設計 §62-6）。
@@ -2512,7 +2452,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            Note($"画像のプレビューを開けなかった（{exception.GetType().Name}）");
+            Note($"プレビューを開けなかった（{exception.GetType().Name}）");
         }
     }
 

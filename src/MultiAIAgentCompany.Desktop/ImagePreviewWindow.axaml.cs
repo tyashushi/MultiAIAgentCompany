@@ -5,14 +5,16 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using Avalonia.Threading;
+using LiveMarkdown.Avalonia;
 using MultiAIAgentCompany.Core.Coordination;
 using SkiaSharp;
 
 namespace MultiAIAgentCompany.Desktop;
 
 /// <summary>
-/// 画像と添付のプレビュー（設計 §56-5 / §58-5）。表示を差し替えるたびに、前の画像は解放する。
+/// 画像と添付と報告のプレビュー（設計 §56-5 / §58-5 / §62-9）。表示を差し替えるたびに、前の画像は解放する。
 /// </summary>
 public partial class ImagePreviewWindow : Window
 {
@@ -41,6 +43,11 @@ public partial class ImagePreviewWindow : Window
             _resizeTimer.Start();
         };
         Closed += (_, _) => { _resizeTimer.Stop(); ClearImage(); };
+
+        // **コードの色もテーマに合わせる**（§62-9）。ライブラリの既定はダーク固定で、
+        // ライトの地に明るい字が乗って読めない。
+        ApplyCodeTheme();
+        ActualThemeVariantChanged += (_, _) => ApplyCodeTheme();
     }
 
     public void SetImage(string link, ImageLinkResolution resolution)
@@ -54,6 +61,7 @@ public partial class ImagePreviewWindow : Window
         PreviewMessage.IsVisible = PreviewMessage.Text is not null;
         PreviewText.Text = null;
         TextArea.IsVisible = false;
+        ClearMarkdown();
         _isImage = TranscriptImageLinks.IsImage(link);
         if (_isImage) LoadImage();
         else LoadText();
@@ -100,8 +108,22 @@ public partial class ImagePreviewWindow : Window
 
             if (text.Length > 0 && text[0] == '\uFEFF') text = text[1..];
             if (length > count) text += $"\n\n……（先頭 {TextLimitBytes / 1024}KB だけ表示している。全体は {Attachments.Megabytes(length)}）";
-            PreviewText.Text = text;
-            TextArea.IsVisible = true;
+            // **.md は整形して出す**（設計 §62-9）。報告は見出しと箇条書きで読む文書なので、
+            // 記号のまま出すと読む側が頭の中で組み直すことになる。
+            if (TranscriptImageLinks.IsMarkdown(_fullPath))
+            {
+                var builder = new ObservableStringBuilder();
+                PreviewMarkdown.ImageBasePath = Path.GetDirectoryName(_fullPath);
+                PreviewMarkdown.MarkdownBuilder = builder;
+                builder.Append(text);
+                MarkdownArea.IsVisible = true;
+            }
+            else
+            {
+                PreviewText.Text = text;
+                TextArea.IsVisible = true;
+            }
+
             PreviewMessage.IsVisible = false;
         }
         catch (Exception exception)
@@ -156,9 +178,21 @@ public partial class ImagePreviewWindow : Window
         _bitmap = null;
     }
 
+    private void ApplyCodeTheme() =>
+        PreviewMarkdown.CodeBlockColorTheme = ActualThemeVariant == ThemeVariant.Dark
+            ? TextMateSharp.Grammars.ThemeName.DarkPlus
+            : TextMateSharp.Grammars.ThemeName.LightPlus;
+
+    private void ClearMarkdown()
+    {
+        PreviewMarkdown.MarkdownBuilder = new ObservableStringBuilder();
+        MarkdownArea.IsVisible = false;
+    }
+
     private void ShowFailure(string message)
     {
         ClearImage();
+        ClearMarkdown();
         PreviewText.Text = null;
         TextArea.IsVisible = false;
         PreviewMessage.Text = message;

@@ -8,6 +8,7 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://LiveMarkdown.Avalonia/Defaults.axaml" />
                 <ResourceInclude Source="avares://MultiAIAgentCompany.Desktop/Themes/Tokens.axaml" />
             </ResourceDictionary.MergedDictionaries>
 
@@ -22,6 +23,8 @@
         <FluentTheme />
 
         <!-- 見た目の語彙（設計 §44）。**FluentTheme の後ろに置く** —— 前だと上書きされる。 -->
+        <!-- 報告の Markdown 表示（設計 §62-9）。自前の語彙より前に置き、こちらで上書きできるようにする。 -->
+        <StyleInclude Source="avares://LiveMarkdown.Avalonia/Styles.axaml" />
         <StyleInclude Source="avares://MultiAIAgentCompany.Desktop/Themes/Typography.axaml" />
         <StyleInclude Source="avares://MultiAIAgentCompany.Desktop/Themes/Controls.axaml" />
     </Application.Styles>

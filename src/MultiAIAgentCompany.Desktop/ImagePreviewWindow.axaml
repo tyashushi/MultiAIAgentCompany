@@ -1,12 +1,14 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:md="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
         x:Class="MultiAIAgentCompany.Desktop.ImagePreviewWindow"
         Title="プレビュー" Width="800" Height="600" MinWidth="540" MinHeight="360"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppBackgroundBrush}"
         Foreground="{DynamicResource TextPrimaryBrush}">
     <!-- 画像は会話へ埋め込まず、この窓1つに出す（設計 §56-5）。
-         添付の文字ファイルも同じ窓で出し分ける（§58-5）。 -->
+         添付の文字ファイルも同じ窓で出し分ける（§58-5）。
+         報告と共有文書（.md）は Markdown として整形して出す（§62-9）。 -->
     <Grid RowDefinitions="*,Auto" Margin="16" RowSpacing="12">
         <Border x:Name="ImageArea" Background="{DynamicResource SurfaceBrush}"
                 CornerRadius="{StaticResource CardRadius}" ClipToBounds="True">
@@ -15,6 +17,10 @@
                               HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                     <SelectableTextBlock x:Name="PreviewText" Classes="body" Margin="12"
                                          FontFamily="Menlo, Consolas, monospace" />
+                </ScrollViewer>
+                <ScrollViewer x:Name="MarkdownArea" IsVisible="False"
+                              HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <md:MarkdownRenderer x:Name="PreviewMarkdown" Margin="16,12" />
                 </ScrollViewer>
                 <Image x:Name="PreviewImage" Stretch="Uniform" StretchDirection="DownOnly"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />

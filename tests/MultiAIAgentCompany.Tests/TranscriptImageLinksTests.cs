@@ -115,4 +115,31 @@ public sealed class TranscriptImageLinksTests
         Assert.True(TranscriptImageLinks.IsImage(links[0].Link));
         Assert.False(TranscriptImageLinks.IsImage(".company/attachments/x/a.txt"));
     }
+
+    [Theory]
+    [InlineData("【task-1 の報告】設計 から報告が届いた: .company/tasks/task-1/report.md", ".company/tasks/task-1/report.md")]
+    [InlineData("前の試行は .company/tasks/task_1/attempts/0/report.md にある。", ".company/tasks/task_1/attempts/0/report.md")]
+    [InlineData("共有文書「.company/plans/plan-1/brief.md」", ".company/plans/plan-1/brief.md")]
+    [InlineData(@"報告: .company\tasks\task-1\report.md", @".company\tasks\task-1\report.md")]
+    public void 報告と共有文書はリンクにして_Markdownとして扱う(string text, string expected)
+    {
+        // 設計 §62-9。
+        var link = Assert.Single(TranscriptImageLinks.Find(text));
+        Assert.Equal(expected, link.Link);
+        Assert.Equal(expected, text.Substring(link.Start, link.Length));
+        Assert.True(TranscriptImageLinks.IsMarkdown(link.Link));
+        Assert.False(TranscriptImageLinks.IsImage(link.Link));
+    }
+
+    [Theory]
+    [InlineData(".company/tasks/task-1/instruction.md")]
+    [InlineData(".company/tasks/task-1/notes/report.md")]
+    [InlineData(".company/secretary/README.md")]
+    [InlineData(".company/tasks/task-1/report.md.bak")]
+    [InlineData(".company/tasks/../report.md")]
+    [InlineData("docs/report.md")]
+    [InlineData("x.company/tasks/task-1/report.md")]
+    public void 決まった場所の報告と共有文書のほかの_md_はリンクにしない(string text) =>
+        Assert.Empty(TranscriptImageLinks.Find(text));
+
 }

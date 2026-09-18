@@ -3,7 +3,7 @@ using MultiAIAgentCompany.Core.Agents;
 
 namespace MultiAIAgentCompany.Core.Coordination;
 
-/// <summary>会話に書かれた画像の場所。文字位置を保つので、選択・コピーは元の文のまま（設計 §56）。</summary>
+/// <summary>会話に書かれた画像・添付・報告の場所。文字位置を保つので、選択・コピーは元の文のまま（設計 §56 / §62-9）。</summary>
 public sealed record TranscriptImageLink(int Start, int Length, string Link);
 
 public abstract record ImageLinkResolution
@@ -27,8 +27,16 @@ public static partial class TranscriptImageLinks
     [GeneratedRegex(@"(?<![A-Za-z0-9_./\\:\-])\.company[/\\]attachments[/\\][^\s/\\]+[/\\](?![^\s/\\。、」』）)\]`'""]*[/\\])[^\s/\\。、」』）)\]`'""]*[^\s/\\。、」』）)\]`'"",.:;!?]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AttachmentPattern();
 
+    // **報告と共有文書は、決まった場所の決まった名前だけ**（設計 §62-9）。
+    // 任意の .md を押せるようにすると、部門や秘書が書いた文中のパスが何でも窓で開く。
+    [GeneratedRegex(@"(?<![A-Za-z0-9_./\\:\-])\.company[/\\](?:tasks[/\\][A-Za-z0-9_\-]+[/\\](?:attempts[/\\][0-9]+[/\\])?report|plans[/\\][A-Za-z0-9_\-]+[/\\]brief)\.md(?![A-Za-z0-9_./\\\-])", RegexOptions.CultureInvariant)]
+    private static partial Regex DocumentPattern();
+
     [GeneratedRegex(@"\.(?:png|jpg|jpeg|webp|gif)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ImageExtension();
+
+    /// <summary>Markdown として整形して出すか（設計 §62-9）。</summary>
+    public static bool IsMarkdown(string link) => link.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>画像として出すか。それ以外は文字か「プレビューできない」（§58-5）。</summary>
     public static bool IsImage(string link) => ImageExtension().IsMatch(link);
@@ -37,7 +45,7 @@ public static partial class TranscriptImageLinks
     {
         // 添付の画像は両方に当たる。**先に見つかった範囲と重なるものは捨てる**（同じ文字を2度リンクにしない）。
         var links = new List<TranscriptImageLink>();
-        foreach (var match in AttachmentPattern().Matches(text).Concat(LinkPattern().Matches(text)))
+        foreach (var match in AttachmentPattern().Matches(text).Concat(LinkPattern().Matches(text)).Concat(DocumentPattern().Matches(text)))
         {
             if (links.Any(link => match.Index < link.Start + link.Length && link.Start < match.Index + match.Length)) continue;
             links.Add(new TranscriptImageLink(match.Index, match.Length, match.Value));
