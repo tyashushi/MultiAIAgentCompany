@@ -48,7 +48,12 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
                 if (ParsePlan(name, content) is null)
                 {
                     // 解決できない計画は、宛先不明の提案として本文を人間に残す（§34-1）。
-                    proposals.Add(Parse(name, content));
+                    // **工程の順が規則に合わないだけなら、その理由を添える**（設計 §62-13）。
+                    var proposal = Parse(name, content);
+                    proposals.Add(ParsePlanCore(name, content) is { } misordered
+                        && PlanAdvance.OrderProblem(misordered.Steps) is { } problem
+                            ? proposal with { Body = $"（計画として受け取らなかった: {problem}）\n\n{proposal.Body}" }
+                            : proposal);
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -96,7 +101,14 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
         return plans;
     }
 
-    internal static SecretaryPlanProposal? ParsePlan(string id, string content)
+    /// <remarks>
+    /// <b>レビューは、見る相手の工程のすぐ後に置く</b>（設計 §62-13、人間の決定）。
+    /// 外れた計画は受け取らない —— 間の工程が、あとで直される前の成果物を使って先へ進むから。
+    /// </remarks>
+    internal static SecretaryPlanProposal? ParsePlan(string id, string content) =>
+        ParsePlanCore(id, content) is { } plan && PlanAdvance.OrderProblem(plan.Steps) is null ? plan : null;
+
+    private static SecretaryPlanProposal? ParsePlanCore(string id, string content)
     {
         var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n').Split('\n');
         if (!lines[0].StartsWith("plan:", StringComparison.Ordinal))

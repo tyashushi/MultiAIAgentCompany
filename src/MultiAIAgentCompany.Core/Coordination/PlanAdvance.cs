@@ -86,6 +86,12 @@ public static class PlanAdvance
             return new PlanNext.NeedsHuman("工程が1つも無い");
         }
 
+        // **この規則より前に作られた計画も、進める前に確かめる**（設計 §62-13）。
+        if (OrderProblem(plan.Steps) is { } problem)
+        {
+            return new PlanNext.NeedsHuman(problem);
+        }
+
         int? unaccepted = null;
 
         for (var index = 0; index < plan.Steps.Count; index++)
@@ -243,6 +249,39 @@ public static class PlanAdvance
     /// <summary>
     /// その工程を見るレビュー工程。<b>複数ありうる</b>（§29 の設計レビュー2部門）。
     /// </summary>
+    /// <summary>
+    /// 工程の順が規則に合わなければ、その理由（設計 §62-13、人間の決定）。
+    /// </summary>
+    /// <remarks>
+    /// <b>レビューは、見る相手の工程のすぐ後に置く。</b> 間に置いてよいのは、同じ工程を見る別のレビューだけ。
+    /// 間に別の工程があると、差し戻しで見る相手を直しても、間の工程は直す前の成果物を使って
+    /// 受理済みのまま残り、先へ進む（Codex のレビューで発覚）。
+    /// </remarks>
+    public static string? OrderProblem(IReadOnlyList<PlanStep> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        for (var index = 0; index < steps.Count; index++)
+        {
+            // 範囲の外（自分自身・後ろ・負）は「戻り先が無い」として別に止める。ここでは見ない。
+            if (steps[index].ReviewsStep is not { } reviewed || reviewed < 0 || reviewed >= index)
+            {
+                continue;
+            }
+
+            for (var between = reviewed + 1; between < index; between++)
+            {
+                if (steps[between].ReviewsStep != reviewed)
+                {
+                    return $"工程 {index + 1}（{steps[index].DepartmentId}）は工程 {reviewed + 1}（{steps[reviewed].DepartmentId}）を見るが、"
+                        + $"間に工程 {between + 1}（{steps[between].DepartmentId}）がある。レビューは見る相手のすぐ後に置く";
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static IReadOnlyList<int> ReviewersOf(Plan plan, int index)
     {
         var reviewers = new List<int>();

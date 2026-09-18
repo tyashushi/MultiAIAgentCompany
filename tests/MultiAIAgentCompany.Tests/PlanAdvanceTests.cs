@@ -300,6 +300,19 @@ public sealed class PlanAdvanceTests
             Decide(plan, ("t1", CoreTaskStatus.Accepted), ("t2", CoreTaskStatus.Reported)));
     }
 
+    [Fact]
+    public void レビューが見る相手のすぐ後に無い計画は_進めずに止まる()
+    {
+        // 設計 §62-13。この規則より前に作られた計画も、進める前に止める。
+        var plan = Plan(
+            Step("design", slug: "t1"),
+            Step("implementation"),
+            Step("review", reviews: 0));
+
+        var next = Assert.IsType<PlanNext.NeedsHuman>(Decide(plan, ("t1", CoreTaskStatus.Reported)));
+        Assert.Contains("レビューは見る相手のすぐ後に置く", next.Reason);
+    }
+
     [Theory]
     [InlineData(5)]
     [InlineData(-1)]

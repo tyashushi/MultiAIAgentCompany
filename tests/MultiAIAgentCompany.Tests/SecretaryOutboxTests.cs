@@ -73,9 +73,33 @@ public sealed class SecretaryOutboxTests : IDisposable
     [Fact]
     public void レビュー先は前にある同じ部門の最後の工程になる()
     {
-        Publish("p1", "plan: 目的\nstep: design / 最初\nstep: design / 次\nstep: research / 調査\nstep: review reviews=design / 確認\n");
+        Publish("p1", "plan: 目的\nstep: design / 最初\nstep: design / 次\nstep: review reviews=design / 確認\n");
 
-        Assert.Equal(1, Assert.Single(Outbox.ReadPlans()).Steps[3].ReviewsStep);
+        Assert.Equal(1, Assert.Single(Outbox.ReadPlans()).Steps[2].ReviewsStep);
+    }
+
+    [Theory]
+    [InlineData("step: design / 設計\nstep: implementation / 実装\nstep: review reviews=design / 確認", "工程 3（review）は工程 1（design）を見るが、間に工程 2（implementation）がある")]
+    [InlineData("step: design / 設計\nstep: review reviews=design / 確認\nstep: implementation / 実装\nstep: audit reviews=design / 監査", "工程 4（audit）は工程 1（design）を見るが、間に工程 3（implementation）がある")]
+    public void レビューが見る相手のすぐ後に無い計画は_理由を添えて人間へ残す(string steps, string reason)
+    {
+        // 設計 §62-13（人間の決定）。
+        Publish("p1", $"plan: 目的\n{steps}");
+
+        Assert.Empty(Outbox.ReadPlans());
+        var proposal = Assert.Single(Outbox.Read());
+        Assert.Null(proposal.DepartmentId);
+        Assert.StartsWith($"（計画として受け取らなかった: {reason}", proposal.Body);
+        Assert.EndsWith(steps, proposal.Body);
+    }
+
+    [Fact]
+    public void 同じ工程を見るレビューは続けて置ける()
+    {
+        Publish("p1", "plan: 目的\nstep: design / 設計\nstep: review reviews=design / 確認\nstep: audit reviews=design / 監査\nstep: implementation / 実装\n");
+
+        var plan = Assert.Single(Outbox.ReadPlans());
+        Assert.Equal([null, 0, 0, null], plan.Steps.Select(step => step.ReviewsStep));
     }
 
     [Theory]
