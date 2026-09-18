@@ -429,6 +429,8 @@ public partial class MainWindow : Window
             (SecretaryState.Failed, _) => $"秘書を起動できなかった / 落ちた: {_secretary.FailureReason}",
             (_, WorkspaceTrustState.NotTrusted) =>
                 $"{agent} がこのフォルダを trust していない。アプリは trust を書かない（上の「ターミナルで開く」から信頼を与える）",
+            (_, WorkspaceTrustState.NoRecord) =>
+                $"{agent} の trust の記録がまだ無い。上の「ターミナルで開く」から一度起動すれば分かる",
             (_, WorkspaceTrustState.Unknown) =>
                 $"{agent} の trust を判定できない。未 trust とは限らない",
             _ => "秘書はまだ起動していない。最初の送信で起動する",

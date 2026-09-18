@@ -802,7 +802,7 @@ public sealed class DepartmentTile : INotifyPropertyChanged
 
     private void Append(Evidence evidence)
     {
-        _observations.Insert(0, $"{evidence.ObservedAt:HH:mm:ss}  {evidence.Source}  {evidence.RedactedSummary}");
+        _observations.Insert(0, $"{evidence.ObservedAt.ToLocalTime():HH:mm:ss}  {evidence.Source}  {evidence.RedactedSummary}");
         if (_observations.Count > 30)
         {
             _observations.RemoveAt(_observations.Count - 1);
@@ -839,12 +839,13 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
     public string AgentText => Agent.ToString();
 
     /// <summary>
-    /// 「ターミナルで開く」を出すか（設計 §54）。<b>未 trust と分かっているときだけ。</b>
+    /// 「ターミナルで開く」を出すか（設計 §54）。<b>未 trust と分かっているか、記録がまだ無いとき。</b>
     /// </summary>
     /// <remarks>
-    /// 「判定できない」には出さない —— 未 trust とは限らないのに、操作を促すことになる（§13-9）。
+    /// 「判定できない」（壊れていて読めない）には出さない —— 未 trust とは限らないのに、操作を促すことになる（§13-9）。
+    /// 記録がまだ無いなら、一度起動すれば分かる（§55-5）。
     /// </remarks>
-    public bool CanOpenTerminal => ExecutablePath is not null && State is WorkspaceTrustState.NotTrusted;
+    public bool CanOpenTerminal => ExecutablePath is not null && State is WorkspaceTrustState.NotTrusted or WorkspaceTrustState.NoRecord;
 
     /// <summary>
     /// <b>そもそも CLI があるか</b>を、trust より先に言う（設計 §28-1）。
@@ -859,6 +860,7 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
         {
             WorkspaceTrustState.Trusted => "信頼済み",
             WorkspaceTrustState.NotTrusted => "未 trust",
+            WorkspaceTrustState.NoRecord => "まだ記録が無い",
             _ => "判定できない",
         };
 
@@ -872,6 +874,7 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
         {
             WorkspaceTrustState.Trusted => "そのまま使える",
             WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える（戻ってくると表示が更新される）",
+            WorkspaceTrustState.NoRecord => "その CLI をこのフォルダで一度起動すれば分かる。信頼を聞かれたら与える（戻ってくると表示が更新される）",
             _ => "設定ファイルを読めなかった。未 trust とは限らない",
         };
 }

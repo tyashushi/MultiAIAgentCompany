@@ -22,6 +22,12 @@ public enum WorkspaceTrustState
     /// 「信頼されていない」と言わない。
     /// </summary>
     Unknown,
+
+    /// <summary>
+    /// 分からないのは <see cref="Unknown"/> と同じ。ただし理由は<b>記録がまだ無い</b>こと ——
+    /// その CLI をこのフォルダで一度起動すれば分かる（設計 §55-5）。
+    /// </summary>
+    NoRecord,
 }
 
 /// <param name="Agent">どの CLI についての判定か。</param>
@@ -53,7 +59,9 @@ public static class WorkspaceTrustReport
                 {
                     true => WorkspaceTrustState.Trusted,
                     false => WorkspaceTrustState.NotTrusted,
-                    null => WorkspaceTrustState.Unknown,
+                    null => await probe.HasNoRecordAsync(ct).ConfigureAwait(false)
+                        ? WorkspaceTrustState.NoRecord
+                        : WorkspaceTrustState.Unknown,
                 };
             }
             catch (Exception exception) when (exception is not OperationCanceledException)

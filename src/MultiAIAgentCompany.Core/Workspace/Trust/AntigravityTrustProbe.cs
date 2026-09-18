@@ -15,6 +15,24 @@ public sealed class AntigravityTrustProbe : IWorkspaceTrustProbe
 
     public AgentKind Kind => AgentKind.AntigravityCli;
 
+    /// <summary>ファイルが無いか、<c>trustedWorkspaces</c> の欄が無い（一度も信頼を与えていないと <c>{}</c> だった。§55-5）。</summary>
+    public async Task<bool> HasNoRecordAsync(CancellationToken ct)
+    {
+        if (!File.Exists(_settingsPath)) return true;
+        try
+        {
+            await using var stream = new FileStream(_settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 4096, useAsync: true);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && !document.RootElement.TryGetProperty("trustedWorkspaces", out _);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return false;
+        }
+    }
+
     public async Task<bool?> IsTrustedAsync(WorkspaceRef workspace, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();

@@ -16,6 +16,8 @@ public sealed class ClaudeCodeTrustProbe : IWorkspaceTrustProbe
 
     public AgentKind Kind => AgentKind.ClaudeCode;
 
+    public Task<bool> HasNoRecordAsync(CancellationToken ct) => Task.FromResult(!File.Exists(_settingsPath));
+
     public async Task<bool?> IsTrustedAsync(WorkspaceRef workspace, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();

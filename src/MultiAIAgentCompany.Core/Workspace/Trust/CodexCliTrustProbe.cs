@@ -15,6 +15,8 @@ public sealed partial class CodexCliTrustProbe : IWorkspaceTrustProbe
 
     public AgentKind Kind => AgentKind.CodexCli;
 
+    public Task<bool> HasNoRecordAsync(CancellationToken ct) => Task.FromResult(!File.Exists(_settingsPath));
+
     public async Task<bool?> IsTrustedAsync(WorkspaceRef workspace, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();

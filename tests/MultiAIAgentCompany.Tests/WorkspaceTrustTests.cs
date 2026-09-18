@@ -75,6 +75,30 @@ public sealed class WorkspaceTrustTests : IDisposable
     }
 
     [Fact]
+    public async Task 記録がまだ無いときは判定はnullのまま案内だけ変える()
+    {
+        // 判定は変えない（§13-9 規則1）。報告だけが NoRecord になる（§55-5）。
+        IWorkspaceTrustProbe[] probes = [new ClaudeCodeTrustProbe(_root), new CodexCliTrustProbe(_root), new AntigravityTrustProbe(_root)];
+        Assert.All(await WorkspaceTrustReport.BuildAsync(_workspace, probes, CancellationToken.None),
+            row => Assert.Equal(WorkspaceTrustState.NoRecord, row.State));
+
+        // agy は一度も信頼を与えていないと {} だった（Windows 11 の実機）。
+        var directory = Path.Combine(_root, ".gemini", "antigravity-cli"); Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "settings.json");
+        await File.WriteAllTextAsync(path, "{}");
+        var agy = new AntigravityTrustProbe(_root);
+        Assert.Null(await agy.IsTrustedAsync(_workspace, CancellationToken.None));
+        Assert.True(await agy.HasNoRecordAsync(CancellationToken.None));
+
+        // 壊れていて読めないのは、記録が無いとは言えない。
+        await File.WriteAllTextAsync(path, "{");
+        Assert.False(await agy.HasNoRecordAsync(CancellationToken.None));
+        await File.WriteAllTextAsync(Path.Combine(_root, ".claude.json"), "{");
+        Assert.Equal(WorkspaceTrustState.Unknown, Assert.Single(await WorkspaceTrustReport.BuildAsync(
+            _workspace, [new ClaudeCodeTrustProbe(_root)], CancellationToken.None)).State);
+    }
+
+    [Fact]
     public async Task 実体パスでtmpの表記揺れを比較する()
     {
         if (!Directory.Exists("/private/tmp")) return;

@@ -29,4 +29,13 @@ public interface IWorkspaceTrustProbe
 
     /// <summary>そのワークスペースが、その CLI にとって trust 済みか。判らなければ null。</summary>
     Task<bool?> IsTrustedAsync(WorkspaceRef workspace, CancellationToken ct);
+
+    /// <summary>
+    /// 判定できなかったのが、<b>記録がまだ無い</b>（設定ファイルや欄を CLI がまだ作っていない）からか。
+    /// </summary>
+    /// <remarks>
+    /// <b>判定は変えない</b>（§13-9 規則1: 未 trust と言い切らない）。変えるのは案内だけ ——
+    /// その CLI をこのフォルダで一度起動すれば分かる（設計 §55-5、2026-09-18 に人間が決めた）。
+    /// </remarks>
+    Task<bool> HasNoRecordAsync(CancellationToken ct) => Task.FromResult(false);
 }
