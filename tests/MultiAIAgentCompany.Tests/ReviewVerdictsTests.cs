@@ -6,6 +6,17 @@ namespace MultiAIAgentCompany.Tests;
 /// <summary>設計 §37-5。<b>「たぶん OK」を作らない</b>ことを固定する。</summary>
 public sealed class ReviewVerdictsTests
 {
+    [Fact]
+    public void 指摘のIDと直った条件を求め_必須だけで差し戻す()
+    {
+        // 設計 §62-7。判定の読み方は変えず、レビューへの依頼を具体的にする。
+        var text = ReviewVerdicts.RequestText;
+        Assert.Contains("ID（R1、R2 …）・場所・根拠・重さ（**必須** / 任意 / 懸念）・直ったと言える条件", text);
+        Assert.Contains("`verdict: revise` にしてよいのは、必須の指摘があるときだけ", text);
+        Assert.Contains("任意や懸念だけでは差し戻さない", text);
+        Assert.Contains("前の試行への指摘があり、見ている報告に ID ごとの対応が書かれていれば、まずそれが直ったかを確かめ、そのうえで変わったところを見る", text);
+    }
+
     [Theory]
     [InlineData("verdict: ok")]
     [InlineData("Verdict: OK")]

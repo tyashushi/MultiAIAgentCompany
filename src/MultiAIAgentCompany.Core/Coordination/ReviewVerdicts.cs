@@ -23,7 +23,7 @@ public static class ReviewVerdicts
     public const string ReviseValue = "revise";
 
     /// <summary>
-    /// レビュー工程へ頼む文面（設計 §37-5）。
+    /// レビュー工程へ頼む文面（設計 §37-5 / §62-7）。
     /// </summary>
     /// <remarks>
     /// <b>読む側と頼む側を同じ場所に置く。</b> 文面を <c>PlanRunner</c> に、
@@ -38,6 +38,12 @@ public static class ReviewVerdicts
         （このまま次へ進んでよい）か
         **`{Key}: {ReviseValue}`**（直しが要る）の行を
         **必ず1行**入れてください。**この行が無いと、人間が呼ばれて計画が止まります。**
+
+        ## 指摘の書き方
+
+        指摘ごとに、ID（R1、R2 …）・場所・根拠・重さ（**必須** / 任意 / 懸念）・直ったと言える条件を書くこと。
+        `{Key}: {ReviseValue}` にしてよいのは、必須の指摘があるときだけ。任意や懸念だけでは差し戻さない。
+        前の試行への指摘があり、見ている報告に ID ごとの対応が書かれていれば、まずそれが直ったかを確かめ、そのうえで変わったところを見ること。
         """;
 
     public static ReviewVerdict Parse(string? report)

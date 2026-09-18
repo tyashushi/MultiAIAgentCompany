@@ -1276,7 +1276,9 @@ public partial class MainWindow : Window
         await File.WriteAllTextAsync(workspace.Company.Rejection(state.Slug), reason, CancellationToken.None);
         await File.WriteAllTextAsync(
             workspace.Company.NextInstruction(state.Slug),
-            CompanyInstruction.Compose(NextInstructionText(reason), workspace.Company, state.Slug, _composer.DefinitionOf(tile.Id)),
+            await CompanyInstruction.ComposeRevisionAsync(
+                workspace.Company, state.Slug, _composer.DefinitionOf(tile.Id),
+                "差し戻しの理由", "人間", reason, CancellationToken.None),
             CancellationToken.None);
 
         tile.RejectionDraft = string.Empty;
@@ -1334,19 +1336,6 @@ public partial class MainWindow : Window
 
         await ScanAsync(CompanyScanKind.Periodic);
     }
-
-    /// <summary>
-    /// 次の試行の指示書の本文。<b>理由をここに書き写す</b>（設計 §19-2）——
-    /// 部門が <c>rejection.md</c> を開くとは限らない。出典を人間とした資料で区切る（設計 §62-8）。
-    /// </summary>
-    private static string NextInstructionText(string reason) =>
-        $"""
-        前の試行の報告は受理されなかった。同じ仕事をやり直すこと。
-
-        {CompanyInstruction.Material("差し戻しの理由", "人間", reason)}
-
-        前の試行の指示書と報告は attempts/ に残っている。必要なら読むこと。
-        """;
 
     /// <summary>
     /// 押した時点の状態を読み直す。<b>画面の値で判断しない</b>（§14-2）——

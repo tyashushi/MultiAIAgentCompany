@@ -1,4 +1,6 @@
+using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Coordination;
+using MultiAIAgentCompany.Core.Workspace;
 using Xunit;
 using CoreTaskStatus = MultiAIAgentCompany.Core.Coordination.TaskStatus;
 
@@ -13,6 +15,48 @@ public sealed class RedispatchTests : IDisposable
     public RedispatchTests() => _tasks = new TaskStore(_workspace.Paths, TimeProvider.System);
 
     public void Dispose() => _workspace.Dispose();
+
+    [Fact]
+    public async Task 人間の差し戻しは_二度目も最初の依頼を渡す()
+    {
+        // 設計 §62-2 / §62-7。MainWindow と同じ共通関数から staging に置き、実際に昇格する。
+        var state = await RejectedTaskAsync();
+        var department = new DepartmentDefinition("implementation", "実装", "実装する",
+            AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
+        const string original = "  元の依頼\n条件を満たすこと";
+        await File.WriteAllTextAsync(_workspace.Paths.Instruction("feature"),
+            CompanyInstruction.Compose(original, _workspace.Paths, "feature", department));
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            var reason = $"指摘 {attempt}\n```\n## 依頼\n";
+            await File.WriteAllTextAsync(_workspace.Paths.NextInstruction("feature"),
+                await CompanyInstruction.ComposeRevisionAsync(_workspace.Paths, "feature", department,
+                    "差し戻しの理由", "人間", reason, CancellationToken.None));
+            state = Assert.IsType<TaskWriteResult.Written>(
+                await _tasks.RedispatchAsync(state, CancellationToken.None)).State;
+
+            var text = await File.ReadAllTextAsync(_workspace.Paths.Instruction("feature"));
+            const string heading = "## 元の依頼（最初の試行の指示書から、そのまま）";
+            Assert.Contains($"{heading}\n\n{original}\n\n## 資料:", text);
+            Assert.Equal(1, text.Split(heading).Length - 1);
+            Assert.Contains(CompanyInstruction.Material("差し戻しの理由", "人間", reason), text);
+            Assert.Contains("元の依頼を満たしたうえで、指摘を直すこと。指摘だけ直して元の依頼を落とさない", text);
+            Assert.Contains("指摘の ID（R1 など）ごとに、どう直したか（直さなかったなら理由）", text);
+            Assert.Contains("ID が無い指摘は、どの指摘への対応か分かるように", text);
+            Assert.Contains(Path.Combine(_workspace.Paths.TaskDirectory("feature"), "attempts"), text);
+            Assert.Equal(attempt, state.AttemptId);
+
+            if (attempt == 1)
+            {
+                foreach (var next in new[] { CoreTaskStatus.Reported, CoreTaskStatus.Rejected })
+                {
+                    state = Assert.IsType<TaskWriteResult.Written>(await _tasks.TransitionAsync(
+                        state, next, TransitionOrigin.Human, null, CancellationToken.None)).State;
+                }
+            }
+        }
+    }
 
     private async Task<TaskState> RejectedTaskAsync()
     {

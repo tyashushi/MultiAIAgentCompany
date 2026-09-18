@@ -17,6 +17,86 @@ public sealed class CompanyInstructionTests
         AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
 
     [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void 依頼は最初の見出しから最後の約束までをそのまま取り出す(string newline)
+    {
+        // 設計 §62-2。依頼にも資料にも、見出しと約束の区切りが入り得る。
+        var request = "  元の依頼\n\n---\n\n## この仕事の約束\n依頼の続き\n\n"
+            + CompanyInstruction.Material("前の報告", "部門 research",
+                "## 依頼\n\n資料の本文\n\n---\n\n## この仕事の約束\n資料の続き");
+        var instruction = CompanyInstruction.Compose(request, Paths, "feature", Department);
+
+        Assert.Equal(request.Replace("\n", newline),
+            CompanyInstruction.ExtractRequest(instruction.Replace("\n", newline)));
+    }
+
+    [Theory]
+    [InlineData("古い依頼\n\n---\n\n## この仕事の約束\n報告を書く", "古い依頼")]
+    [InlineData(" 古い依頼\r\n\r\n---\r\n\r\n## この仕事の約束\r\n報告を書く", " 古い依頼")]
+    [InlineData(" 全文\n末尾 \n", " 全文\n末尾 \n")]
+    [InlineData("## 依頼\n\n 本文 \n", " 本文 \n")]
+    [InlineData("## 依頼\r\n\r\n 本文 \r\n", " 本文 \r\n")]
+    [InlineData("## 依頼", "")]
+    [InlineData("", "")]
+    [InlineData("古い依頼\n\n---\n\n## この仕事の約束\n続き\n\n---\n\n## この仕事の約束\n約束", "古い依頼\n\n---\n\n## この仕事の約束\n続き")]
+    public void 古い形式や約束の無い指示書でも依頼を取り出す(string instruction, string expected)
+    {
+        Assert.Equal(expected, CompanyInstruction.ExtractRequest(instruction));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task 元の指示書が無いか読めなければ_取り出せなかった場所を明記する(bool unreadable)
+    {
+        using var workspace = new TemporaryWorkspace();
+        var path = workspace.Paths.Instruction("feature");
+        if (unreadable)
+        {
+            // 権限や実行ユーザーに依存せず、ファイルとして読めないものを置く。
+            Directory.CreateDirectory(path);
+        }
+
+        var text = await CompanyInstruction.ComposeRevisionAsync(
+            workspace.Paths, "feature", Department, "差し戻しの理由", "人間", "直すこと", CancellationToken.None);
+
+        Assert.Contains("元の依頼を取り出せなかった", text);
+        Assert.Contains(path, text);
+        Assert.Contains(CompanyInstruction.Material("差し戻しの理由", "人間", "直すこと"), text);
+    }
+
+    [Fact]
+    public async Task 最初の指示書が読めないときは_現在の指示書で黙って代用しない()
+    {
+        using var workspace = new TemporaryWorkspace();
+        var first = Path.Combine(workspace.Paths.AttemptDirectory("feature", 0), "instruction.md");
+        Directory.CreateDirectory(first);
+        await File.WriteAllTextAsync(workspace.Paths.Instruction("feature"), "現在の指示で代用しない");
+
+        var text = await CompanyInstruction.ComposeRevisionAsync(
+            workspace.Paths, "feature", Department, "差し戻しの理由", "人間", "直すこと", CancellationToken.None);
+
+        Assert.Contains("元の依頼を取り出せなかった", text);
+        Assert.Contains(first, text);
+        Assert.DoesNotContain("現在の指示で代用しない", text);
+    }
+
+    [Fact]
+    public async Task 空の依頼も黙って渡さず_取り出せなかったと書く()
+    {
+        using var workspace = new TemporaryWorkspace();
+        Directory.CreateDirectory(workspace.Paths.TaskDirectory("feature"));
+        await File.WriteAllTextAsync(workspace.Paths.Instruction("feature"), "## 依頼\n\n---\n\n## この仕事の約束");
+
+        var text = await CompanyInstruction.ComposeRevisionAsync(
+            workspace.Paths, "feature", Department, "差し戻しの理由", "人間", "直すこと", CancellationToken.None);
+
+        Assert.Contains("元の依頼を取り出せなかった", text);
+        Assert.Contains("依頼の部分が空だった", text);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("報告です")]
     [InlineData(" \r\n報告です\r\n\t ")]

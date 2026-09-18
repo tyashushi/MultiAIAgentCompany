@@ -298,13 +298,9 @@ public sealed class PlanRunner(
         await File.WriteAllTextAsync(paths.Rejection(targetSlug), reason, ct);
         await File.WriteAllTextAsync(
             paths.NextInstruction(targetSlug),
-            CompanyInstruction.Compose(
-                $"""
-                前の試行はレビューを通らなかった。同じ仕事をやり直すこと。
-
-                {CompanyInstruction.Material("レビューの指摘", $"工程 {next.ReviewIndex + 1}・部門 {review.DepartmentId}・仕事 {reviewSlug}・試行 {reviewState.AttemptId}", reason)}
-                """,
-                paths, targetSlug, department),
+            await CompanyInstruction.ComposeRevisionAsync(
+                paths, targetSlug, department, "レビューの指摘",
+                $"工程 {next.ReviewIndex + 1}・部門 {review.DepartmentId}・仕事 {reviewSlug}・試行 {reviewState.AttemptId}", reason, ct),
             ct);
 
         // **レビューの仕事はここで終わり。** 見つけるべきものを見つけたので受理する。

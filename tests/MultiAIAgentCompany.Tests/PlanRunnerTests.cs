@@ -122,6 +122,7 @@ public sealed class PlanRunnerTests : IDisposable
     {
         var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0));
         var design = plan.Steps[0].TaskSlug!;
+        var original = CompanyInstruction.ExtractRequest(await File.ReadAllTextAsync(_workspace.Paths.Instruction(design)));
         await ReportAsync(design, "設計です");
 
         plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;          // レビューを渡す
@@ -146,6 +147,8 @@ public sealed class PlanRunnerTests : IDisposable
 
         // **指摘はそのまま次の指示書に入る**（要約しない）。
         var instruction = await File.ReadAllTextAsync(_workspace.Paths.Instruction(design));
+        const string originalHeading = "## 元の依頼（最初の試行の指示書から、そのまま）";
+        Assert.Contains($"{originalHeading}\n\n{original}\n\n## 資料:", instruction);
         Assert.Contains(CompanyInstruction.Material("レビューの指摘",
             $"工程 2・部門 review・仕事 {review}・試行 0", reason), instruction);
 
@@ -168,6 +171,19 @@ public sealed class PlanRunnerTests : IDisposable
             _workspace.Paths.Instruction(reviewedAgain.Plan.Steps[1].TaskSlug!));
         Assert.Contains(CompanyInstruction.Material("design の報告",
             $"工程 1・部門 design・仕事 {design}・試行 1", revisedReport), nextReviewInstruction);
+
+        // 設計 §62-2。二度目も attempts/0 の依頼を使い、前の差し戻しを入れ子にしない。
+        var nextReview = reviewedAgain.Plan.Steps[1].TaskSlug!;
+        const string nextReason = "verdict: revise\nR2: 条件がまだ足りない";
+        await ReportAsync(nextReview, nextReason);
+        Assert.IsType<PlanTick.Acted>(await StepAsync(reviewedAgain.Plan));
+        var second = await File.ReadAllTextAsync(_workspace.Paths.Instruction(design));
+        Assert.Equal(2, (await ReadAsync(design)).AttemptId);
+        Assert.Contains($"{originalHeading}\n\n{original}\n\n## 資料:", second);
+        Assert.Equal(1, second.Split(originalHeading).Length - 1);
+        Assert.DoesNotContain(reason, second);
+        Assert.Contains(CompanyInstruction.Material("レビューの指摘",
+            $"工程 2・部門 review・仕事 {nextReview}・試行 0", nextReason), second);
     }
 
     [Fact]

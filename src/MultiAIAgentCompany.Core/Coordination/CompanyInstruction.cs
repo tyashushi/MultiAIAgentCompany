@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MultiAIAgentCompany.Core.Agents;
 using MultiAIAgentCompany.Core.Workspace;
 
@@ -19,6 +20,73 @@ public static class CompanyInstruction
 {
     /// <summary>依頼の始まり。差し戻しでも元の依頼を取り出せるようにする（設計 §62-1 / §62-2）。</summary>
     public const string RequestHeading = "## 依頼";
+
+    /// <summary>最初の依頼見出しから最後の約束の区切りまでを取り出す（設計 §62-2）。</summary>
+    public static string ExtractRequest(string instruction)
+    {
+        ArgumentNullException.ThrowIfNull(instruction);
+
+        // **本文にも同じ区切りがあり得る。** 最初の区切りで切ると、依頼や資料の後半を落とす。
+        var boundaries = Regex.Matches(instruction,
+            @"(?:\r?\n){0,2}^---\r?\n\r?\n## この仕事の約束\r?$", RegexOptions.Multiline);
+        var end = boundaries.Count > 0 ? boundaries[^1].Index : instruction.Length;
+        var heading = Regex.Match(instruction[..end], @"^## 依頼(?:\r?$)(?:\r?\n){0,2}", RegexOptions.Multiline);
+        var start = heading.Success ? heading.Index + heading.Length : 0;
+        return instruction[start..end];
+    }
+
+    /// <summary>元の依頼と指摘を含む、次の試行の指示書を作る（設計 §62-2 / §62-7 / §62-8）。</summary>
+    public static async Task<string> ComposeRevisionAsync(
+        CompanyPaths paths, string slug, DepartmentDefinition department,
+        string title, string source, string reason, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        // **最初の試行は 0 番。** 現在の指示書を毎回使うと、差し戻しが入れ子になる。
+        var first = Path.Combine(paths.AttemptDirectory(slug, 0), "instruction.md");
+        var path = first;
+        string original;
+        try
+        {
+            string instruction;
+            try
+            {
+                instruction = await File.ReadAllTextAsync(first, ct);
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                path = paths.Instruction(slug);
+                instruction = await File.ReadAllTextAsync(path, ct);
+            }
+
+            original = ExtractRequest(instruction);
+            if (string.IsNullOrWhiteSpace(original))
+            {
+                original = $"元の依頼を取り出せなかった。`{path}` の依頼の部分が空だった。";
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            original = $"元の依頼を取り出せなかった。`{path}` が無いか、読めなかった。";
+        }
+
+        return Compose(
+            $"""
+            前の試行の報告は受理されなかった。同じ仕事をやり直すこと。
+
+            ## 元の依頼（最初の試行の指示書から、そのまま）
+
+            {original}
+
+            {Material(title, source, reason)}
+
+            前の試行の指示書と報告は attempts/（`{Path.Combine(paths.TaskDirectory(slug), "attempts")}`）に残っている。必要なら読むこと。
+
+            元の依頼を満たしたうえで、指摘を直すこと。指摘だけ直して元の依頼を落とさない。
+            報告に、指摘の ID（R1 など）ごとに、どう直したか（直さなかったなら理由）を書くこと。
+            ID が無い指摘は、どの指摘への対応か分かるように書くこと。
+            """, paths, slug, department);
+    }
 
     /// <summary>他の部門の報告や差し戻しの理由を、出典付きの資料として区切る（設計 §62-8）。</summary>
     public static string Material(string title, string source, string body)
