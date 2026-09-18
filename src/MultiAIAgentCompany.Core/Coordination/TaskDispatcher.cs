@@ -68,6 +68,8 @@ public sealed class TaskDispatcher
             return leaseFailure;
         }
 
+        await SaveWorktreeBeforeAsync(department, expected.Slug, expected.AttemptId, ct);
+
         var transition = await _tasks.TransitionAsync(
             expected, TaskStatus.Dispatched, TransitionOrigin.Automation, "dispatch を開始した", ct);
         switch (transition)
@@ -135,6 +137,30 @@ public sealed class TaskDispatcher
                 && holder.IsValidAt(_clock.GetUtcNow())
             ? new DispatchResult.Blocked("書き込み中の部門がいます（読むだけの仕事も、書き終わるまで待つ）", holder)
             : null;
+    }
+
+    /// <summary>
+    /// 読むだけの部門を送る前に、作業ツリーの控えを取る（設計 §62-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ここで失敗しても送るのは止めない。</b> 控えは気付くための補助で、
+    /// 取れなければ報告のあとに「比べられなかった」と出るだけ。
+    /// </remarks>
+    private async Task SaveWorktreeBeforeAsync(
+        DepartmentDefinition department, string slug, int attemptId, CancellationToken ct)
+    {
+        if (!department.ReadsOnly)
+        {
+            return;
+        }
+
+        try
+        {
+            await WorktreeSnapshot.SaveBeforeAsync(_paths, slug, attemptId, ct);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>
@@ -222,6 +248,9 @@ public sealed class TaskDispatcher
             {
                 return retryFailure;
             }
+
+            // 同じ試行の控えが既にあれば取り直さない（その間の書き換えが見えなくなる）。
+            await SaveWorktreeBeforeAsync(department, expected.Slug, expected.AttemptId, ct);
 
             // 状態は動かさない（`Dispatched` のまま）——「送ったかもしれない」は変わらない。
             return new DispatchResult.LaunchTerminal(expected, TerminalRequestFor(department, expected.Slug));
@@ -410,6 +439,9 @@ public sealed class TaskDispatcher
         }
 
         var written = ((TaskWriteResult.Written)transition).State;
+
+        // **新しい試行の控えを取る**（設計 §62-6）。窓はこの後に開くので、まだ誰も書いていない。
+        await SaveWorktreeBeforeAsync(department, written.Slug, written.AttemptId, ct);
 
         // **外部ターミナルの部門には送らない**（設計 §32）。差し戻しでも同じで、
         // 昇格した instruction.md は**窓の中の CLI が読みに行く**。

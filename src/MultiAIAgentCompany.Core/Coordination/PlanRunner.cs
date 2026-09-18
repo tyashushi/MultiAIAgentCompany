@@ -78,6 +78,11 @@ public sealed class PlanRunner(
             return incomplete;
         }
 
+        if (!plan.StoppedByHuman && await WroteWhileReadingAsync(plan, states, hands, ct) is { } wrote)
+        {
+            return wrote;
+        }
+
         return PlanAdvance.Decide(plan, states) switch
         {
             PlanNext.Done => new PlanTick.Done(),
@@ -169,6 +174,40 @@ public sealed class PlanRunner(
                 return new PlanTick.Stopped(
                     $"工程 {index + 1}（{step.DepartmentId}）の報告が {ReportOutcomes.Key}: {ReportOutcomes.Describe(outcome)}。"
                     + "やり終えていないので次へ進めない。報告を読んで、受理か差し戻しを決める");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 読むだけの部門の工程のあいだに作業ツリーが変わっていたら止まる（設計 §62-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>判定（verdict）を見る前に確かめる。</b> レビューが ok でも、書き換えたレビューは通さない。
+    /// 比べるのは1回の報告につき1回で、結果は仕事のフォルダに残る —— 止まり続けても毎周 git を走らせない。
+    /// <b>書いたのが読むだけの部門とは限らない</b>（lease は約束であって保証ではない。§14-2）ので、そう書く。
+    /// </remarks>
+    private async Task<PlanTick.Stopped?> WroteWhileReadingAsync(
+        Plan plan, IReadOnlyDictionary<string, TaskState> states, PlanHands hands, CancellationToken ct)
+    {
+        for (var index = 0; index < plan.Steps.Count; index++)
+        {
+            var step = plan.Steps[index];
+            if (step.TaskSlug is not { Length: > 0 } slug
+                || !states.TryGetValue(slug, out var state)
+                || state.Status is not TaskStatus.Reported
+                || hands.DepartmentOf(step.DepartmentId) is not { ReadsOnly: true })
+            {
+                continue;
+            }
+
+            if (await WorktreeSnapshot.CheckAsync(paths, slug, state.AttemptId, ct) is WorktreeCheck.Changed changed)
+            {
+                return new PlanTick.Stopped(
+                    $"工程 {index + 1}（{step.DepartmentId}、読むだけ）のあいだに作業ツリーが変わった: "
+                    + $"{WorktreeSnapshot.Describe(changed.Paths)}。読むだけの部門が書いたか、同時に動いた別の部門が書いた。"
+                    + "変わったものを確かめてから、受理か差し戻しを決める");
             }
         }
 

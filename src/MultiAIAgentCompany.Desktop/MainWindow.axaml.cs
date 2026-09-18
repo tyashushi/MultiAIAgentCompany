@@ -2154,6 +2154,7 @@ public partial class MainWindow : Window
             if (applied.To is CoreTaskStatus.Reported)
             {
                 await ShowArrivedReportAsync(applied.Slug);
+                await CheckWorktreeAfterReportAsync(applied.Slug);
             }
             else
             {
@@ -2200,6 +2201,40 @@ public partial class MainWindow : Window
         Say(content.Length > limit
             ? $"【{slug} の報告】\n{content[..limit]}\n\n（長いので残り {content.Length - limit} 文字は省いた。全文は {path}）"
             : $"【{slug} の報告】\n{content}");
+    }
+
+    /// <summary>
+    /// 読むだけの部門の報告が出たら、そのあいだに作業ツリーが変わっていないかを確かめる（設計 §62-6）。
+    /// </summary>
+    /// <remarks>
+    /// <b>計画でない仕事にも出す。</b> 計画の工程なら計画も止まる（<c>PlanRunner</c>）が、
+    /// 止める計画が無い仕事では、ここで言わないと誰も気付かない。
+    /// 比べられなかったときも黙らない —— 「変わっていない」と「確かめていない」は違う。
+    /// </remarks>
+    private async Task CheckWorktreeAfterReportAsync(string slug)
+    {
+        if (_composer is not { Tasks: { } tasks, Workspace: { } workspace } composer
+            || await tasks.ReadAsync(slug, CancellationToken.None) is not TaskReadResult.Found found
+            || !composer.KnowsDepartment(found.State.DepartmentId)
+            || !composer.DefinitionOf(found.State.DepartmentId).ReadsOnly)
+        {
+            return;
+        }
+
+        var name = composer.DefinitionOf(found.State.DepartmentId).DisplayName;
+        switch (await WorktreeSnapshot.CheckAsync(workspace.Company, slug, found.State.AttemptId, CancellationToken.None))
+        {
+            case WorktreeCheck.Changed changed:
+                var line = $"{slug}: 読むだけの{name}のあいだに作業ツリーが変わった: {WorktreeSnapshot.Describe(changed.Paths)}。"
+                    + "読むだけの部門が書いたか、同時に動いた別の部門が書いた。変わったものを確かめてから受理すること";
+                Say($"【注意】{line}");
+                Note(line);
+                break;
+
+            case WorktreeCheck.Unavailable unavailable:
+                Note($"{slug}: 読むだけの{name}が作業ツリーを書き換えていないかは確かめられなかった（{unavailable.Reason}）");
+                break;
+        }
     }
 
     /// <summary>

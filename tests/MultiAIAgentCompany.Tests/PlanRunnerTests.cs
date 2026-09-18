@@ -360,6 +360,39 @@ public sealed class PlanRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task 読むだけの工程のあいだに作業ツリーが変わったら_判定を見ずに止まり続ける()
+    {
+        // 設計 §62-6。
+        WorktreeSnapshotTests.Git(_workspace.Path, "init", "-q");
+        var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0), Step("implementation"));
+        await ReportAsync(plan.Steps[0].TaskSlug!, "設計です");
+        plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;          // レビューを渡す（ここで控えを取る）
+
+        await File.WriteAllTextAsync(Path.Combine(_workspace.Path, "written-by-review.txt"), "書いた");
+        await ReportAsync(plan.Steps[1].TaskSlug!, $"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}\n良いです");
+
+        var stopped = Assert.IsType<PlanTick.Stopped>(await StepAsync(plan));
+        Assert.Contains("工程 2（review、読むだけ）", stopped.Reason);
+        Assert.Contains("written-by-review.txt（1 件）", stopped.Reason);
+
+        Assert.IsType<PlanTick.Stopped>(await StepAsync(await ReadPlanAsync()));
+        Assert.Equal(CoreTaskStatus.Reported, (await ReadAsync(plan.Steps[0].TaskSlug!)).Status);
+    }
+
+    [Fact]
+    public async Task 読むだけの工程で作業ツリーが変わらなければ_これまでどおり進む()
+    {
+        WorktreeSnapshotTests.Git(_workspace.Path, "init", "-q");
+        var plan = await DispatchedAsync(Step("design"), Step("review", reviews: 0), Step("implementation"));
+        await ReportAsync(plan.Steps[0].TaskSlug!, "設計です");
+        plan = ((PlanTick.Acted)await StepAsync(plan)).Plan;
+
+        await ReportAsync(plan.Steps[1].TaskSlug!, $"{ReviewVerdicts.Key}: {ReviewVerdicts.OkValue}\n良いです");
+
+        Assert.IsType<PlanTick.Acted>(await StepAsync(plan));
+    }
+
+    [Fact]
     public async Task 人間が止めたら_渡さない()
     {
         var plan = await CreateAsync(Step("research"));
