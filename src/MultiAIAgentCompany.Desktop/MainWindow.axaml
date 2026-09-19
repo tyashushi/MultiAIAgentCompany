@@ -636,6 +636,9 @@
                                     <!-- 報告を読んだあとに決めること（設計 §19-3）。
                                          **「報告を読む」ボタンには畳まない** —— 読む前に
                                          受理か差し戻しかは決まらない。 -->
+                                    <!-- レビューに回っている間は決めさせない（設計 §62-17）。代わりに誰が見ているかを出す。 -->
+                                    <TextBlock Text="{Binding UnderReviewText}" IsVisible="{Binding IsUnderReview}"
+                                               Classes="meta" TextWrapping="Wrap" Margin="0,4,0,0" />
                                     <Button Content="受理する" IsVisible="{Binding CanJudgeReport}"
                                             Click="OnAcceptReport" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
                                     <TextBox Text="{Binding RejectionDraft, Mode=TwoWay}"

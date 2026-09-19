@@ -1364,6 +1364,15 @@ public partial class MainWindow : Window
             return null;
         }
 
+        // **押した時点でも確かめる**（設計 §62-17）。ボタンは走査の周期ぶん古いことがある。
+        if (_composer is { } composer
+            && (await composer.UnderReviewAsync(CancellationToken.None)).TryGetValue(slug, out var reviewer))
+        {
+            Note($"{slug}: {reviewer} が見ている最中なので判断しない（判定が出たら計画が進める）");
+            await ScanAsync(CompanyScanKind.Periodic);
+            return null;
+        }
+
         return found.State;
     }
 

@@ -615,7 +615,27 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     /// 用件の1段目は「報告を読む」で、読んだあとに決めるのが受理か差し戻しだから、
     /// 同じ1つのボタンに畳めない（設計 §19-3）。
     /// </summary>
-    public bool CanJudgeReport => Status.Work?.Value is CoreTaskStatus.Reported;
+    public bool CanJudgeReport => Status.Work?.Value is CoreTaskStatus.Reported && UnderReviewBy is null;
+
+    /// <summary>
+    /// いまこの仕事を見ているレビュー（監査を含む）の部門名（設計 §62-17）。見ている間は受理・差し戻しを出さない。
+    /// </summary>
+    public string? UnderReviewBy
+    {
+        get;
+        set
+        {
+            field = value;
+            Raise();
+            Raise(nameof(CanJudgeReport));
+            Raise(nameof(UnderReviewText));
+            Raise(nameof(IsUnderReview));
+        }
+    }
+
+    public bool IsUnderReview => UnderReviewBy is not null;
+
+    public string UnderReviewText => $"{UnderReviewBy} が見ている。判定が出たら計画が進める（受理・差し戻しはそのあと）";
 
     /// <summary>この部門を選んでいるか。</summary>
     public bool IsSelected

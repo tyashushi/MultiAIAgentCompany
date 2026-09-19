@@ -330,6 +330,43 @@ public sealed class PlanAdvanceTests
         Assert.Contains("戻り先", next.Reason);
     }
 
+    [Theory]
+    [InlineData(CoreTaskStatus.Dispatched, null, true)]
+    [InlineData(CoreTaskStatus.InProgress, null, true)]
+    [InlineData(CoreTaskStatus.AwaitingAnswer, null, true)]
+    [InlineData(CoreTaskStatus.Reported, null, true)]
+    [InlineData(CoreTaskStatus.Reported, ReviewVerdict.Ok, false)]
+    [InlineData(CoreTaskStatus.Accepted, ReviewVerdict.Ok, false)]
+    public void レビューが見ている間の工程は_人間に判断させない(CoreTaskStatus review, ReviewVerdict? verdict, bool under)
+    {
+        // 設計 §62-17（人間の決定）。実機では、監査が見ている最中のテストを人間が先に受理していた。
+        var plan = Plan(
+            Step("testing", slug: "t1"),
+            Step("audit", reviews: 0, slug: "t2", verdict: verdict));
+
+        var result = PlanAdvance.UnderReview(plan, States(("t1", CoreTaskStatus.Reported), ("t2", review)));
+
+        Assert.Equal(under, result.TryGetValue("t1", out var reviewer));
+        if (under) Assert.Equal("audit", reviewer);
+    }
+
+    [Fact]
+    public void レビューがまだ渡っていない工程と_人間が止めた計画は_判断させる()
+    {
+        // partial で止まったときなど、人間が決めるほか無い。
+        var waiting = Plan(Step("implementation", slug: "t1"), Step("review", reviews: 0));
+        Assert.Empty(PlanAdvance.UnderReview(waiting, States(("t1", CoreTaskStatus.Reported))));
+
+        var stopped = Plan(Step("implementation", slug: "t1"), Step("review", reviews: 0, slug: "t2")) with { StoppedByHuman = true };
+        Assert.Empty(PlanAdvance.UnderReview(stopped, States(("t1", CoreTaskStatus.Reported), ("t2", CoreTaskStatus.Dispatched))));
+    }
+
+    private static Dictionary<string, TaskState> States(params (string Slug, CoreTaskStatus Status)[] states) =>
+        states.ToDictionary(
+            row => row.Slug,
+            row => new TaskState(row.Slug, row.Status, 1, 1, "dept", TransitionOrigin.Plan, At),
+            StringComparer.Ordinal);
+
     private static PlanNext Decide(Plan plan, params (string Slug, CoreTaskStatus Status)[] states) =>
         PlanAdvance.Decide(
             plan,

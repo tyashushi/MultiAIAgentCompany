@@ -402,6 +402,7 @@ public sealed class ShellComposer
             return;
         }
 
+        var underReview = await UnderReviewAsync(ct);
         var chosen = new Dictionary<string, TaskState>(StringComparer.Ordinal);
         foreach (var slug in await Tasks.ListSlugsAsync(ct))
         {
@@ -445,6 +446,7 @@ public sealed class ShellComposer
             {
                 tile.CurrentTaskSlug = null;
                 tile.ReportNotObservedSince = null;
+                tile.UnderReviewBy = null;
             }
         }
 
@@ -489,8 +491,47 @@ public sealed class ShellComposer
                 tile.CurrentTaskSlug = state.Slug;
                 tile.TaskSubject = subject;
                 tile.ReportNotObservedSince = silence?.Since;
+                tile.UnderReviewBy = underReview.TryGetValue(state.Slug, out var reviewer)
+                    ? (KnowsDepartment(reviewer) ? DefinitionOf(reviewer).DisplayName : reviewer)
+                    : null;
             }
         }
+    }
+
+    /// <summary>
+    /// いまレビューに見てもらっている仕事 → 見ている部門 ID（設計 §62-17）。<b>計画が読めなければ空</b>。
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, string>> UnderReviewAsync(CancellationToken ct)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (Plans is null || Tasks is null)
+        {
+            return result;
+        }
+
+        foreach (var id in await Plans.ListIdsAsync(ct))
+        {
+            if (await Plans.ReadAsync(id, ct) is not PlanReadResult.Found found)
+            {
+                continue;
+            }
+
+            var states = new Dictionary<string, TaskState>(StringComparer.Ordinal);
+            foreach (var slug in found.Plan.Steps.Select(step => step.TaskSlug).OfType<string>().Distinct())
+            {
+                if (await Tasks.ReadAsync(slug, ct) is TaskReadResult.Found task)
+                {
+                    states[slug] = task.State;
+                }
+            }
+
+            foreach (var (slug, reviewer) in PlanAdvance.UnderReview(found.Plan, states))
+            {
+                result.TryAdd(slug, reviewer);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>

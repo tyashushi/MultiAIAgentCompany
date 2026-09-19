@@ -282,6 +282,52 @@ public static class PlanAdvance
         return null;
     }
 
+    /// <summary>
+    /// いまレビュー（監査を含む）に見てもらっている工程の仕事 → 見ている部門（設計 §62-17、人間の決定）。
+    /// </summary>
+    /// <remarks>
+    /// <b>見ている間は、人間に受理・差し戻しをさせない。</b> 先に受理すると、レビューが「直しが要る」と
+    /// 言っても受理済みの工程は差し戻せず、計画が止まる（実機で発覚）。判定が出れば計画が進める。
+    /// <para>
+    /// <b>レビューがまだ渡っていないときは入れない。</b> 途中の工程が <c>partial</c> を報告して止まったときなど、
+    /// 人間が決めるほか無い場面がある。人間が止めた計画も入れない。
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> UnderReview(
+        Plan plan, IReadOnlyDictionary<string, TaskState> states)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(states);
+
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (plan.StoppedByHuman)
+        {
+            return result;
+        }
+
+        for (var index = 0; index < plan.Steps.Count; index++)
+        {
+            var review = plan.Steps[index];
+            if (review.ReviewsStep is not { } target || target < 0 || target >= plan.Steps.Count
+                || plan.Steps[target].TaskSlug is not { Length: > 0 } targetSlug
+                || review.TaskSlug is not { Length: > 0 } reviewSlug
+                || !states.TryGetValue(reviewSlug, out var state))
+            {
+                continue;
+            }
+
+            var looking = state.Status is TaskStatus.Drafted or TaskStatus.Dispatched
+                    or TaskStatus.InProgress or TaskStatus.AwaitingAnswer
+                || (state.Status is TaskStatus.Reported && review.Verdict is null);
+            if (looking)
+            {
+                result.TryAdd(targetSlug, review.DepartmentId);
+            }
+        }
+
+        return result;
+    }
+
     private static IReadOnlyList<int> ReviewersOf(Plan plan, int index)
     {
         var reviewers = new List<int>();
