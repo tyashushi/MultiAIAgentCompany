@@ -53,6 +53,21 @@ public static partial class TranscriptImageLinks
         return links.OrderBy(link => link.Start).ToArray();
     }
 
+    /// <summary>
+    /// 報告の本文に書かれた画像の場所を、出てきた順に重ねずに返す（設計 §62-19）。
+    /// </summary>
+    /// <remarks>
+    /// 報告は全文を会話に出さない（§62-9）ので、本文の中のパスは押せる場所に出てこない。
+    /// <b>画像だけは会話に出し直す</b> —— 「画像ができた」ことと場所が見える（§56-4）。
+    /// 添付（§58）は秘書へ渡したもので、報告が引いていても出し直さない。
+    /// </remarks>
+    public static IReadOnlyList<string> ImagesIn(string reportText) =>
+        LinkPattern().Matches(reportText)
+            .Select(match => match.Value)
+            .Where(link => !AttachmentPattern().IsMatch(link))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
     public static ImageLinkResolution Resolve(CompanyPaths paths, string link)
     {
         try

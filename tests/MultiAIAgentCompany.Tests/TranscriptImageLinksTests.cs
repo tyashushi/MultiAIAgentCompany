@@ -24,6 +24,32 @@ public sealed class TranscriptImageLinksTests
         Assert.Equal(expected, text.Substring(link.Start, link.Length));
     }
 
+    [Fact]
+    public void 報告の本文から画像だけを順に重ねずに拾う()
+    {
+        const string report = """
+            ## 成果物の場所
+
+            - ロゴ: `.company/tasks/t-1/images/logo.png`
+            - 報告: `.company/tasks/t-1/report.md`
+            - 添付の元絵: .company/attachments/20260919/ref.png
+            - 案2: .company/tasks/t-1/images/alt.webp
+
+            ## 共有文書への追記
+
+            - 完成画像は `.company/tasks/t-1/images/logo.png`。
+            - 外: assets/logo.png
+            """;
+
+        Assert.Equal(
+            [".company/tasks/t-1/images/logo.png", ".company/tasks/t-1/images/alt.webp"],
+            TranscriptImageLinks.ImagesIn(report));
+    }
+
+    [Fact]
+    public void 画像が無い報告からは何も拾わない() =>
+        Assert.Empty(TranscriptImageLinks.ImagesIn("## 結果\n\noutcome: done\n\n.company/tasks/t-1/report.md"));
+
     [Theory]
     [InlineData("")]
     [InlineData("foo.company/x.png")]

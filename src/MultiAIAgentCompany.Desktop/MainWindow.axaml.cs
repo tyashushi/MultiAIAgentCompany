@@ -2147,6 +2147,21 @@ public partial class MainWindow : Window
         // **読めなかったことを、読んだことにしない**（§7）。場所は出すので、押せば理由が窓に出る。
         var note = File.Exists(workspace.Company.Report(slug)) ? "" : "（いまは読めない）";
         Say($"【{slug} の報告】{who} から報告が届いた: {ReportLink(slug)}{note}");
+
+        // 本文の中の画像は、全文を出さないと押せる場所に出てこない。**画像だけ出し直す**（§62-19）。
+        string text;
+        try
+        {
+            text = note.Length == 0 ? await File.ReadAllTextAsync(workspace.Company.Report(slug)) : "";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            text = "";
+        }
+        foreach (var image in TranscriptImageLinks.ImagesIn(text))
+        {
+            Say($"　画像: {image}");
+        }
     }
 
     /// <summary>報告の場所を、会話の中で押せる形（ワークスペースからの相対パス）で返す（§62-9）。</summary>
