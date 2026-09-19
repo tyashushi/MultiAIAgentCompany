@@ -157,9 +157,24 @@ public sealed class CompanyScanner
 
     private async Task<(TaskStatus To, string Because)?> FindTransitionAsync(TaskState state, CancellationToken ct)
     {
-        // publish 契約（設計 §16-1）により最終名だけを見る。*.tmp.* はここに該当せず、
-        // 書きかけを完成済みと推定する経路はない。
+        // publish 契約（設計 §16-1）により最終名だけを見る。
+        // **ただし、しばらく書き換わっていない一時ファイルは引き取る**（設計 §62-16）——
+        // rename にシェルの承認が要る CLI では、報告のたびに承認で止まるので。
+        if (state.Status is TaskStatus.Dispatched or TaskStatus.InProgress or TaskStatus.AwaitingAnswer)
+        {
+            StagedPublish.TryPromote(_paths.Report(state.Slug), _clock.GetUtcNow());
+        }
+
+        if (state.Status is TaskStatus.Dispatched or TaskStatus.InProgress)
+        {
+            StagedPublish.TryPromote(_paths.Question(state.Slug), _clock.GetUtcNow());
+        }
+
         var reportPublished = File.Exists(_paths.Report(state.Slug));
+        if (reportPublished)
+        {
+            StagedPublish.RemoveCopies(_paths.Report(state.Slug));
+        }
 
         // report.md と question.md が共存したら報告を優先する。報告は仕事の終わりである。
         // **この規則は状態によって変わらない**（2026-09-09 に直した）。
