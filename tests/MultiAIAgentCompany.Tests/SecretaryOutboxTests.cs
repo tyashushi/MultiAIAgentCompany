@@ -89,8 +89,8 @@ public sealed class SecretaryOutboxTests : IDisposable
         Assert.Empty(Outbox.ReadPlans());
         var proposal = Assert.Single(Outbox.Read());
         Assert.Null(proposal.DepartmentId);
-        Assert.StartsWith($"（計画として受け取らなかった: {reason}", proposal.Body);
-        Assert.EndsWith(steps, proposal.Body);
+        Assert.StartsWith(reason, proposal.PlanProblem);
+        Assert.Equal($"plan: 目的\n{steps}", proposal.Body);
     }
 
     [Fact]

@@ -968,7 +968,9 @@ public sealed record ProposalCard(SecretaryProposal Proposal, string DepartmentL
     public bool HasProblem => !CanMakeTask;
 
     /// <summary>なぜ仕事にできないか。<b>捨てないので、理由を出す</b>（§17-6）。</summary>
-    public string ProblemText => string.IsNullOrWhiteSpace(Body)
+    public string ProblemText => Proposal.PlanProblem is { } problem
+        ? $"工程の順が規則に合わない: {problem}。秘書に並べ直してもらうか、やめる"
+        : string.IsNullOrWhiteSpace(Body)
         ? "本文が空なので仕事にできない。秘書に書き直してもらうか、やめる"
         : "宛先が分からないので仕事にできない。秘書に部門を聞き直すか、やめる";
 }

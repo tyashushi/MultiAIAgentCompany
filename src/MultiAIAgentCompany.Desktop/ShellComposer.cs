@@ -562,7 +562,9 @@ public sealed class ShellComposer
         {
             // 知らない部門でも捨てない。人間に見せて判断させる（§17-6）。
             var known = proposal.DepartmentId is { } id && _definitions.TryGetValue(id, out var definition);
-            var label = proposal.DepartmentId is null
+            var label = proposal.PlanProblem is not null
+                ? "計画として受け取らなかった"
+                : proposal.DepartmentId is null
                 ? "宛先が書かれていない"
                 : known
                     ? _definitions[proposal.DepartmentId].DisplayName

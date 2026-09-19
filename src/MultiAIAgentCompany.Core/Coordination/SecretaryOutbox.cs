@@ -8,7 +8,10 @@ namespace MultiAIAgentCompany.Core.Coordination;
 /// 宛先の部門。<b>知らない部門でも捨てない</b> —— 人間に見せて判断させる。
 /// </param>
 /// <param name="Body">指示の本文。</param>
-public sealed record SecretaryProposal(string Id, string? DepartmentId, string Body);
+/// <param name="PlanProblem">
+/// 計画として書かれていたが、工程の順が規則に合わず受け取らなかった理由（設計 §62-13）。
+/// </param>
+public sealed record SecretaryProposal(string Id, string? DepartmentId, string Body, string? PlanProblem = null);
 
 /// <summary>秘書が publish した計画。仕事1件の提案と混ぜず、工程の列として渡す（§37）。</summary>
 /// <param name="Brief">
@@ -49,10 +52,11 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
                 {
                     // 解決できない計画は、宛先不明の提案として本文を人間に残す（§34-1）。
                     // **工程の順が規則に合わないだけなら、その理由を添える**（設計 §62-13）。
+                    // 「宛先が無い」と出すと、秘書に何を直してもらえばよいか分からない。
                     var proposal = Parse(name, content);
                     proposals.Add(ParsePlanCore(name, content) is { } misordered
                         && PlanAdvance.OrderProblem(misordered.Steps) is { } problem
-                            ? proposal with { Body = $"（計画として受け取らなかった: {problem}）\n\n{proposal.Body}" }
+                            ? proposal with { PlanProblem = problem }
                             : proposal);
                 }
             }
