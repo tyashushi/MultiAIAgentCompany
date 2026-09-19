@@ -35,6 +35,29 @@ public static class CompanyInstruction
         return instruction[start..end];
     }
 
+    /// <summary>
+    /// 仕事の件名（設計 §44-4）。<b>依頼の部分の、最初の空でない行</b>。無ければ null。
+    /// </summary>
+    /// <remarks>
+    /// 指示書の1行目は §62-1 から役割の節の見出しになったので、1行目を件名にすると
+    /// どの仕事も「あなたの役割」になる（実機で発覚）。
+    /// </remarks>
+    public static string? SubjectOf(string instruction)
+    {
+        ArgumentNullException.ThrowIfNull(instruction);
+
+        foreach (var raw in ExtractRequest(instruction).Split('\n'))
+        {
+            var line = raw.Trim().TrimStart('#', '*', '-', ' ');
+            if (line.Length > 0)
+            {
+                return line.Length > 60 ? line[..60] + "…" : line;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>元の依頼と指摘を含む、次の試行の指示書を作る（設計 §62-2 / §62-7 / §62-8）。</summary>
     public static async Task<string> ComposeRevisionAsync(
         CompanyPaths paths, string slug, DepartmentDefinition department,

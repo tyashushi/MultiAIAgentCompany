@@ -328,4 +328,19 @@ public sealed class CompanyInstructionTests
         Assert.Contains(Path.Combine(Paths.TaskDirectory("add-login"), "logs"), text);
     }
 
+
+    [Theory]
+    [InlineData("calc.py に div を足す\n条件", "calc.py に div を足す")]
+    [InlineData("\n\n## 見出し\n本文", "見出し")]
+    public void 件名は役割の節ではなく依頼の1行目(string request, string expected)
+    {
+        // 実機で発覚。§62-1 のあと、どの仕事の件名も「あなたの役割」になっていた。
+        var text = CompanyInstruction.Compose(request, Paths, "add-login", Department);
+        Assert.Equal(expected, CompanyInstruction.SubjectOf(text));
+    }
+
+    [Fact]
+    public void 役割の節の無い古い指示書は_1行目を件名にする() =>
+        Assert.Equal("古い指示", CompanyInstruction.SubjectOf("# 古い指示\n本文"));
+
 }

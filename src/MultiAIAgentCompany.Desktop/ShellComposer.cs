@@ -494,7 +494,7 @@ public sealed class ShellComposer
     }
 
     /// <summary>
-    /// 仕事の件名（設計 §44-4）。<b>指示書の1行目</b>を人間の言葉として使う。
+    /// 仕事の件名（設計 §44-4）。<b>依頼の1行目</b>を人間の言葉として使う（§62-1 で先頭が役割の節になった）。
     /// </summary>
     /// <remarks>
     /// <b>slug ごとに1回だけ読む。</b> 走査は数秒おきに回るので、毎回読むと
@@ -514,17 +514,7 @@ public sealed class ShellComposer
         string? subject = null;
         try
         {
-            foreach (var raw in File.ReadLines(Workspace!.Company.Instruction(slug)))
-            {
-                var line = raw.Trim().TrimStart('#', '*', '-', ' ');
-                if (line.Length is 0)
-                {
-                    continue;
-                }
-
-                subject = line.Length > 60 ? line[..60] + "…" : line;
-                break;
-            }
+            subject = CompanyInstruction.SubjectOf(File.ReadAllText(Workspace!.Company.Instruction(slug)));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
