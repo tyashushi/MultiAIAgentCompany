@@ -434,7 +434,9 @@
 
             <!-- **最初に何をすればよいかを出す**（設計 §28-2）。フォルダを選ぶまでは
                  中央に説明を置く —— 空の3ペインだけだと、初見では何をするか分からない。 -->
-            <Border IsVisible="{Binding !HasWorkspace}" Margin="0,0,0,8" Padding="16"
+            <!-- **上に置く**（2026-09-19、実機で発覚）。置き場所を書かないと DockPanel は左に置き、
+                 会話の面が右端の細い隙間に押し込まれて、ひと言が1字ずつ縦に並んでいた。 -->
+            <Border DockPanel.Dock="Top" IsVisible="{Binding !HasWorkspace}" Margin="0,0,0,8" Padding="16"
                     BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                     BorderThickness="1" CornerRadius="4">
                 <StackPanel>
