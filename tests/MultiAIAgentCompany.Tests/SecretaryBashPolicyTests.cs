@@ -187,4 +187,48 @@ public sealed class SecretaryBashPolicyTests : IDisposable
         Assert.True(verdict.AutoApprove);
         Assert.Contains("git", verdict.Reason);
     }
+
+    [Theory]
+    [InlineData("mv .company/secretary/outbox/calc-div.md.tmp .company/secretary/outbox/calc-div.md")]
+    [InlineData("mv .company/secretary/outbox/p.md.tmp.1 .company/secretary/outbox/p.md")]
+    [InlineData("cp .company/tasks/t/report.md .company/secretary/outbox/copy.md")]
+    [InlineData("mkdir -p .company/secretary/outbox")]
+    [InlineData("touch .company/secretary/outbox/x.md")]
+    [InlineData("find .company -name \"*.md\" -maxdepth 3")]
+    [InlineData("echo -n hello")]
+    [InlineData("basename .company/tasks/t/report.md")]
+    public void company_の中だけで書く命令と_単純な命令は通す(string command)
+    {
+        // 設計 §62-15（人間が広げた）。publish の rename が毎回承認で止まっていた。
+        Assert.True(Decide(command).AutoApprove, command);
+    }
+
+    [Theory]
+    [InlineData("mv calc.py .company/x.py")]
+    [InlineData("mv .company/x.md calc.py")]
+    [InlineData("cp .company/x.md ../outside.md")]
+    [InlineData("mkdir -p src/new")]
+    [InlineData("touch README.md")]
+    [InlineData("mv .company/tasks/t/state.json .company/x.json")]
+    [InlineData("cp .company/x.json .company/tasks/t/STATE.JSON")]
+    [InlineData("touch .company/lease.json")]
+    [InlineData("mv .company .company-old")]
+    [InlineData("mv -f .company/a.md .company/b.md")]
+    [InlineData("mv .company/a.md .company/b.md .company/c")]
+    [InlineData("mv ~/.ssh/id .company/x")]
+    [InlineData("find . -name x -delete")]
+    [InlineData("find . -exec rm {} ;")]
+    [InlineData("rm .company/x.md")]
+    public void company_の外_守るファイル_いつもと違う形は聞く(string command)
+    {
+        Assert.False(Decide(command).AutoApprove, command);
+    }
+
+    [Fact]
+    public void フォルダごとの_mv_は聞く()
+    {
+        Directory.CreateDirectory(Path.Combine(_workspace.Paths.TasksRoot, "t"));
+        Assert.False(Decide("mv .company/tasks/t .company/tasks/u").AutoApprove);
+    }
+
 }

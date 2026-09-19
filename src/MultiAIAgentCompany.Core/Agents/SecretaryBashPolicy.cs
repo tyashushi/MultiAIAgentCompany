@@ -1,7 +1,7 @@
 namespace MultiAIAgentCompany.Core.Agents;
 
 /// <summary>
-/// 秘書の <c>Bash</c> を、<b>読むだけの命令に限って</b>自動で通す（設計 §38）。
+/// 秘書の <c>Bash</c> を、<b>読むだけの命令と、<c>.company/</c> の中だけで書く命令に限って</b>自動で通す（設計 §38 / §62-15）。
 /// </summary>
 /// <remarks>
 /// <b>§35 は「Bash は通さない。ここを広げない」と書いていた。</b>
@@ -24,7 +24,25 @@ public static class SecretaryBashPolicy
     private static readonly HashSet<string> ReadOnlyCommands = new(StringComparer.Ordinal)
     {
         "ls", "cat", "head", "tail", "wc", "file", "stat", "pwd", "grep", "rg", "diff", "tree", "git",
+        "find", "echo", "basename", "dirname",
     };
+
+    /// <summary>
+    /// <c>.company/</c> の中だけで書く命令（設計 §62-15、人間が広げた）。
+    /// </summary>
+    /// <remarks>
+    /// <b>Write / Edit と同じ線を引く</b>（§38）: 場所は <c>.company/</c> の中、
+    /// <c>state.json</c> と <c>lease.json</c> は除く。秘書は提案と計画を tmp → rename で publish するので、
+    /// <c>mv</c> を聞くと<b>出すたびに必ず人間の承認で止まっていた</b>（実機で発覚）。
+    /// </remarks>
+    private static readonly Dictionary<string, (int MinOperands, int MaxOperands)> CompanyWriteCommands =
+        new(StringComparer.Ordinal)
+        {
+            ["mv"] = (2, 2),
+            ["cp"] = (2, 2),
+            ["mkdir"] = (1, int.MaxValue),
+            ["touch"] = (1, int.MaxValue),
+        };
 
     /// <summary>
     /// <c>git</c> の中で読むだけの副命令。<b>ここに無いものは通さない</b> ——
@@ -73,6 +91,16 @@ public static class SecretaryBashPolicy
         ["file"] = [],
         ["stat"] = [],
         ["pwd"] = [],
+        ["echo"] = ["-n"],
+        ["basename"] = [],
+        ["dirname"] = [],
+
+        // **`-exec` / `-delete` / `-fprint` は名前で許していないので聞く**（読むだけの顔で書く・走らせる）。
+        ["find"] = ["-name", "-iname", "-type", "-maxdepth", "-mindepth", "-path", "-ipath"],
+        ["mv"] = [],
+        ["cp"] = [],
+        ["mkdir"] = ["-p"],
+        ["touch"] = [],
         ["tree"] = ["-L", "-a", "-d", "-F"],
         ["diff"] = ["-u", "-r", "-w", "-b", "-q", "-N"],
         ["grep"] = ["-n", "-i", "-r", "-R", "-l", "-c", "-v", "-w", "-E", "-F", "-A", "-B", "-C", "--include", "--exclude"],
@@ -89,6 +117,7 @@ public static class SecretaryBashPolicy
     private static readonly HashSet<string> FlagsTakingValue = new(StringComparer.Ordinal)
     {
         "-C", "-n", "-A", "-B", "-t", "-g", "-L",
+        "-name", "-iname", "-type", "-maxdepth", "-mindepth", "-path", "-ipath",
     };
 
     /// <summary>
@@ -130,7 +159,8 @@ public static class SecretaryBashPolicy
         }
 
         var name = tokens[0];
-        if (!ReadOnlyCommands.Contains(name))
+        var writes = CompanyWriteCommands.TryGetValue(name, out var operandCount);
+        if (!ReadOnlyCommands.Contains(name) && !writes)
         {
             return new ApprovalVerdict(false, $"{name} は自動で通さない");
         }
@@ -164,6 +194,11 @@ public static class SecretaryBashPolicy
             }
         }
 
+        if (writes)
+        {
+            return DecideCompanyWrite(name, tokens, operandCount, workspaceRoot);
+        }
+
         var root = Full(workspaceRoot);
         foreach (var token in tokens.Skip(1))
         {
@@ -189,6 +224,55 @@ public static class SecretaryBashPolicy
         }
 
         return new ApprovalVerdict(true, $"{name}（作業フォルダの中を読むだけ）");
+    }
+
+    /// <summary>
+    /// <c>.company/</c> の中だけで書く命令を確かめる（設計 §62-15）。
+    /// </summary>
+    /// <remarks>
+    /// <b>旗でない語は全部、場所として見る</b>（読む命令と違い、<c>/</c> を持たない名前も
+    /// 作業フォルダの直下を書き換える）。フォルダごとの <c>mv</c> / <c>cp</c> は聞く ——
+    /// 中の <c>state.json</c> ごと動かせてしまう。
+    /// </remarks>
+    private static ApprovalVerdict DecideCompanyWrite(
+        string name, IReadOnlyList<string> tokens, (int Min, int Max) operandCount, string workspaceRoot)
+    {
+        var operands = tokens.Skip(1).Where(token => !token.StartsWith('-')).ToArray();
+        if (operands.Length < operandCount.Min || operands.Length > operandCount.Max)
+        {
+            return new ApprovalVerdict(false, $"{name} の引数の数がいつもの形ではないので聞く");
+        }
+
+        var company = Full(Path.Combine(workspaceRoot, ".company"));
+        for (var index = 0; index < operands.Length; index++)
+        {
+            var operand = operands[index];
+            if (operand.StartsWith('~'))
+            {
+                return new ApprovalVerdict(false, $"{operand} は展開先が分からないので聞く");
+            }
+
+            var full = Full(Path.Combine(workspaceRoot, operand));
+            if (full is null || company is null
+                || !full.StartsWith(company + Path.DirectorySeparatorChar, SecretaryApprovalPolicy.PathComparison))
+            {
+                return new ApprovalVerdict(false, $"{operand} は .company/ の外なので聞く");
+            }
+
+            var fileName = Path.GetFileName(full);
+            if (string.Equals(fileName, "state.json", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, "lease.json", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ApprovalVerdict(false, $"{fileName} を書くのはアプリだけ（§14-1 / §14-2）");
+            }
+
+            if (name is "mv" or "cp" && index is 0 && Directory.Exists(full))
+            {
+                return new ApprovalVerdict(false, $"{operand} はフォルダなので聞く（中の state.json ごと動く）");
+            }
+        }
+
+        return new ApprovalVerdict(true, $"{name}（.company/ の中に書く）");
     }
 
     /// <summary>

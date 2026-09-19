@@ -190,6 +190,9 @@ public static class SecretaryReadme
             - **`git status` などの読むだけのコマンド**（`Bash`）…… 作業フォルダの中。
               `;` `|` `>` `&&` や `$(...)` を含むものは通りません ——
               **1つの命令として書いてください**
+            - **`mv` / `cp` / `mkdir -p` / `touch`**（`Bash`）…… `{paths.Root}` の中だけ
+              （`state.json` と `lease.json`、フォルダごとの `mv` / `cp` を除く）。
+              publish の rename（`mv <ID>.md.tmp.<任意> <ID>.md`）はこれで通ります
 
             それ以外は人間に聞きます。**聞かれたくないからといって、
             命令を繋いで1行にまとめないでください**（かえって通らなくなります）。
