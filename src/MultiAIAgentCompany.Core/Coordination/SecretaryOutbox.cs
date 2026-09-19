@@ -55,7 +55,7 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
                     // 「宛先が無い」と出すと、秘書に何を直してもらえばよいか分からない。
                     var proposal = Parse(name, content);
                     proposals.Add(ParsePlanCore(name, content) is { } misordered
-                        && PlanAdvance.OrderProblem(misordered.Steps) is { } problem
+                        && ShapeProblem(misordered.Steps) is { } problem
                             ? proposal with { PlanProblem = problem }
                             : proposal);
                 }
@@ -110,7 +110,11 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
     /// 外れた計画は受け取らない —— 間の工程が、あとで直される前の成果物を使って先へ進むから。
     /// </remarks>
     internal static SecretaryPlanProposal? ParsePlan(string id, string content) =>
-        ParsePlanCore(id, content) is { } plan && PlanAdvance.OrderProblem(plan.Steps) is null ? plan : null;
+        ParsePlanCore(id, content) is { } plan && ShapeProblem(plan.Steps) is null ? plan : null;
+
+    /// <summary>工程の並びが規則に合わない理由（設計 §62-13 / §62-18）。合っていれば null。</summary>
+    private static string? ShapeProblem(IReadOnlyList<PlanStep> steps) =>
+        PlanAdvance.OrderProblem(steps) ?? PlanAdvance.DesignProblem(steps);
 
     private static SecretaryPlanProposal? ParsePlanCore(string id, string content)
     {

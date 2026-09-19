@@ -262,10 +262,31 @@ public sealed class SecretaryOutboxTests : IDisposable
         var example = readme.Split('\n').Single(line => line.StartsWith("step: audit ", StringComparison.Ordinal));
         Publish("with-audit", $"""
             plan: 機能を足す
+            step: design / 設計する
             step: implementation / 実装する
             {example.Replace("<その計画で最後に作業ツリーを書き換えた部門ID>", "implementation", StringComparison.Ordinal)}
             """);
         var plan = Assert.Single(Outbox.ReadPlans());
-        Assert.Equal(new PlanStep("audit", "commit・push の前に監査する", 0), plan.Steps[1]);
+        Assert.Equal(new PlanStep("audit", "commit・push の前に監査する", 1), plan.Steps[2]);
     }
+
+    [Theory]
+    [InlineData("step: implementation / 実装する\nstep: review reviews=implementation / 見る")]
+    [InlineData("step: research / 調べる\nstep: implementation / 実装する\nstep: design / 後で設計")]
+    public void 実装の前に設計が無い計画は_理由を添えて人間へ残す(string steps)
+    {
+        // 設計 §62-18（人間の決定）。
+        Publish("p1", $"plan: 目的\n{steps}");
+
+        Assert.Empty(Outbox.ReadPlans());
+        Assert.Contains("より前に設計（design）の工程が無い", Assert.Single(Outbox.Read()).PlanProblem);
+    }
+
+    [Fact]
+    public void 実装の無い計画に設計は要らない()
+    {
+        Publish("p1", "plan: 目的\nstep: research / 調べる\nstep: testing / 試す\n");
+        Assert.Single(Outbox.ReadPlans());
+    }
+
 }

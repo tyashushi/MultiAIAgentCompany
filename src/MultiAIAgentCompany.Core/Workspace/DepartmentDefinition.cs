@@ -259,6 +259,12 @@ public sealed class DepartmentStore
     /// <summary>監査部門の ID（設計 §59）。<b>秘書が計画の最後に足す工程を、この ID で探す。</b></summary>
     public const string AuditDepartmentId = "audit";
 
+    /// <summary>設計部門の ID。<b>計画で実装の前に要る工程を、この ID で探す</b>（設計 §62-18）。</summary>
+    public const string DesignDepartmentId = "design";
+
+    /// <summary>実装部門の ID（設計 §62-18）。</summary>
+    public const string ImplementationDepartmentId = "implementation";
+
     /// <summary>既定の部門（§29 / §56 / §59）。各 CLI の既定モードは能力定義から取る。</summary>
     public static IReadOnlyList<DepartmentDefinition> CreateDefaultDepartments() =>
     [

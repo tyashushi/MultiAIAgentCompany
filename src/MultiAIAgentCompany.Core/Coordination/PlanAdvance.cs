@@ -328,6 +328,30 @@ public static class PlanAdvance
         return result;
     }
 
+    /// <summary>
+    /// 実装の工程より前に設計の工程が無ければ、その理由（設計 §62-18、人間の決定）。
+    /// </summary>
+    /// <remarks>
+    /// 実装部門の担当業務は「承認された設計を実装する」—— 設計の無い計画では前提が崩れる。
+    /// <b>計画を受け取るときだけ見る</b>（すでに動いている計画は止めない）。1件の仕事の提案には効かない。
+    /// </remarks>
+    public static string? DesignProblem(IReadOnlyList<PlanStep> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        var implementation = steps.ToList().FindIndex(step =>
+            string.Equals(step.DepartmentId, Workspace.DepartmentStore.ImplementationDepartmentId, StringComparison.Ordinal));
+        if (implementation < 0
+            || steps.Take(implementation).Any(step =>
+                string.Equals(step.DepartmentId, Workspace.DepartmentStore.DesignDepartmentId, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        return $"工程 {implementation + 1}（{steps[implementation].DepartmentId}）より前に設計（{Workspace.DepartmentStore.DesignDepartmentId}）の工程が無い。"
+            + "実装の前には必ず設計を置く";
+    }
+
     private static IReadOnlyList<int> ReviewersOf(Plan plan, int index)
     {
         var reviewers = new List<int>();
