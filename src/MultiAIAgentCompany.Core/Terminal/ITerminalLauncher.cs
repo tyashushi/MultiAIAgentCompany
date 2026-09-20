@@ -43,7 +43,15 @@ public sealed record TerminalLaunchRequest(
 /// <b>起動時には、まだ書かれていないことがある</b>ので、
 /// 読むのは終了させるとき（<see cref="ITerminalLauncher.TerminateAsync"/>）。
 /// </param>
-public sealed record TerminalHandle(string WindowId, int TabIndex, string PidFilePath);
+/// <param name="Tty">
+/// そのタブの TTY（<c>/dev/ttys013</c>）。<b>タブを位置ではなく中身で同定する</b>（設計 §62-24）。
+/// <para>
+/// 窓 id とタブ番号は**位置**なので、タブを閉じたり並べ替えたりすると別のタブを指す。
+/// TTY は Terminal.app が読み取り専用で持っていて、そのタブが死ぬまで変わらない。
+/// <b>取れない CLI / OS では null</b>（Windows はコンソール窓なので持たない）。
+/// </para>
+/// </param>
+public sealed record TerminalHandle(string WindowId, int TabIndex, string PidFilePath, string? Tty = null);
 
 public abstract record TerminalLaunchResult
 {

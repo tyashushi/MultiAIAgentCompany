@@ -58,13 +58,62 @@ public static class MacTerminalScript
     public static string EscapeForAppleScriptString(string value) =>
         value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
-    /// <summary>"tab 1 of window id 43990" を読む。</summary>
+    /// <summary>
+    /// <c>"tab 1 of window id 43990 tty /dev/ttys013"</c> を読む（設計 §62-24）。
+    /// </summary>
+    /// <remarks>
+    /// <b>TTY は無くても読める。</b> 古い形（<c>tab 1 of window id 43990</c>）でも
+    /// 窓とタブは取れる —— **取れなかったものを捏造しない**（§7）。
+    /// </remarks>
     public static TerminalHandle? ParseHandle(string output, string pidPath)
     {
         var match = System.Text.RegularExpressions.Regex.Match(
             output, @"tab\s+(\d+)\s+of\s+window\s+id\s+(-?\d+)");
-        return match.Success
-            ? new TerminalHandle(match.Groups[2].Value, int.Parse(match.Groups[1].Value), pidPath)
-            : null;
+        if (!match.Success) return null;
+
+        var tty = System.Text.RegularExpressions.Regex.Match(output, @"tty\s+(/dev/\S+)");
+        return new TerminalHandle(
+            match.Groups[2].Value, int.Parse(match.Groups[1].Value), pidPath,
+            tty.Success ? tty.Groups[1].Value : null);
+    }
+
+    /// <summary>
+    /// そのタブを前に出す AppleScript（設計 §62-24）。
+    /// </summary>
+    /// <remarks>
+    /// <b>TTY があれば、それで探す。</b> 見つからなければ<b>何も選ばない</b> ——
+    /// そのタブはもう無いのだから、**代わりに隣を選ぶのは「前に出した」の嘘になる**（§7）。
+    /// TTY が無いハンドル（古い起動・Windows）は、これまでどおり位置で選ぶ。
+    /// </remarks>
+    public static string FocusScript(TerminalHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+
+        if (handle.Tty is not { Length: > 0 } tty)
+        {
+            return $"""
+                tell application "Terminal"
+                    activate
+                    set index of window id {handle.WindowId} to 1
+                    set selected of tab {handle.TabIndex} of window id {handle.WindowId} to true
+                end tell
+                """;
+        }
+
+        return $"""
+            tell application "Terminal"
+                activate
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        if tty of t is "{EscapeForAppleScriptString(tty)}" then
+                            set index of w to 1
+                            set selected of t to true
+                            return "focused"
+                        end if
+                    end repeat
+                end repeat
+                error "tab not found" number 1730
+            end tell
+            """;
     }
 }

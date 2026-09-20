@@ -56,10 +56,22 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
             var target = reuseWindow && request.ReuseWindowId is { Length: > 0 } window
                 ? $" in window id {window}"
                 : string.Empty;
+            // **TTY も一緒に返させる**（設計 §62-24）。**タブは文字列にできない**
+            // （`t as text` は -1700 になる。実機で踏んだ）ので、TTY で引き直して
+            // これまでと同じ "tab N of window id M" の形に自分で組む。
             return $"""
                 tell application "Terminal"
                     activate
-                    do script "{MacTerminalScript.EscapeForAppleScriptString(scriptPath)}"{target}
+                    set t to do script "{MacTerminalScript.EscapeForAppleScriptString(scriptPath)}"{target}
+                    set theTty to tty of t
+                    repeat with win in windows
+                        repeat with i from 1 to (count of tabs of win)
+                            if tty of (item i of tabs of win) is theTty then
+                                return "tab " & i & " of window id " & (id of win) & " tty " & theTty
+                            end if
+                        end repeat
+                    end repeat
+                    return "tty " & theTty
                 end tell
                 """;
         }
@@ -126,17 +138,9 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
     {
         ArgumentNullException.ThrowIfNull(handle);
 
-        // **窓を前に出し、その中のタブも選ぶ**（§33-5 でタブを共有するため）。
-        var applescript =
-            $"""
-             tell application "Terminal"
-                 activate
-                 set index of window id {handle.WindowId} to 1
-                 set selected of tab {handle.TabIndex} of window id {handle.WindowId} to true
-             end tell
-             """;
-
-        var run = await RunAsync("osascript", ["-e", applescript], ct);
+        // **TTY があれば位置ではなく中身で探す**（設計 §62-24）。
+        // 位置（窓 id + タブ番号）は、タブを閉じたり並べ替えたりすると別のタブを指す。
+        var run = await RunAsync("osascript", ["-e", MacTerminalScript.FocusScript(handle)], ct);
         return run.ExitCode == 0;
     }
 

@@ -58,6 +58,51 @@ public sealed class TerminalLaunchTests
     }
 
     [Fact]
+    public void ttyも一緒に読み取る()
+    {
+        // 起動のスクリプトは "tab 1 of window id 43990 tty /dev/ttys013" を返す（設計 §62-24）。
+        var handle = MacTerminalScript.ParseHandle(
+            "tab 2 of window id 43990 tty /dev/ttys013\n", "/tmp/x.pid");
+
+        Assert.NotNull(handle);
+        Assert.Equal("43990", handle.WindowId);
+        Assert.Equal(2, handle.TabIndex);
+        Assert.Equal("/dev/ttys013", handle.Tty);
+    }
+
+    [Fact]
+    public void ttyが無い出力でも窓とタブは読み取る()
+    {
+        // **取れなかったものを捏造しない**（§7）。古い形でも窓とタブは取れる。
+        var handle = MacTerminalScript.ParseHandle("tab 1 of window id 43990\n", "/tmp/x.pid");
+
+        Assert.NotNull(handle);
+        Assert.Null(handle.Tty);
+    }
+
+    [Fact]
+    public void ttyがあれば位置ではなくttyで探す()
+    {
+        var script = MacTerminalScript.FocusScript(
+            new TerminalHandle("43990", 2, "/tmp/x.pid", "/dev/ttys013"));
+
+        Assert.Contains("tty of t is \"/dev/ttys013\"", script);
+        // **位置では選ばない。** タブを並べ替えられていたら別のタブを指す。
+        Assert.DoesNotContain("tab 2 of window id 43990", script);
+        // 見つからなければ失敗させる（隣のタブを前に出して「前に出した」と言わない）。
+        Assert.Contains("error \"tab not found\"", script);
+    }
+
+    [Fact]
+    public void ttyが無いハンドルはこれまでどおり位置で選ぶ()
+    {
+        var script = MacTerminalScript.FocusScript(new TerminalHandle("43990", 2, "/tmp/x.pid"));
+
+        Assert.Contains("set selected of tab 2 of window id 43990 to true", script);
+        Assert.DoesNotContain("tty", script);
+    }
+
+    [Fact]
     public void 窓のidが読めなければnullにする()
     {
         // **推測しない**（§7）。読めないなら「開いた」と言わない。
