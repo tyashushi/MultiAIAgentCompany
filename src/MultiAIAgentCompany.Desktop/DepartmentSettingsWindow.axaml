@@ -38,19 +38,21 @@
                     <TextBlock Grid.Column="2" Text="モデル" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
 
                     <!-- **部門と同じ形で選ばせる**（設計 §62-21、人間の要望）。
-                         一覧が取れない CLI では自由入力のまま（§47-2）。 -->
-                    <ComboBox Grid.Column="3" ItemsSource="{Binding SecretaryModelChoices}"
-                              SelectedItem="{Binding SecretarySelectedModel}"
-                              IsVisible="{Binding HasSecretaryModelChoices}" HorizontalAlignment="Stretch">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate x:DataType="agents:AgentModelChoice">
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <TextBox Grid.Column="3" Text="{Binding SecretaryModel}" Classes="input"
-                             IsVisible="{Binding !HasSecretaryModelChoices}"
-                             PlaceholderText="空欄なら CLI の設定に任せる" />
+                         **候補が出ていても打ち込める**（§62-23）—— 候補は別名なので、
+                         版を固定したい人はフルのモデル ID を打つ。 -->
+                    <StackPanel Grid.Column="3" Spacing="4">
+                        <ComboBox ItemsSource="{Binding SecretaryModelChoices}"
+                                  SelectedItem="{Binding SecretarySelectedModel}"
+                                  IsVisible="{Binding HasSecretaryModelChoices}" HorizontalAlignment="Stretch" >
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="agents:AgentModelChoice">
+                                    <TextBlock Text="{Binding Label}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBox Text="{Binding SecretaryModel}" Classes="input"
+                                 PlaceholderText="空欄なら CLI の設定に任せる（候補に無い ID も打てる）" />
+                    </StackPanel>
 
                     <TextBlock Grid.Column="4" Text="強さ" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
                     <ComboBox Grid.Column="5" ItemsSource="{Binding SecretaryEffortChoices}"
@@ -165,7 +167,10 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
 
-                        <TextBox Text="{Binding Model}" Classes="input" IsVisible="{Binding !HasModelChoices}" />
+                        <!-- **候補が出ていても打ち込める**（設計 §62-23）。候補は「その系列の最新」を指す
+                             別名なので、版を固定したい人はフルのモデル ID を打つ。 -->
+                        <TextBox Text="{Binding Model}" Classes="input"
+                                 PlaceholderText="空欄なら CLI の設定に任せる（候補に無い ID も打てる）" />
                         <TextBlock Text="{Binding ModelHint}" Classes="caption" />
                     </StackPanel>
 
