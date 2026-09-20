@@ -22,7 +22,9 @@ public sealed record AgentModelChoice(string Id, string Label, IReadOnlyList<str
 /// <para>
 /// <b>取り方は CLI ごとに違う</b>（2026-09-13 に実機で確かめた）——
 /// Codex は <c>codex debug models</c> が JSON を返し、Antigravity は <c>agy models</c> が
-/// タブ区切りを返す。**Claude はモデルの一覧を出せない**（カタログが実行ファイルの中にある）。
+/// タブ区切りを返す。<b>Claude は <c>-p "/model"</c> が候補を書く</b>（2026-09-20 に確かめ直した。
+/// §48 では「出せない」としていたが、<c>/usage</c>（§50）と同じ形で取れる。<b>会話は使わない</b>
+/// —— スラッシュコマンドに答えて終わる）。
 /// </para>
 /// <para>
 /// <b>失敗しても空で返す。</b> 一覧が出ないことで設定画面を止めない（打ち込めばよい）。
@@ -32,7 +34,7 @@ public static class AgentModelCatalog
 {
     /// <summary>その CLI がモデルの一覧を出せるか。</summary>
     public static bool CanListModels(AgentKind kind) =>
-        kind is AgentKind.AntigravityCli or AgentKind.CodexCli;
+        kind is AgentKind.AntigravityCli or AgentKind.CodexCli or AgentKind.ClaudeCode;
 
     public static async Task<IReadOnlyList<AgentModelChoice>> ListModelsAsync(AgentKind kind, CancellationToken ct)
     {
@@ -41,10 +43,20 @@ public static class AgentModelCatalog
             return [];
         }
 
-        var arguments = kind is AgentKind.CodexCli ? new[] { "debug", "models" } : ["models"];
+        string[] arguments = kind switch
+        {
+            AgentKind.CodexCli => ["debug", "models"],
+            AgentKind.ClaudeCode => ["-p", "/model", "--no-session-persistence"],
+            _ => ["models"],
+        };
         var output = await RunAsync(executable, arguments, ct).ConfigureAwait(false);
 
-        return kind is AgentKind.CodexCli ? ParseCodex(output) : ParseAntigravity(output);
+        return kind switch
+        {
+            AgentKind.CodexCli => ParseCodex(output),
+            AgentKind.ClaudeCode => ParseClaude(output),
+            _ => ParseAntigravity(output),
+        };
     }
 
     /// <summary>
@@ -152,6 +164,37 @@ public static class AgentModelCatalog
         return choices;
     }
 
+    /// <summary>
+    /// <c>claude -p "/model"</c> の出力を読む（2026-09-20）。
+    /// </summary>
+    /// <remarks>
+    /// <c>Usage: /model &lt;name&gt;. Available: sonnet, opus, …, or a full model ID.</c> の1行を採る。
+    /// <b>説明の断片を id にしない</b> —— 「or a full model ID」のような空白を含む字句は落とす（§7）。
+    /// <c>sonnet[1m]</c> のような別名はそのまま候補にする（CLI にそのまま渡せる）。
+    /// </remarks>
+    public static IReadOnlyList<AgentModelChoice> ParseClaude(string output)
+    {
+        const string Marker = "Available:";
+        var index = (output ?? string.Empty).IndexOf(Marker, StringComparison.Ordinal);
+        if (index < 0)
+        {
+            return [];
+        }
+
+        var rest = output![(index + Marker.Length)..];
+        var end = rest.IndexOfAny(['\n', '\r']);
+        if (end >= 0)
+        {
+            rest = rest[..end];
+        }
+
+        return [.. rest.TrimEnd('.', ' ').Split(',')
+            .Select(value => value.Trim())
+            .Where(value => value.Length > 0 && !value.Contains(' '))
+            .Distinct(StringComparer.Ordinal)
+            .Select(value => new AgentModelChoice(value, value, []))];
+    }
+
     /// <summary><c>Valid values: a, b, c.</c> を読む。</summary>
     public static IReadOnlyList<string> ParseValidValues(string output)
     {
@@ -180,6 +223,9 @@ public static class AgentModelCatalog
         {
             var info = new ProcessStartInfo(executable)
             {
+                // **標準入力を閉じる。** `claude -p` は開いたままだと入力を待って返らない ——
+                // 候補を取り終えるまで設定の窓は開かないので、ここで止まると窓が出ない（2026-09-20）。
+                RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 StandardOutputEncoding = Sessions.ProcessEncoding.Utf8,
@@ -198,11 +244,26 @@ public static class AgentModelCatalog
                 return string.Empty;
             }
 
+            process.StandardInput.Close();
+
+            // **待ち続けない。** 候補が来なくても設定の窓は開く（打ち込めばよい。§48）。
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(30));
+
             // **標準エラーも読む。** Claude は候補を警告として出す（標準出力ではない）。
-            var stdout = process.StandardOutput.ReadToEndAsync(ct);
-            var stderr = process.StandardError.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct).ConfigureAwait(false);
-            return await stdout + "\n" + await stderr;
+            var stdout = process.StandardOutput.ReadToEndAsync(deadline.Token);
+            var stderr = process.StandardError.ReadToEndAsync(deadline.Token);
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token).ConfigureAwait(false);
+                return await stdout + "\n" + await stderr;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // 期限切れ。**置き去りにしない**（外部ターミナルの外で走らせた子は、ここでしか終われない）。
+                try { process.Kill(entireProcessTree: true); } catch (Exception) { /* もう終わっている */ }
+                return string.Empty;
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

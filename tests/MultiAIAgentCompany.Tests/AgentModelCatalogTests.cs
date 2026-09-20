@@ -13,12 +13,12 @@ namespace MultiAIAgentCompany.Tests;
 public sealed class AgentModelCatalogTests
 {
     [Fact]
-    public void モデルの一覧を出せるのは_Codex_と_Antigravity()
+    public void 三つの_CLI_ともモデルの一覧を出せる()
     {
-        // **Claude は出せない**（カタログが実行ファイルの中。叩いて確かめた）。
+        // Claude も `-p "/model"` が候補を書く（2026-09-20 に確かめ直した。§48 の「出せない」を覆した）。
         Assert.True(AgentModelCatalog.CanListModels(AgentKind.CodexCli));
         Assert.True(AgentModelCatalog.CanListModels(AgentKind.AntigravityCli));
-        Assert.False(AgentModelCatalog.CanListModels(AgentKind.ClaudeCode));
+        Assert.True(AgentModelCatalog.CanListModels(AgentKind.ClaudeCode));
     }
 
     [Fact]
@@ -111,5 +111,34 @@ public sealed class AgentModelCatalogTests
     {
         Assert.Empty(AgentModelCatalog.ParseValidValues("何も書かれていない出力"));
         Assert.Empty(AgentModelCatalog.ParseValidValues(string.Empty));
+    }
+
+    [Fact]
+    public void Claude_は_model_の答えからモデルの候補を読む()
+    {
+        // 実機の出力（`claude -p "/model" --no-session-persistence`、2.1.263）。
+        var output = string.Join("\n",
+        [
+            "Current model: `Sonnet 5 (default)`",
+            "Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], "
+            + "opus[1m], fable[1m], opusplan, default, or a full model ID.",
+        ]);
+
+        var choices = AgentModelCatalog.ParseClaude(output);
+
+        Assert.Equal(
+            ["sonnet", "opus", "haiku", "fable", "best", "sonnet[1m]", "opus[1m]", "fable[1m]", "opusplan", "default"],
+            choices.Select(choice => choice.Id));
+
+        // 名前はそのまま見せる（CLI に渡す値と同じ）。強さは別に聞く（モデルごとではない）。
+        Assert.Equal("sonnet", choices[0].Label);
+        Assert.Empty(choices[0].Efforts);
+    }
+
+    [Fact]
+    public void Claude_は候補が読めなければ空で返す()
+    {
+        Assert.Empty(AgentModelCatalog.ParseClaude("Current model: `Sonnet 5 (default)`"));
+        Assert.Empty(AgentModelCatalog.ParseClaude(string.Empty));
     }
 }
