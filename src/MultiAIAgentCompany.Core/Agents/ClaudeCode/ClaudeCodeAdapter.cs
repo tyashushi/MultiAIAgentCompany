@@ -14,9 +14,14 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
 
     /// <param name="model">渡すモデル。null / 空なら渡さない（設計 §46）。</param>
     /// <param name="effort">渡す思考の強さ。null / 空なら渡さない。</param>
+    /// <param name="permissionMode">
+    /// 起動時の権限モード（設計 §62-22）。null なら渡さない。
+    /// <b>構造化でも同じ4つが効く</b>（2026-09-20 に実機で確かめた。`manual` は init で `default` と申告される）。
+    /// </param>
     public ClaudeCodeAdapter(
         string? model = null, string? effort = null,
-        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>>? channelFactory = null)
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<IAgentProcessChannel>>? channelFactory = null,
+        AgentPermissionMode? permissionMode = null)
     {
         _channelFactory = channelFactory ?? ((file, args, cwd, ct) => ChildProcessChannel.StartAsync(file, args, cwd, ct: ct));
 
@@ -24,6 +29,20 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
         var arguments = new List<string>(BaseArguments);
         if (model?.Trim() is { Length: > 0 } trimmedModel) arguments.AddRange(["--model", trimmedModel]);
         if (effort?.Trim() is { Length: > 0 } trimmedEffort) arguments.AddRange(["--effort", trimmedEffort]);
+
+        // **持っていないモードは渡さない**（§51-2）。Claude は4つとも持っている。
+        if (permissionMode is { } mode && AgentPermissionModes.For(AgentKind.ClaudeCode).Contains(mode))
+        {
+            arguments.AddRange(["--permission-mode", mode switch
+            {
+                AgentPermissionMode.Auto => "auto",
+                AgentPermissionMode.Manual => "manual",
+                AgentPermissionMode.AcceptEdits => "acceptEdits",
+                AgentPermissionMode.Plan => "plan",
+                _ => throw new ArgumentOutOfRangeException(nameof(permissionMode)),
+            }]);
+        }
+
         _arguments = [.. arguments];
     }
 

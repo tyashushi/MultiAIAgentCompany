@@ -18,6 +18,35 @@ public sealed class DepartmentStoreTests : IDisposable
         _store = new DepartmentStore(_paths);
     }
 
+    [Fact]
+    public async Task 秘書の権限モードも保存され読み戻せる()
+    {
+        var department = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
+        var secretary = new SecretaryDefinition(
+            AgentKind.ClaudeCode, "opus", "high", AgentPermissionMode.AcceptEdits);
+
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(new(0, []), [department], secretary, CancellationToken.None));
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        Assert.Equal(secretary, read.Definition.SecretaryOrDefault);
+    }
+
+    [Fact]
+    public async Task 秘書にその_CLI_が持たない権限モードは保存させない()
+    {
+        // Codex が構造化で持つのは「自動」だけ（設計 §51-2）。
+        // **通すと「選べたのに効かない」設定が残る。**
+        var department = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
+        var secretary = new SecretaryDefinition(AgentKind.CodexCli, PermissionMode: AgentPermissionMode.Plan);
+
+        var result = Assert.IsType<DefinitionWriteResult.Rejected>(
+            await _store.SaveAsync(new(0, []), [department], secretary, CancellationToken.None));
+        Assert.Contains("秘書", result.Reason, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(AgentPermissionMode.Auto)]
     [InlineData(AgentPermissionMode.Manual)]

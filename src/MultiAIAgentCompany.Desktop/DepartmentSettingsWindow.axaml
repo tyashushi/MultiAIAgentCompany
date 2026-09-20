@@ -30,16 +30,55 @@
                 <TextBlock Text="秘書" Classes="title" />
                 <TextBlock Classes="caption"
                            Text="中央ペインで話す相手。Antigravity は選べません（headless では承認を人間に聞けないため）。" />
-                <Grid ColumnDefinitions="Auto,180,Auto,*,Auto,140" Margin="0,4,0,0">
+                <!-- 並びは CLI → モデル → 思考の強さ → 権限モード（人間の要望、2026-09-21）。 -->
+                <Grid ColumnDefinitions="Auto,180,Auto,*,Auto,140,Auto,160" Margin="0,4,0,0">
                     <TextBlock Grid.Column="0" Text="CLI" Classes="meta" VerticalAlignment="Center" Margin="0,0,8,0" />
                     <ComboBox Grid.Column="1" ItemsSource="{Binding SecretaryChoices}"
                               SelectedItem="{Binding SecretaryAgent}" HorizontalAlignment="Stretch" />
                     <TextBlock Grid.Column="2" Text="モデル" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
+
+                    <!-- **部門と同じ形で選ばせる**（設計 §62-21、人間の要望）。
+                         一覧が取れない CLI では自由入力のまま（§47-2）。 -->
+                    <ComboBox Grid.Column="3" ItemsSource="{Binding SecretaryModelChoices}"
+                              SelectedItem="{Binding SecretarySelectedModel}"
+                              IsVisible="{Binding HasSecretaryModelChoices}" HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="agents:AgentModelChoice">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <TextBox Grid.Column="3" Text="{Binding SecretaryModel}" Classes="input"
+                             IsVisible="{Binding !HasSecretaryModelChoices}"
                              PlaceholderText="空欄なら CLI の設定に任せる" />
+
                     <TextBlock Grid.Column="4" Text="強さ" Classes="meta" VerticalAlignment="Center" Margin="12,0,8,0" />
-                    <TextBox Grid.Column="5" Text="{Binding SecretaryEffort}" Classes="input" PlaceholderText="空欄可" />
+                    <ComboBox Grid.Column="5" ItemsSource="{Binding SecretaryEffortChoices}"
+                              SelectedItem="{Binding SecretaryEffort}"
+                              IsVisible="{Binding HasSecretaryEffortChoices}" HorizontalAlignment="Stretch" />
+                    <TextBox Grid.Column="5" Text="{Binding SecretaryEffort}" Classes="input"
+                             IsVisible="{Binding !HasSecretaryEffortChoices}" PlaceholderText="空欄可" />
+
+                    <!-- **CLI が持つモードだけ**（設計 §51-2 / §62-22、人間の要望）。 -->
+                    <TextBlock Grid.Column="6" Text="権限モード" Classes="meta" VerticalAlignment="Center"
+                               Margin="12,0,8,0" />
+                    <ComboBox Grid.Column="7" ItemsSource="{Binding SecretaryPermissionModeChoices}"
+                              SelectedItem="{Binding SecretarySelectedPermissionMode}"
+                              HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PermissionModeChoice">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </Grid>
+
+                <!-- **黙って弱めない**（設計 §62-22）。「自動」はアプリの承認カードを通らない。 -->
+                <TextBlock Text="{Binding SecretaryPermissionModeWarning}"
+                           IsVisible="{Binding HasSecretaryPermissionModeWarning}"
+                           Classes="caption" TextWrapping="Wrap"
+                           Foreground="{DynamicResource AccentBrush}" />
+
                 <!-- **選んだ CLI の trust を出す**（設計 §54-2）。秘書を Codex にしたら Codex のもの。 -->
                 <TextBlock Text="{Binding SecretaryTrustText}" Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
@@ -102,37 +141,11 @@
                                  PlaceholderText="この部門が何をするか" />
                     </StackPanel>
 
-                    <Grid ColumnDefinitions="*,12,*">
-                        <StackPanel Grid.Column="0" Spacing="4">
-                            <TextBlock Text="CLI" Classes="meta" />
-                            <ComboBox ItemsSource="{Binding $parent[Window].((vm:DepartmentSettingsViewModel)DataContext).AgentChoices}"
-                                      SelectedItem="{Binding Agent}" HorizontalAlignment="Stretch" />
-                        </StackPanel>
-                        <!-- **Antigravity では出さない**（設計 §47-2、実機で分かった）——
-                             あちらは強さがモデル名に畳まれていて、effort の旗を付けると弾かれる。 -->
-                        <StackPanel Grid.Column="2" Spacing="4" IsVisible="{Binding SupportsEffort}">
-                            <TextBlock Text="思考の強さ" Classes="meta" />
-                            <ComboBox ItemsSource="{Binding EffortChoices}" SelectedItem="{Binding ReasoningEffort}"
-                                      HorizontalAlignment="Stretch" />
-                        </StackPanel>
-                    </Grid>
-
-                    <!-- **CLI が持つ権限モードだけ選べる**（設計 §51-2）。 -->
+                    <!-- 並びは CLI → モデル → 思考の強さ → 権限モード（人間の要望、2026-09-21）。 -->
                     <StackPanel Spacing="4">
-                        <TextBlock Text="権限モード" Classes="meta" />
-                        <ComboBox ItemsSource="{Binding PermissionModeChoices}"
-                                  SelectedItem="{Binding SelectedPermissionMode}" HorizontalAlignment="Stretch">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="vm:PermissionModeChoice">
-                                    <TextBlock Text="{Binding Label}" />
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <!-- **選んだモードが効かないモデルでは言う**（設計 §51-4、実機で分かった）。
-                             Claude は haiku で「自動」を黙って通常モードに戻す。 -->
-                        <TextBlock Text="{Binding PermissionModeWarning}" IsVisible="{Binding HasPermissionModeWarning}"
-                                   Classes="caption" TextWrapping="Wrap"
-                                   Foreground="{DynamicResource AccentBrush}" />
+                        <TextBlock Text="CLI" Classes="meta" />
+                        <ComboBox ItemsSource="{Binding $parent[Window].((vm:DepartmentSettingsViewModel)DataContext).AgentChoices}"
+                                  SelectedItem="{Binding Agent}" HorizontalAlignment="Stretch" />
                     </StackPanel>
 
                     <StackPanel Spacing="4">
@@ -154,6 +167,31 @@
 
                         <TextBox Text="{Binding Model}" Classes="input" IsVisible="{Binding !HasModelChoices}" />
                         <TextBlock Text="{Binding ModelHint}" Classes="caption" />
+                    </StackPanel>
+
+                    <!-- **Antigravity では出さない**（設計 §47-2、実機で分かった）——
+                         あちらは強さがモデル名に畳まれていて、effort の旗を付けると弾かれる。 -->
+                    <StackPanel Spacing="4" IsVisible="{Binding SupportsEffort}">
+                        <TextBlock Text="思考の強さ" Classes="meta" />
+                        <ComboBox ItemsSource="{Binding EffortChoices}" SelectedItem="{Binding ReasoningEffort}"
+                                  HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                    <!-- **CLI が持つ権限モードだけ選べる**（設計 §51-2）。 -->
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="権限モード" Classes="meta" />
+                        <ComboBox ItemsSource="{Binding PermissionModeChoices}"
+                                  SelectedItem="{Binding SelectedPermissionMode}" HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PermissionModeChoice">
+                                    <TextBlock Text="{Binding Label}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <!-- **選んだモードが効かないモデルでは言う**（設計 §51-4、実機で分かった）。
+                             Claude は haiku で「自動」を黙って通常モードに戻す。 -->
+                        <TextBlock Text="{Binding PermissionModeWarning}" IsVisible="{Binding HasPermissionModeWarning}"
+                                   Classes="caption" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource AccentBrush}" />
                     </StackPanel>
 
                     <Grid ColumnDefinitions="*,12,*">

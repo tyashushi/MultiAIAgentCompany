@@ -411,8 +411,15 @@ public sealed class DepartmentSettingsViewModel : INotifyPropertyChanged
             field = value;
             Raise();
             Raise(nameof(SecretaryTrustText));
+
+            // **CLI を変えたら候補も変える**（§62-21）。部門と同じ —— 前の CLI の名前を選ばせない。
+            UpdateSecretaryPermissionModeChoices();
+            SecretaryAgentChanged?.Invoke(value);
         }
     } = AgentKind.ClaudeCode;
+
+    /// <summary>秘書の CLI が変わった。<b>候補を入れ直すのは窓の仕事</b>（CLI に聞くのは非同期）。</summary>
+    public Action<AgentKind>? SecretaryAgentChanged { get; set; }
 
     /// <summary>
     /// いま開いているフォルダの trust を CLI ごとに引く（設計 §54-2）。<b>読むだけ</b>。
@@ -430,7 +437,170 @@ public sealed class DepartmentSettingsViewModel : INotifyPropertyChanged
 
     public string SecretaryModel { get => field; set { field = value; Raise(); } } = string.Empty;
 
-    public string SecretaryEffort { get => field; set { field = value; Raise(); } } = string.Empty;
+    public string SecretaryEffort
+    {
+        get => field;
+        set { field = value; Raise(); UpdateSecretaryEffortChoices(); }
+    } = string.Empty;
+
+    /// <summary>
+    /// 秘書のモデルの候補（設計 §62-21、人間の要望）。<b>部門と同じ形で選ばせる。</b>
+    /// </summary>
+    /// <remarks>
+    /// 空なら自由入力のまま出す（§47-2）。<b>それらしい一覧をこちらで作らない</b>（§7）。
+    /// </remarks>
+    public ObservableCollection<AgentModelChoice> SecretaryModelChoices { get; } = [];
+
+    public bool HasSecretaryModelChoices => SecretaryModelChoices.Count > 0;
+
+    public AgentModelChoice? SecretarySelectedModel
+    {
+        get => field;
+        set
+        {
+            field = value;
+            if (value is not null)
+            {
+                SecretaryModel = value.Id;
+
+                // **選んだモデルが持たない強さは残さない**（§48）。
+                if (value.Efforts is { Count: > 0 } efforts
+                    && SecretaryEffort is { Length: > 0 } current
+                    && !efforts.Contains(current, StringComparer.Ordinal))
+                {
+                    SecretaryEffort = string.Empty;
+                }
+            }
+
+            Raise();
+            UpdateSecretaryEffortChoices();
+        }
+    }
+
+    public ObservableCollection<string> SecretaryEffortChoices { get; } = [];
+
+    /// <summary>
+    /// 秘書の権限モード（設計 §62-22、人間の要望）。<b>その CLI が持つモードだけ</b>（§51-2）。
+    /// </summary>
+    public AgentPermissionMode? SecretaryPermissionMode
+    {
+        get => field;
+        set { field = value; Raise(); Raise(nameof(SecretaryPermissionModeWarning)); Raise(nameof(HasSecretaryPermissionModeWarning)); }
+    }
+
+    public ObservableCollection<PermissionModeChoice> SecretaryPermissionModeChoices { get; } = [new(null)];
+
+    public PermissionModeChoice? SecretarySelectedPermissionMode
+    {
+        get => SecretaryPermissionModeChoices.FirstOrDefault(choice => choice.Mode == SecretaryPermissionMode);
+        set => SecretaryPermissionMode = value?.Mode;
+    }
+
+    /// <summary>
+    /// 「自動」にすると、アプリの承認カードを通らなくなることを言う（設計 §62-22）。
+    /// </summary>
+    /// <remarks>
+    /// <b>黙って弱めない。</b> 秘書の承認は、いま <c>.company/</c> の中だけを自動で通し、
+    /// それ以外は人間に聞いている（§62-15）。CLI 側に任せると、その線をアプリが見なくなる。
+    /// </remarks>
+    public string SecretaryPermissionModeWarning => SecretaryPermissionMode is AgentPermissionMode.Auto
+        ? "「自動」にすると、承認の判断を CLI に任せます（アプリの承認カードを通りません）。"
+        : string.Empty;
+
+    public bool HasSecretaryPermissionModeWarning => SecretaryPermissionModeWarning.Length > 0;
+
+    /// <summary>候補を<b>その場で足し引きして選択を保つ</b>（<see cref="DepartmentEdit"/> と同じ。§51-3）。</summary>
+    private void UpdateSecretaryPermissionModeChoices()
+    {
+        var modes = AgentPermissionModes.For(SecretaryAgent);
+        if (SecretaryPermissionMode is { } mode && !modes.Contains(mode))
+        {
+            SecretaryPermissionMode = null;
+        }
+
+        List<PermissionModeChoice> target = [new(null), .. modes.Select(mode => new PermissionModeChoice(mode))];
+        for (var i = SecretaryPermissionModeChoices.Count - 1; i >= 0; i--)
+        {
+            if (!target.Contains(SecretaryPermissionModeChoices[i]))
+            {
+                SecretaryPermissionModeChoices.RemoveAt(i);
+            }
+        }
+
+        for (var i = 0; i < target.Count; i++)
+        {
+            if (i < SecretaryPermissionModeChoices.Count && SecretaryPermissionModeChoices[i] == target[i])
+            {
+                continue;
+            }
+
+            var existing = SecretaryPermissionModeChoices.IndexOf(target[i]);
+            if (existing >= 0)
+            {
+                SecretaryPermissionModeChoices.Move(existing, i);
+            }
+            else
+            {
+                SecretaryPermissionModeChoices.Insert(i, target[i]);
+            }
+        }
+
+        Raise(nameof(SecretarySelectedPermissionMode));
+    }
+
+    /// <summary>秘書の候補を入れ直す（CLI に聞いたあと・CLI を変えたとき）。</summary>
+    public void SetSecretaryChoices(IReadOnlyList<AgentModelChoice> choices, IReadOnlyList<string> cliEfforts)
+    {
+        SecretaryModelChoices.Clear();
+        foreach (var choice in choices)
+        {
+            SecretaryModelChoices.Add(choice);
+        }
+
+        _secretaryCliEfforts = cliEfforts;
+        SecretarySelectedModel = SecretaryModelChoices.FirstOrDefault(
+            choice => string.Equals(choice.Id, SecretaryModel, StringComparison.Ordinal));
+        Raise(nameof(HasSecretaryModelChoices));
+        UpdateSecretaryEffortChoices();
+    }
+
+    private IReadOnlyList<string> _secretaryCliEfforts = [];
+
+    /// <summary>
+    /// 候補を<b>作り直さずに足し引きする</b>（<see cref="DepartmentEdit"/> と同じ理由。§47-3）。
+    /// </summary>
+    /// <remarks>保存済みの値は、候補に無くても残す —— 消すと、開いただけで設定が変わる。</remarks>
+    private void UpdateSecretaryEffortChoices()
+    {
+        List<string> target = SecretarySelectedModel?.Efforts is { Count: > 0 } fromModel
+            ? ["", .. fromModel]
+            : ["", .. _secretaryCliEfforts];
+        if (SecretaryEffort.Length > 0 && !target.Contains(SecretaryEffort, StringComparer.Ordinal))
+        {
+            target.Add(SecretaryEffort);
+        }
+
+        for (var i = SecretaryEffortChoices.Count - 1; i >= 0; i--)
+        {
+            if (!target.Contains(SecretaryEffortChoices[i], StringComparer.Ordinal))
+            {
+                SecretaryEffortChoices.RemoveAt(i);
+            }
+        }
+
+        for (var i = 0; i < target.Count; i++)
+        {
+            if (i >= SecretaryEffortChoices.Count
+                || !string.Equals(SecretaryEffortChoices[i], target[i], StringComparison.Ordinal))
+            {
+                SecretaryEffortChoices.Insert(i, target[i]);
+            }
+        }
+
+        Raise(nameof(HasSecretaryEffortChoices));
+    }
+
+    public bool HasSecretaryEffortChoices => SecretaryEffortChoices.Count > 1;
 
     /// <summary>
     /// 秘書に選べる CLI（設計 §46-3）。

@@ -82,8 +82,17 @@ public sealed record DepartmentDefinition(
 /// <param name="Agent">担当する CLI。</param>
 /// <param name="Model">渡すモデル。null なら CLI の設定に任せる。</param>
 /// <param name="ReasoningEffort">渡す思考の強さ。null なら CLI の設定に任せる。</param>
+/// <param name="PermissionMode">
+/// 起動時の権限モード（設計 §62-22、人間の要望）。<b>null は CLI の設定に任せる。</b>
+/// <para>
+/// <b>秘書は構造化で動く</b>ので、部門（外部ターミナル）とは別の口から渡る ——
+/// Claude は <c>--permission-mode</c>、Codex は <c>thread/start</c> の
+/// <c>approvalsReviewer</c>。
+/// </para>
+/// </param>
 public sealed record SecretaryDefinition(
-    AgentKind Agent = AgentKind.ClaudeCode, string? Model = null, string? ReasoningEffort = null);
+    AgentKind Agent = AgentKind.ClaudeCode, string? Model = null, string? ReasoningEffort = null,
+    AgentPermissionMode? PermissionMode = null);
 
 /// <param name="Secretary">
 /// 秘書の設定（設計 §46）。<b>古いファイルには無い</b>ので、null なら既定を使う。
@@ -129,7 +138,7 @@ public sealed class DepartmentStore
                 bufferSize: 4096, useAsync: true);
             var definition = await JsonSerializer.DeserializeAsync<CompanyDefinition>(stream, TaskStateJson.Options, ct);
             if (definition is null) return new DefinitionReadResult.Unreadable("departments.json が空です");
-            var validation = Validate(definition.Departments);
+            var validation = Validate(definition.Departments) ?? ValidateSecretary(definition.Secretary);
             return validation is null
                 ? new DefinitionReadResult.Found(definition)
                 : new DefinitionReadResult.Unreadable(validation);
@@ -229,7 +238,7 @@ public sealed class DepartmentStore
         ArgumentNullException.ThrowIfNull(departments);
         ct.ThrowIfCancellationRequested();
 
-        var validation = Validate(departments);
+        var validation = Validate(departments) ?? ValidateSecretary(secretary);
         if (validation is not null) return new DefinitionWriteResult.Rejected(validation);
 
         var read = await ReadAsync(ct);
@@ -307,6 +316,29 @@ public sealed class DepartmentStore
             AgentKind.AntigravityCli, AgentCapabilities.For(AgentKind.AntigravityCli).DefaultDriveMode,
             ReadsOnly: true, ReportDeadlineMinutes: 30),
     ];
+
+    /// <summary>
+    /// 秘書の設定を検査する（設計 §62-22）。
+    /// </summary>
+    /// <remarks>
+    /// <b>その CLI が持たないモードは通さない。</b> 通すと、渡しても効かない設定が残り
+    /// 「選べたのに効かない」になる（§51-2 と同じ姿勢）。Antigravity は秘書にできない（§30-1）。
+    /// </remarks>
+    private static string? ValidateSecretary(SecretaryDefinition? secretary)
+    {
+        if (secretary is null) return null;
+        if (!Enum.IsDefined(secretary.Agent)) return "未定義の Agent です: 秘書";
+        if (secretary.PermissionMode is not { } mode) return null;
+
+        // **数値でも読めてしまう**（`JsonStringEnumConverter` は整数を許す）。
+        if (!Enum.IsDefined(mode)) return "未定義の PermissionMode です: 秘書";
+        if (!AgentPermissionModes.For(secretary.Agent).Contains(mode))
+        {
+            return $"{secretary.Agent} には「{AgentPermissionModes.Label(mode)}」がありません: 秘書";
+        }
+
+        return null;
+    }
 
     private static string? Validate(IReadOnlyList<DepartmentDefinition>? departments)
     {

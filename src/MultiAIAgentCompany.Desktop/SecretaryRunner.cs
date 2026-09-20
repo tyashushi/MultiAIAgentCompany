@@ -54,8 +54,11 @@ public sealed class SecretaryRunner(ApprovalQueue approvals) : IAsyncDisposable
     /// </remarks>
     private static IAgentAdapter AdapterFor(SecretaryDefinition definition) => definition.Agent switch
     {
-        AgentKind.ClaudeCode => new ClaudeCodeAdapter(definition.Model, definition.ReasoningEffort),
-        AgentKind.CodexCli => new CodexCliAdapter(definition.Model ?? "gpt-5.6-terra", definition.ReasoningEffort),
+        AgentKind.ClaudeCode => new ClaudeCodeAdapter(
+            definition.Model, definition.ReasoningEffort, permissionMode: definition.PermissionMode),
+        AgentKind.CodexCli => new CodexCliAdapter(
+            definition.Model ?? "gpt-5.6-terra", definition.ReasoningEffort,
+            permissionMode: definition.PermissionMode),
         _ => throw new NotSupportedException(
             $"{definition.Agent} は秘書にできません（承認を人間に聞けないため。設計 §30-1）"),
     };

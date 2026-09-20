@@ -124,6 +124,49 @@ public sealed class ClaudeSessionTests
         Assert.DoesNotContain(observed, summary => summary.Contains("購読側の不具合"));
     }
 
+    [Theory]
+    [InlineData(AgentPermissionMode.Auto, "auto")]
+    [InlineData(AgentPermissionMode.Manual, "manual")]
+    [InlineData(AgentPermissionMode.AcceptEdits, "acceptEdits")]
+    [InlineData(AgentPermissionMode.Plan, "plan")]
+    public async Task 権限モードは起動の引数で渡す(AgentPermissionMode mode, string expected)
+    {
+        // 秘書は構造化で動くので、外部ターミナルとは別の口から渡る（設計 §62-22）。
+        // 構造化でも同じ4つが効くことは実機で確かめた（`manual` は init で `default` と申告される）。
+        IReadOnlyList<string> passed = [];
+        var adapter = new ClaudeCodeAdapter(permissionMode: mode, channelFactory: (_, args, _, _) =>
+        {
+            passed = args;
+            return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));
+        });
+
+        await using var session = await adapter.StartAsync(
+            new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
+            "secretary", DriveMode.Structured, CancellationToken.None);
+
+        var index = passed.ToList().IndexOf("--permission-mode");
+        Assert.True(index >= 0, $"--permission-mode が無い: {string.Join(' ', passed)}");
+        Assert.Equal(expected, passed[index + 1]);
+    }
+
+    [Fact]
+    public async Task 権限モードを指定しなければ渡さない()
+    {
+        // **指定が無いものは渡さない**（§46）。空で渡すと CLI 側の設定を上書きしかねない。
+        IReadOnlyList<string> passed = [];
+        var adapter = new ClaudeCodeAdapter(channelFactory: (_, args, _, _) =>
+        {
+            passed = args;
+            return Task.FromResult<IAgentProcessChannel>(new FakeChannel([]));
+        });
+
+        await using var session = await adapter.StartAsync(
+            new MultiAIAgentCompany.Core.Workspace.WorkspaceRef(Path.GetTempPath()),
+            "secretary", DriveMode.Structured, CancellationToken.None);
+
+        Assert.DoesNotContain("--permission-mode", passed);
+    }
+
     [Fact]
     public async Task 部門IDが空なら起動する前に弾く()
     {

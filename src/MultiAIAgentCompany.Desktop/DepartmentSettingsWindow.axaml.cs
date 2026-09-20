@@ -89,12 +89,15 @@ public partial class DepartmentSettingsWindow : Window
             _model.Departments.Add(new DepartmentEdit(department, isNew: false));
         }
 
-        _ = LoadModelChoicesAsync();
-
+        // **秘書の値を入れてから聞きに行く。** 保存済みの値が候補に無いと選択が外れる（§47-3）。
         var secretary = definition.SecretaryOrDefault;
         _model.SecretaryAgent = secretary.Agent;
         _model.SecretaryModel = secretary.Model ?? string.Empty;
         _model.SecretaryEffort = secretary.ReasoningEffort ?? string.Empty;
+        _model.SecretaryPermissionMode = secretary.PermissionMode;
+        _model.SecretaryAgentChanged = kind => _ = ApplySecretaryChoicesAsync(kind);
+
+        _ = LoadModelChoicesAsync();
         _model.Selected = _model.Departments.FirstOrDefault();
     }
 
@@ -102,8 +105,9 @@ public partial class DepartmentSettingsWindow : Window
     /// モデルの候補を CLI から取る（設計 §47-2）。
     /// </summary>
     /// <remarks>
-    /// <b>取れたものだけ入れる。</b> 取れない CLI（Claude / Codex）は自由入力のまま ——
+    /// <b>取れたものだけ入れる。</b> 取れない CLI は自由入力のまま ——
     /// **それらしい一覧をこちらで作らない**（§7）。
+    /// 3つとも聞けば答える（Claude は <c>-p "/model"</c>。2026-09-20 に確かめ直した。§62-21）。
     /// <para>
     /// <b>1つの CLI につき1回だけ聞く。</b> `agy models` はネットワークへ出るので、
     /// 部門を選ぶたびに走らせない。
@@ -131,6 +135,35 @@ public partial class DepartmentSettingsWindow : Window
             {
                 edit.SetChoices(choices, efforts);
             }
+
+            // 秘書も同じ候補から選ぶ（§62-21、人間の要望）。
+            if (kind == _model.SecretaryAgent)
+            {
+                _model.SetSecretaryChoices(choices, efforts);
+            }
+        }
+    }
+
+    /// <summary>秘書の CLI を変えたときに、その CLI の候補へ入れ替える（設計 §62-21）。</summary>
+    /// <remarks><b>聞き直さない</b> —— 一度聞いたものは <c>_catalog</c> に残っている（`agy models` は外へ出る）。</remarks>
+    private async Task ApplySecretaryChoicesAsync(AgentKind kind)
+    {
+        if (!_catalog.TryGetValue(kind, out var choices))
+        {
+            choices = await AgentModelCatalog.ListModelsAsync(kind, CancellationToken.None);
+            _catalog[kind] = choices;
+        }
+
+        if (!_efforts.TryGetValue(kind, out var efforts))
+        {
+            efforts = await AgentModelCatalog.ListEffortsAsync(kind, CancellationToken.None);
+            _efforts[kind] = efforts;
+        }
+
+        // 変え終わるまでの間にもう一度変えられていたら、その結果を上書きしない。
+        if (kind == _model.SecretaryAgent)
+        {
+            _model.SetSecretaryChoices(choices, efforts);
         }
     }
 
@@ -249,7 +282,8 @@ public partial class DepartmentSettingsWindow : Window
         var secretary = new SecretaryDefinition(
             _model.SecretaryAgent,
             Blank(_model.SecretaryModel),
-            Blank(_model.SecretaryEffort));
+            Blank(_model.SecretaryEffort),
+            _model.SecretaryPermissionMode);
 
         var result = await _store.SaveAsync(_loaded, departments, secretary, CancellationToken.None);
         switch (result)

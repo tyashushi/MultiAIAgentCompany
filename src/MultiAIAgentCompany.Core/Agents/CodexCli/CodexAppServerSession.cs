@@ -14,6 +14,7 @@ public sealed class CodexAppServerSession : IStructuredSession
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly DiagnosticsLog _diagnostics = new();
     private readonly Dictionary<string, CodexApprovalRequest> _approvalRequests = new(StringComparer.Ordinal);
+    private readonly string _approvalsReviewer;
     private readonly TaskCompletionSource _initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _threadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Task _readLoop;
@@ -31,7 +32,8 @@ public sealed class CodexAppServerSession : IStructuredSession
     private int _disposed;
 
     public CodexAppServerSession(
-        IAgentProcessChannel channel, string departmentId, string workspaceRoot, string model, string? effort = null)
+        IAgentProcessChannel channel, string departmentId, string workspaceRoot, string model, string? effort = null,
+        AgentPermissionMode? permissionMode = null)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         DepartmentId = departmentId ?? throw new ArgumentNullException(nameof(departmentId));
@@ -41,6 +43,9 @@ public sealed class CodexAppServerSession : IStructuredSession
         _channel.StandardErrorLine += StandardErrorLine;
         _readLoop = ReadLoopAsync();
         _effort = effort?.Trim();
+
+        // **「自動」だけが CLI 側の判断**（設計 §62-22 / §51-2）。ほかは人間が押す（既定）。
+        _approvalsReviewer = permissionMode is AgentPermissionMode.Auto ? "auto_review" : "user";
         _initialization = InitializeAsync(workspaceRoot, model);
     }
 
@@ -157,7 +162,7 @@ public sealed class CodexAppServerSession : IStructuredSession
                 cwd = workspaceRoot,
                 model,
                 approvalPolicy = "on-request",
-                approvalsReviewer = "user",
+                approvalsReviewer = _approvalsReviewer,
                 config = new { sandbox_mode = "workspace-write" },
             }, CancellationToken.None).ConfigureAwait(false);
         }
