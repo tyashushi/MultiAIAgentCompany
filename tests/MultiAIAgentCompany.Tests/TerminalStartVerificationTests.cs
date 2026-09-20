@@ -102,6 +102,9 @@ public sealed class TerminalStartVerificationTests
 
         public Task<TerminalTerminateResult> TerminateAsync(TerminalHandle target, CancellationToken ct) =>
             Task.FromResult<TerminalTerminateResult>(new TerminalTerminateResult.NotRunning("偽物"));
+
+        public Task<TerminalCloseResult> CloseAsync(TerminalHandle target, CancellationToken ct) =>
+            Task.FromResult<TerminalCloseResult>(new TerminalCloseResult.Closed());
     }
 
     private static TerminalLaunchRequest Request =>
@@ -116,5 +119,8 @@ public sealed class TerminalStartVerificationTests
 
         public Task<TerminalTerminateResult> TerminateAsync(TerminalHandle target, CancellationToken ct) =>
             Task.FromResult<TerminalTerminateResult>(new TerminalTerminateResult.NotRunning("偽物"));
+
+        public Task<TerminalCloseResult> CloseAsync(TerminalHandle target, CancellationToken ct) =>
+            Task.FromResult<TerminalCloseResult>(new TerminalCloseResult.Closed());
     }
 }

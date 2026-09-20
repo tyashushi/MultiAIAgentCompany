@@ -230,6 +230,61 @@ public sealed class TerminalDepartmentSession : IAgentSession
         });
     }
 
+    /// <summary>
+    /// 止めてから、居なくなったのを確かめて窓を閉じる（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>順番が本体。</b> 実測（2026-09-21）で、窓を先に閉じると
+    /// <b>中のプロセスは孤児として生き残った</b> —— 画面から消えるだけで、動き続ける。
+    /// <para>
+    /// <b>確かめられなければ閉じない。</b> PID を持っていない・まだ生きている窓は
+    /// そのまま残し、理由を作業ログに書く（§7）。
+    /// </para>
+    /// </remarks>
+    public async Task<TerminalCloseResult> StopAndCloseAsync(CancellationToken ct)
+    {
+        await StopAsync(ct);
+
+        // TERM は届くまでに間がある。**短く待って、確かめてから閉じる。**
+        for (var i = 0; i < 10 && Identity.Pid > 0 && IsAlive(Identity.Pid); i++)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(300), _clock, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        if (Identity.Pid > 0 && IsAlive(Identity.Pid))
+        {
+            var kept = new TerminalCloseResult.Kept("まだ動いているので窓は閉じない");
+            Note(kept.Reason);
+            return kept;
+        }
+
+        return await CloseWindowAsync(ct);
+    }
+
+    /// <summary>
+    /// 窓だけを閉じる（設計 §62-25）。<b>中で動いていないことが分かっているときに呼ぶ。</b>
+    /// </summary>
+    public async Task<TerminalCloseResult> CloseWindowAsync(CancellationToken ct)
+    {
+        var result = await _launcher.CloseAsync(Handle, ct);
+        Note(result switch
+        {
+            TerminalCloseResult.Closed => "ターミナルの窓を閉じた",
+            TerminalCloseResult.NotFound => "ターミナルの窓はもう無かった",
+            TerminalCloseResult.Kept kept => $"ターミナルの窓は閉じなかった: {kept.Reason}",
+            TerminalCloseResult.Failed failure => $"ターミナルの窓を閉じられません: {failure.Reason}",
+            _ => "窓を閉じた結果が分かりません",
+        });
+        return result;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)

@@ -199,6 +199,13 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
             {
                 tracker.OnDisappeared();
 
+                // **CLI が終わった窓は、プロンプトに戻って残る**（設計 §62-25）。
+                // 中で動いていないことは観測できているので、そのまま閉じてよい。
+                if (CloseTerminalsWhenDone)
+                {
+                    _ = watched.CloseWindowAsync(CancellationToken.None);
+                }
+
                 lock (_startGate)
                 {
                     if (_sessions.TryGetValue(department.Id, out var current) && ReferenceEquals(current, watched))
@@ -615,21 +622,33 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// </para>
     /// </remarks>
     /// <returns>終わらせたか（居なければ false）。</returns>
-    public async Task<bool> StopAsync(string departmentId)
+    /// <summary>
+    /// 仕事が終わった部門のターミナルの窓を閉じるか（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>人間の設定</b>（`preferences.json`）。既定は閉じる。
+    /// <b>開き直しの経路では閉じない</b> —— あそこは同じ窓を使い回すので、
+    /// 閉じると次の起動先が消える。
+    /// </remarks>
+    public bool CloseTerminalsWhenDone { get; set; } = true;
+
+    /// <summary>止めて、居なくなったのを確かめてから窓を閉じる（設計 §62-25）。</summary>
+    public async Task<bool> StopAndCloseAsync(string departmentId)
     {
         IAgentSession? session;
         lock (_startGate)
         {
-            if (!_sessions.TryGetValue(departmentId, out session))
-            {
-                return false;
-            }
-
+            if (!_sessions.TryGetValue(departmentId, out session)) return false;
             _sessions.Remove(departmentId);
         }
 
         try
         {
+            if (CloseTerminalsWhenDone && session is TerminalDepartmentSession terminal)
+            {
+                await terminal.StopAndCloseAsync(CancellationToken.None);
+            }
+
             await session.DisposeAsync();
         }
         catch (Exception)
@@ -641,6 +660,12 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         SessionsChanged?.Invoke(this, departmentId);
         return true;
     }
+
+    /// <remarks>
+    /// <b>窓も閉じる</b>（設計 §62-25）。入口を <see cref="StopAndCloseAsync"/> 1つにして、
+    /// 「止めたのに窓だけ残る」経路を作らない。
+    /// </remarks>
+    public Task<bool> StopAsync(string departmentId) => StopAndCloseAsync(departmentId);
 
     public async Task StopAllAsync()
     {
@@ -691,6 +716,13 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         {
             try
             {
+                // **窓も閉じる**（設計 §62-25）。アプリ終了とワークスペース切り替えは
+                // ここを通る —— 閉じないと、誰も面倒を見ない窓が残る。
+                if (CloseTerminalsWhenDone && session is TerminalDepartmentSession terminal)
+                {
+                    await terminal.StopAndCloseAsync(CancellationToken.None);
+                }
+
                 await session.DisposeAsync();
             }
             catch (Exception)

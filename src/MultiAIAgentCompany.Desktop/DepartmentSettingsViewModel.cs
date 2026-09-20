@@ -611,6 +611,12 @@ public sealed class DepartmentSettingsViewModel : INotifyPropertyChanged
     /// </remarks>
     public IReadOnlyList<AgentKind> SecretaryChoices { get; } = [AgentKind.ClaudeCode, AgentKind.CodexCli];
 
+    /// <summary>
+    /// 仕事が終わった部門のターミナルの窓を閉じるか（設計 §62-25、人間が決めた既定は「閉じる」）。
+    /// </summary>
+    /// <remarks><b>ワークスペースではなくアプリの設定</b>なので、保存先も別（`preferences.json`）。</remarks>
+    public bool CloseTerminalsWhenDone { get => field; set { field = value; Raise(); } } = true;
+
     public IReadOnlyList<AgentKind> AgentChoices { get; } =
         [AgentKind.ClaudeCode, AgentKind.CodexCli, AgentKind.AntigravityCli];
 

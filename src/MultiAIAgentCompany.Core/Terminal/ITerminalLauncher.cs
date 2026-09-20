@@ -121,4 +121,32 @@ public interface ITerminalLauncher
     /// これは §14-5 に未決で残していた foreground PGID の答えでもある。
     /// </remarks>
     Task<TerminalTerminateResult> TerminateAsync(TerminalHandle handle, CancellationToken ct);
+
+    /// <summary>
+    /// その窓を閉じる（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>終了とは別の操作。</b> 実測（2026-09-21）で、窓を閉じても
+    /// <b>中のプロセスは孤児として生き残った</b> —— 閉じる前に
+    /// <see cref="TerminateAsync"/> で終わらせ、<b>居なくなったことを確かめる</b>。
+    /// <para>
+    /// <b>巻き込まない。</b> Terminal.app はタブを閉じられない（実測。タブは
+    /// <c>close</c> を認識しない）ので、閉じるのは窓 —— <b>その窓にタブが1つのときだけ</b>。
+    /// </para>
+    /// </remarks>
+    Task<TerminalCloseResult> CloseAsync(TerminalHandle handle, CancellationToken ct);
+}
+
+/// <summary>窓を閉じた結果（設計 §62-25）。<b>閉じられなかった理由を潰さない</b>（§7）。</summary>
+public abstract record TerminalCloseResult
+{
+    public sealed record Closed : TerminalCloseResult;
+
+    /// <summary>その窓はもう無い。<b>失敗ではない</b> —— 人間が先に閉じたのかもしれない。</summary>
+    public sealed record NotFound : TerminalCloseResult;
+
+    /// <summary>閉じなかった（タブが他にもある・中でまだ動いている）。</summary>
+    public sealed record Kept(string Reason) : TerminalCloseResult;
+
+    public sealed record Failed(string Reason) : TerminalCloseResult;
 }

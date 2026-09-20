@@ -129,6 +129,22 @@ public sealed class WindowsTerminalLauncher : ITerminalLauncher
         return Task.FromResult(window != 0 && BringToFront(window));
     }
 
+    /// <summary>
+    /// Windows では窓を閉じない（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>ハンドルが窓を指していない。</b> <c>WindowId</c> の中身は起動プロセスの PID で、
+    /// CLI が終わったあとの窓を指す独立した識別子を持っていない。
+    /// <para>
+    /// **窓が残るかどうかはホスト側の設定**（Windows Terminal の <c>closeOnExit</c>）で、
+    /// 既定（<c>automatic</c>）なら外から渡したプロセスの終了で閉じる。
+    /// **できないことを、できたことにしない**（§7）。
+    /// </para>
+    /// </remarks>
+    public Task<TerminalCloseResult> CloseAsync(TerminalHandle handle, CancellationToken ct) =>
+        Task.FromResult<TerminalCloseResult>(new TerminalCloseResult.Kept(
+            "Windows では窓を閉じない（窓を指すハンドルが無い。閉じるかはターミナルの closeOnExit 次第）"));
+
     public async Task<TerminalTerminateResult> TerminateAsync(TerminalHandle handle, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(handle);

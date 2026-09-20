@@ -106,6 +106,9 @@ public partial class MainWindow : Window
     /// <summary>ウィンドウの見た目（設計 §28-5）。<b>状態は覚えない。</b></summary>
     private readonly WindowLayoutMemory _layout = WindowLayoutMemory.CreateDefault();
 
+    /// <summary>アプリ全体の好み（設計 §62-25）。いまは「終わった窓を閉じるか」だけ。</summary>
+    private readonly AppPreferences _preferences = AppPreferences.CreateDefault();
+
     /// <summary>
     /// いま開いているワークスペースの排他ロック（設計 §26）。
     /// <b>握っている間だけ、そのフォルダを開いていられる。</b>
@@ -305,6 +308,9 @@ public partial class MainWindow : Window
         _composer = composer;
         _runner = runner;
         _secretary = secretary;
+
+        // **好みを起動時に1回だけ読む**（設計 §62-25）。読めなければ既定（閉じる）。
+        _runner.CloseTerminalsWhenDone = _preferences.Load().CloseTerminalsWhenDone;
 
         // **UI の失敗を、人間に見せる**（設計 §49）。落とさない代わりに、黙らない ——
         // 記録（`crash.log`）だけだと、**画面を見ている人間には何も起きていないように見える。**
@@ -782,7 +788,8 @@ public partial class MainWindow : Window
                     await _runner.StopAsync(departmentId);
                 }
             },
-            agent => (DataContext as ShellViewModel)?.Trust.FirstOrDefault(row => row.Agent == agent));
+            agent => (DataContext as ShellViewModel)?.Trust.FirstOrDefault(row => row.Agent == agent),
+            _preferences);
 
         _settings = window;
         window.Closed += async (_, _) =>
@@ -790,6 +797,12 @@ public partial class MainWindow : Window
             if (ReferenceEquals(_settings, window))
             {
                 _settings = null;
+            }
+
+            // **好みも読み直す**（設計 §62-25）。次に終わる仕事から効く。
+            if (_runner is not null)
+            {
+                _runner.CloseTerminalsWhenDone = _preferences.Load().CloseTerminalsWhenDone;
             }
 
             // **閉じたら読み直す。** 保存された設定は、開き直しで効く（§47）。
@@ -1212,6 +1225,16 @@ public partial class MainWindow : Window
         if (write is TaskWriteResult.Written)
         {
             tile.Cheer();
+
+            // **受理は「もう読み終えた」の合図**（設計 §62-25、人間が決めた）。
+            // その部門に他の仕事が無ければ、CLI を止めて窓を閉じる ——
+            // 止めてから居なくなったのを確かめるので、動いている窓は残る。
+            if (_runner is { CloseTerminalsWhenDone: true }
+                && _composer is { Dispatcher: { } inFlight }
+                && !await inFlight.HasWorkInFlightAsync(tile.Id, null, CancellationToken.None))
+            {
+                await _runner.StopAndCloseAsync(tile.Id);
+            }
         }
 
         Note(write switch

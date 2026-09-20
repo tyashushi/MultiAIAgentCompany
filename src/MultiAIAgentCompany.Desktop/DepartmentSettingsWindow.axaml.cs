@@ -26,6 +26,9 @@ public partial class DepartmentSettingsWindow : Window
     private readonly Func<string, Task>? _stopSession;
     private CompanyDefinition _loaded = new(0, []);
 
+    /// <summary>アプリ全体の好み（設計 §62-25）。窓を閉じるかは部門ごとではない。</summary>
+    private readonly AppPreferences? _preferences;
+
     /// <summary>CLI ごとのモデル一覧。<b>1回だけ聞く</b>（ネットワークへ出るため）。</summary>
     private readonly Dictionary<AgentKind, IReadOnlyList<AgentModelChoice>> _catalog = [];
 
@@ -46,8 +49,15 @@ public partial class DepartmentSettingsWindow : Window
         DepartmentStore store,
         Func<string, Task<DepartmentRemovalDecision>> canRemove,
         Func<string, Task> stopSession,
-        Func<AgentKind, TrustRow?>? trustOf = null) : this()
+        Func<AgentKind, TrustRow?>? trustOf = null,
+        AppPreferences? preferences = null) : this()
     {
+        _preferences = preferences;
+        if (preferences is not null)
+        {
+            _model.CloseTerminalsWhenDone = preferences.Load().CloseTerminalsWhenDone;
+        }
+
         _store = store;
         _model.TrustOf = trustOf;
         _canRemove = canRemove;
@@ -279,6 +289,13 @@ public partial class DepartmentSettingsWindow : Window
         }
 
         var departments = _model.Departments.Select(edit => edit.ToDefinition()).ToArray();
+        // **アプリの好みは別のファイル**（設計 §62-25）。保存に失敗したら黙らない（§28-1）。
+        if (_preferences is not null
+            && _preferences.Save(new AppPreferenceValues(_model.CloseTerminalsWhenDone)) is { } reason)
+        {
+            _model.Message = $"ターミナルの設定を保存できません: {reason}";
+        }
+
         var secretary = new SecretaryDefinition(
             _model.SecretaryAgent,
             Blank(_model.SecretaryModel),

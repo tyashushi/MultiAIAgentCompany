@@ -103,6 +103,28 @@ public sealed class TerminalLaunchTests
     }
 
     [Fact]
+    public void 閉じるのはタブが1つの窓だけ()
+    {
+        // タブは閉じられない（実測。タブは close を認識しない）ので窓を閉じる。
+        // **他のタブを巻き込まない**ように、1つのときだけ（設計 §62-25）。
+        var script = MacTerminalScript.CloseScript(
+            new TerminalHandle("43990", 1, "/tmp/x.pid", "/dev/ttys013"));
+
+        Assert.Contains("tty of t is \"/dev/ttys013\"", script);
+        Assert.Contains("(count of tabs of w) > 1 then error \"other tabs\" number 1731", script);
+        Assert.Contains("close w saving no", script);
+    }
+
+    [Fact]
+    public void ttyが無いハンドルは窓idで閉じる()
+    {
+        var script = MacTerminalScript.CloseScript(new TerminalHandle("43990", 1, "/tmp/x.pid"));
+
+        Assert.Contains("close window id 43990 saving no", script);
+        Assert.Contains("number 1731", script);
+    }
+
+    [Fact]
     public void 窓のidが読めなければnullにする()
     {
         // **推測しない**（§7）。読めないなら「開いた」と言わない。

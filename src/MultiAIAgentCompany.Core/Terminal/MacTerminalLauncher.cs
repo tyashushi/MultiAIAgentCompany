@@ -144,6 +144,24 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
         return run.ExitCode == 0;
     }
 
+    public async Task<TerminalCloseResult> CloseAsync(TerminalHandle handle, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+
+        var run = await RunAsync("osascript", ["-e", MacTerminalScript.CloseScript(handle)], ct);
+        if (run.ExitCode == 0) return new TerminalCloseResult.Closed();
+
+        // Terminal.app が居ない（-600）なら、窓もまとめて無い。
+        var text = run.Stderr.Length > 0 ? run.Stderr : run.Stdout;
+        if (IsNotRunning(run) || text.Contains("1730", StringComparison.Ordinal))
+            return new TerminalCloseResult.NotFound();
+
+        if (text.Contains("1731", StringComparison.Ordinal))
+            return new TerminalCloseResult.Kept("その窓には他のタブもある");
+
+        return new TerminalCloseResult.Failed(text.Trim());
+    }
+
     public async Task<TerminalTerminateResult> TerminateAsync(TerminalHandle handle, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(handle);

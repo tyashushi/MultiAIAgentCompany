@@ -83,6 +83,10 @@
 
                 <!-- **選んだ CLI の trust を出す**（設計 §54-2）。秘書を Codex にしたら Codex のもの。 -->
                 <TextBlock Text="{Binding SecretaryTrustText}" Classes="caption" TextWrapping="Wrap" />
+
+                <!-- **アプリ全体の好み**（設計 §62-25）。部門ごとではないので、ここに1つだけ置く。 -->
+                <CheckBox IsChecked="{Binding CloseTerminalsWhenDone}" Margin="0,4,0,0"
+                          Content="仕事が終わった部門のターミナルの窓を閉じる（中で動いている窓は閉じません）" />
             </StackPanel>
         </Border>
 

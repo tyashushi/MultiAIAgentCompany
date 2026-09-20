@@ -45,4 +45,7 @@ public sealed class UnsupportedTerminalLauncher : ITerminalLauncher
 
     public Task<TerminalTerminateResult> TerminateAsync(TerminalHandle handle, CancellationToken ct) =>
         Task.FromResult<TerminalTerminateResult>(new TerminalTerminateResult.NotRunning(Reason));
+
+    public Task<TerminalCloseResult> CloseAsync(TerminalHandle handle, CancellationToken ct) =>
+        Task.FromResult<TerminalCloseResult>(new TerminalCloseResult.Failed(Reason));
 }

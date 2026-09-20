@@ -61,6 +61,9 @@ public sealed class TerminalActivitySessionTests : IDisposable
         public Task<bool> FocusAsync(TerminalHandle handle, CancellationToken ct) => Task.FromResult(true);
         public Task<TerminalTerminateResult> TerminateAsync(TerminalHandle handle, CancellationToken ct) =>
             Task.FromResult<TerminalTerminateResult>(new TerminalTerminateResult.NotRunning("テスト"));
+
+        public Task<TerminalCloseResult> CloseAsync(TerminalHandle handle, CancellationToken ct) =>
+            Task.FromResult<TerminalCloseResult>(new TerminalCloseResult.Closed());
     }
 
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }

@@ -51,6 +51,48 @@ public static class MacTerminalScript
         return builder.ToString();
     }
 
+    /// <summary>
+    /// その窓を閉じる AppleScript（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>タブは閉じられない</b>（実測。タブは <c>close</c> を認識しない）ので、窓を閉じる。
+    /// **他の部門や人間のタブを巻き込まない**ように、<b>タブが1つのときだけ</b>閉じる。
+    /// <para>
+    /// 見つからなければ <c>1730</c>、タブが他にもあれば <c>1731</c> で返す ——
+    /// **番号で見分ける**（文言は OS の言語で変わる。§27-2）。
+    /// </para>
+    /// </remarks>
+    public static string CloseScript(TerminalHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+
+        // TTY が無いハンドル（古い起動）は、窓 id で閉じる。
+        if (handle.Tty is not { Length: > 0 } tty)
+        {
+            return $"""
+                tell application "Terminal"
+                    if (count of tabs of window id {handle.WindowId}) > 1 then error "other tabs" number 1731
+                    close window id {handle.WindowId} saving no
+                end tell
+                """;
+        }
+
+        return $"""
+            tell application "Terminal"
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        if tty of t is "{EscapeForAppleScriptString(tty)}" then
+                            if (count of tabs of w) > 1 then error "other tabs" number 1731
+                            close w saving no
+                            return "closed"
+                        end if
+                    end repeat
+                end repeat
+                error "tab not found" number 1730
+            end tell
+            """;
+    }
+
     /// <summary>シングルクォートで囲む。中の <c>'</c> は閉じて足して開き直す。</summary>
     public static string Quote(string value) => "'" + value.Replace("'", "'\\''") + "'";
 
