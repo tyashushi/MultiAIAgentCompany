@@ -203,7 +203,8 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
                 // 中で動いていないことは観測できているので、そのまま閉じてよい。
                 if (CloseTerminalsWhenDone)
                 {
-                    _ = watched.CloseWindowAsync(CancellationToken.None);
+                    _ = Task.Run(async () =>
+                        NoteClose(department.Id, await watched.CloseWindowAsync(CancellationToken.None)));
                 }
 
                 lock (_startGate)
@@ -368,6 +369,15 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// セッションの有無が変わった（設計 §32）。<b>画面の「動いているか」を直すために出す。</b>
     /// </summary>
     public event EventHandler<string>? SessionsChanged;
+
+    /// <summary>
+    /// 作業ログに出したいこと（設計 §62-25c）。
+    /// </summary>
+    /// <remarks>
+    /// <b>セッションの診断とは別</b>（あちらはタイルの「診断」に出て、セッションと一緒に消える）。
+    /// 窓を閉じた・閉じなかったは<b>人間が画面で確かめる話</b>なので、作業ログに出す。
+    /// </remarks>
+    public event EventHandler<string>? Noted;
 
     /// <summary>
     /// その部門のターミナルを前面に出す（設計 §32-2c）。
@@ -672,6 +682,23 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         return closed;
     }
 
+    /// <summary>窓を閉じた結果を作業ログに出す（設計 §62-25c）。<b>閉じなかったことも言う。</b></summary>
+    private void NoteClose(string departmentId, TerminalCloseResult result)
+    {
+        var name = composer.KnowsDepartment(departmentId)
+            ? composer.DefinitionOf(departmentId).DisplayName
+            : departmentId;
+
+        Noted?.Invoke(this, result switch
+        {
+            TerminalCloseResult.Closed => $"{name}: ターミナルの窓を閉じた",
+            TerminalCloseResult.NotFound => $"{name}: ターミナルの窓はもう無かった",
+            TerminalCloseResult.Kept kept => $"{name}: ターミナルの窓は閉じなかった（{kept.Reason}）",
+            TerminalCloseResult.Failed failure => $"{name}: ターミナルの窓を閉じられなかった（{failure.Reason}）",
+            _ => $"{name}: ターミナルの窓を閉じた結果が分からない",
+        });
+    }
+
     /// <summary>止めて、居なくなったのを確かめてから窓を閉じる（設計 §62-25）。</summary>
     public async Task<bool> StopAndCloseAsync(string departmentId)
     {
@@ -686,7 +713,7 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
         {
             if (CloseTerminalsWhenDone && session is TerminalDepartmentSession terminal)
             {
-                await terminal.StopAndCloseAsync(CancellationToken.None);
+                NoteClose(departmentId, await terminal.StopAndCloseAsync(CancellationToken.None));
             }
 
             await session.DisposeAsync();
@@ -760,7 +787,10 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
                 // ここを通る —— 閉じないと、誰も面倒を見ない窓が残る。
                 if (CloseTerminalsWhenDone && session is TerminalDepartmentSession terminal)
                 {
-                    await terminal.StopAndCloseAsync(CancellationToken.None);
+                    Noted?.Invoke(this, terminal.DepartmentId
+                        + (await terminal.StopAndCloseAsync(CancellationToken.None) is TerminalCloseResult.Closed
+                            ? ": ターミナルの窓を閉じた"
+                            : ": ターミナルの窓は閉じなかった"));
                 }
 
                 await session.DisposeAsync();

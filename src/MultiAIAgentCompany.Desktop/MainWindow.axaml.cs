@@ -345,6 +345,10 @@ public partial class MainWindow : Window
         // 「前面に出す」が残り、押しても何も起きない。
         _runner.SessionsChanged += (_, departmentId) =>
             Dispatcher.UIThread.Post(() => RefreshRunning(departmentId));
+
+        // **窓を閉じた・閉じなかったを作業ログに出す**（設計 §62-25c）。
+        // セッションの診断はセッションと一緒に消えるので、そこに書いても人間には届かない。
+        _runner.Noted += (_, line) => Dispatcher.UIThread.Post(() => Note(line));
         UpdateSecretaryStatus();
 
         Opened += async (_, _) => await ResumeWorkspaceAsync();
