@@ -125,6 +125,27 @@ public sealed class TerminalLaunchTests
     }
 
     [Fact]
+    public void 残りの窓は動いていないものだけを拾う()
+    {
+        // 起動のときに付けた custom title が目印（シェルの見出しは CLI が終わると消える）。
+        var script = MacTerminalScript.LeftoverScript(MacTerminalScript.TitlePrefix);
+
+        Assert.Contains("(custom title of t) starts with \"MultiAI-\"", script);
+        Assert.Contains("if (busy of t) is false then", script);
+    }
+
+    [Fact]
+    public void 残りの一覧は形に合う行だけ読む()
+    {
+        var leftovers = MacTerminalScript.ParseLeftovers(
+            "/dev/ttys001\tMultiAI-design\n何か別の行\n/dev/ttys002\tMultiAI-review\n\n");
+
+        Assert.Equal(2, leftovers.Count);
+        Assert.Equal("/dev/ttys001", leftovers[0].Tty);
+        Assert.Equal("MultiAI-review", leftovers[1].Title);
+    }
+
+    [Fact]
     public void 窓のidが読めなければnullにする()
     {
         // **推測しない**（§7）。読めないなら「開いた」と言わない。

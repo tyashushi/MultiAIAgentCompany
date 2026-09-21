@@ -93,6 +93,52 @@ public static class MacTerminalScript
             """;
     }
 
+    /// <summary>窓に付ける見出しの接頭辞（設計 §32-2c / §62-25）。</summary>
+    public const string TitlePrefix = "MultiAI-";
+
+    /// <summary>
+    /// 前回の残りを探す AppleScript（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>シェルが付ける見出しは消える</b>（実測。CLI が終わるとプロンプトが付け直す）ので、
+    /// 起動のときに <c>custom title</c> を付けておき、こちらを見る。
+    /// <b>動いている窓は返さない</b>（<c>busy</c>）。
+    /// </remarks>
+    public static string LeftoverScript(string titlePrefix) =>
+        $"""
+        tell application "Terminal"
+            set out to ""
+            repeat with w in windows
+                repeat with t in tabs of w
+                    try
+                        if (custom title of t) starts with "{EscapeForAppleScriptString(titlePrefix)}" then
+                            if (busy of t) is false then
+                                set out to out & (tty of t) & "\t" & (custom title of t) & linefeed
+                            end if
+                        end if
+                    end try
+                end repeat
+            end repeat
+            return out
+        end tell
+        """;
+
+    /// <summary>残りの一覧を読む。<b>形に合う行だけ</b>採る（§7）。</summary>
+    public static IReadOnlyList<TerminalLeftover> ParseLeftovers(string output)
+    {
+        var leftovers = new List<TerminalLeftover>();
+        foreach (var line in (output ?? string.Empty).Split('\n'))
+        {
+            var parts = line.Trim('\r', ' ').Split('\t', 2);
+            if (parts.Length is 2 && parts[0].StartsWith("/dev/", StringComparison.Ordinal) && parts[1].Length > 0)
+            {
+                leftovers.Add(new TerminalLeftover(parts[0], parts[1]));
+            }
+        }
+
+        return leftovers;
+    }
+
     /// <summary>シングルクォートで囲む。中の <c>'</c> は閉じて足して開き直す。</summary>
     public static string Quote(string value) => "'" + value.Replace("'", "'\\''") + "'";
 

@@ -2119,6 +2119,8 @@ public partial class MainWindow : Window
                 // **黙って捨てない**（§25-2）。一覧に出ている範囲が全部だと思わせない。
                 Note($"読めない相談スレッドが {unreadable} 件あった（一覧には出していない）");
             }
+
+            await FindLeftoverTerminalsAsync();
         }
 
         // **走査で状態を書いたあとに出す。** 先に出すと、まだ Reported でない仕事の
@@ -2444,6 +2446,52 @@ public partial class MainWindow : Window
                 _ => $"{state.Slug}: 送れなかった（{result.GetType().Name}）",
             };
         }, keepItem: true);
+
+    /// <summary>
+    /// 前回のターミナルの窓が残っていないか見る（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>アプリを再起動するとハンドルを失う</b>ので、ここでしか回収できない。
+    /// <b>勝手に閉じない</b> —— 人間が自分で開いた窓かもしれないし、読み返している最中かもしれない。
+    /// <para>
+    /// 探すのは<b>動いていない窓だけ</b>。いま動かしている部門の窓は、まだ動いているので出てこない。
+    /// </para>
+    /// </remarks>
+    private async Task FindLeftoverTerminalsAsync()
+    {
+        if (_runner is not { } runner)
+        {
+            return;
+        }
+
+        var leftovers = await runner.FindLeftoverTerminalsAsync();
+        if (leftovers.Count == 0)
+        {
+            return;
+        }
+
+        var names = string.Join("、", leftovers.Select(leftover => leftover.Title).Distinct(StringComparer.Ordinal));
+        (DataContext as ShellViewModel)?.Recovery.Add(new RecoveryItem(
+            RecoveryKind.LeftoverTerminals, "terminals",
+            $"前回のターミナルの窓が {leftovers.Count} 個残っている（中では何も動いていない）: {names}"));
+    }
+
+    /// <summary>残りの窓を片付ける（設計 §62-25）。<b>押した時点で数え直す。</b></summary>
+    private async void OnRecoveryCloseTerminals(object? sender, RoutedEventArgs e)
+    {
+        if (Item(sender) is not { } item || _runner is not { } runner)
+        {
+            return;
+        }
+
+        // **押したときに、もう一度探す。** 間に人間が閉じたり、新しく使い始めたりする。
+        var closed = await runner.CloseLeftoverTerminalsAsync();
+        Note(closed == 0
+            ? "片付ける窓はもう無かった"
+            : $"前回のターミナルの窓を {closed} 個閉じた");
+
+        (DataContext as ShellViewModel)?.Recovery.Remove(item);
+    }
 
     /// <summary>
     /// アプリ上で取り消す。<b>実行の停止は保証しない</b>（§16-4）——

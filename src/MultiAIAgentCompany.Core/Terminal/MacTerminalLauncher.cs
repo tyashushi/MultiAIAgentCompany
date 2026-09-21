@@ -63,6 +63,13 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
                 tell application "Terminal"
                     activate
                     set t to do script "{MacTerminalScript.EscapeForAppleScriptString(scriptPath)}"{target}
+
+                    -- **消えない目印を付ける**（設計 §62-25）。シェルが付ける見出しは
+                    -- CLI が終わるとプロンプトが付け直してしまう（実測）。
+                    try
+                        set custom title of t to "{MacTerminalScript.EscapeForAppleScriptString(request.Title)}"
+                    end try
+
                     set theTty to tty of t
                     repeat with win in windows
                         repeat with i from 1 to (count of tabs of win)
@@ -142,6 +149,16 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
         // 位置（窓 id + タブ番号）は、タブを閉じたり並べ替えたりすると別のタブを指す。
         var run = await RunAsync("osascript", ["-e", MacTerminalScript.FocusScript(handle)], ct);
         return run.ExitCode == 0;
+    }
+
+    public async Task<IReadOnlyList<TerminalLeftover>> FindLeftoversAsync(string titlePrefix, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(titlePrefix);
+
+        var run = await RunAsync("osascript", ["-e", MacTerminalScript.LeftoverScript(titlePrefix)], ct);
+
+        // Terminal.app が居ない（-600）なら、残りも無い。**失敗と混ぜない。**
+        return run.ExitCode == 0 ? MacTerminalScript.ParseLeftovers(run.Stdout) : [];
     }
 
     public async Task<TerminalCloseResult> CloseAsync(TerminalHandle handle, CancellationToken ct)

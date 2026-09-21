@@ -913,6 +913,7 @@ public sealed record RecoveryItem(RecoveryKind Kind, string Slug, string Detail)
         RecoveryKind.UnreadableLease => "書き込み権を読めない",
         RecoveryKind.ExpiredLease => "書き込み権が失効したまま",
         RecoveryKind.Configuration => "部門の設定",
+        RecoveryKind.LeftoverTerminals => "前回のターミナルの窓",
         _ => "読めない",
     };
 
@@ -934,6 +935,11 @@ public sealed record RecoveryItem(RecoveryKind Kind, string Slug, string Detail)
     /// 部門の設定の話（設計 §32-10）。<b>直すのは人間</b>なので、出すのは「開く」だけ。
     /// </summary>
     public bool IsConfiguration => Kind is RecoveryKind.Configuration;
+
+    /// <summary>
+    /// 前回の残りの窓（設計 §62-25）。<b>中で何も動いていないものだけ</b>。
+    /// </summary>
+    public bool IsLeftoverTerminals => Kind is RecoveryKind.LeftoverTerminals;
 
     /// <summary>担当部門。<b>読めない仕事では null</b> —— 中の departmentId も信用できない（§16-3）。</summary>
     public string? DepartmentId { get; init; }
@@ -966,6 +972,12 @@ public enum RecoveryKind
     /// <b>壊れてはいないので開ける。</b> 直すのは人間で、アプリは書き換えない。
     /// </summary>
     Configuration,
+
+    /// <summary>
+    /// 前回のターミナルの窓が残っている（設計 §62-25）。
+    /// <b>勝手に閉じない</b> —— アプリの再起動を跨いだ窓は、人間が開いたものかもしれない。
+    /// </summary>
+    LeftoverTerminals,
 
     /// <summary>
     /// 書き込み権が失効した保持者を持ったまま（設計 §24）。

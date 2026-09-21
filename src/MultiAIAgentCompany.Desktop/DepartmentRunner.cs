@@ -632,6 +632,46 @@ public sealed class DepartmentRunner(ShellComposer composer) : IAsyncDisposable
     /// </remarks>
     public bool CloseTerminalsWhenDone { get; set; } = true;
 
+    /// <summary>
+    /// 前回の残りの窓を探す（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>いま面倒を見ている窓は外す。</b> 動いていない窓だけが返るので普通は混ざらないが、
+    /// 仕事の合間（CLI が終わってセッションだけ残っている）を拾うと、二重に片付けることになる。
+    /// </remarks>
+    public async Task<IReadOnlyList<TerminalLeftover>> FindLeftoverTerminalsAsync()
+    {
+        var leftovers = await _terminals.FindLeftoversAsync(MacTerminalScript.TitlePrefix, CancellationToken.None);
+        if (leftovers.Count == 0) return leftovers;
+
+        HashSet<string> mine;
+        lock (_startGate)
+        {
+            mine = [.. _sessions.Values.OfType<TerminalDepartmentSession>()
+                .Select(session => session.Handle.Tty)
+                .Where(tty => tty is { Length: > 0 })
+                .Select(tty => tty!)];
+        }
+
+        return [.. leftovers.Where(leftover => !mine.Contains(leftover.Tty))];
+    }
+
+    /// <summary>残りの窓を閉じる（設計 §62-25）。<b>押した時点で数え直す。</b></summary>
+    /// <returns>閉じられた数。</returns>
+    public async Task<int> CloseLeftoverTerminalsAsync()
+    {
+        var closed = 0;
+        foreach (var leftover in await FindLeftoverTerminalsAsync())
+        {
+            // 窓を指すのは TTY だけ（§62-24）。PID ファイルはもう要らない（中は終わっている）。
+            var result = await _terminals.CloseAsync(
+                new TerminalHandle(string.Empty, 0, string.Empty, leftover.Tty), CancellationToken.None);
+            if (result is TerminalCloseResult.Closed) closed++;
+        }
+
+        return closed;
+    }
+
     /// <summary>止めて、居なくなったのを確かめてから窓を閉じる（設計 §62-25）。</summary>
     public async Task<bool> StopAndCloseAsync(string departmentId)
     {

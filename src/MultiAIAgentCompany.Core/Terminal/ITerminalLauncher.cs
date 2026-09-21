@@ -135,7 +135,26 @@ public interface ITerminalLauncher
     /// </para>
     /// </remarks>
     Task<TerminalCloseResult> CloseAsync(TerminalHandle handle, CancellationToken ct);
+
+    /// <summary>
+    /// 前回の残り（このアプリが開いた窓で、もう何も動いていないもの）を探す（設計 §62-25）。
+    /// </summary>
+    /// <remarks>
+    /// <b>アプリを再起動するとハンドルを失う</b>ので、窓に付けた見出し（<c>custom title</c>）で探す。
+    /// **動いている窓は返さない** —— 片付けの対象は、中身が終わっている窓だけ。
+    /// <para>
+    /// <b>できない OS では空</b>（既定の実装）。「無かった」と「探せない」を呼び出し側で分けたいときは、
+    /// この OS でできるかを先に見る。
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<TerminalLeftover>> FindLeftoversAsync(string titlePrefix, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<TerminalLeftover>>([]);
 }
+
+/// <summary>前回の残りの窓（設計 §62-25）。</summary>
+/// <param name="Tty">同定に使う TTY。<b>位置では覚えない</b>（§62-24）。</param>
+/// <param name="Title">窓に付けた見出し（<c>MultiAI-&lt;部門&gt;</c>）。人間に見せる。</param>
+public sealed record TerminalLeftover(string Tty, string Title);
 
 /// <summary>窓を閉じた結果（設計 §62-25）。<b>閉じられなかった理由を潰さない</b>（§7）。</summary>
 public abstract record TerminalCloseResult
