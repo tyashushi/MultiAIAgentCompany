@@ -58,8 +58,13 @@ public static class MacTerminalScript
     /// <b>タブは閉じられない</b>（実測。タブは <c>close</c> を認識しない）ので、窓を閉じる。
     /// **他の部門や人間のタブを巻き込まない**ように、<b>タブが1つのときだけ</b>閉じる。
     /// <para>
-    /// 見つからなければ <c>1730</c>、タブが他にもあれば <c>1731</c> で返す ——
-    /// **番号で見分ける**（文言は OS の言語で変わる。§27-2）。
+    /// <b>閉じる直前に <c>busy</c> を見る</b>（人間が実機で踏んだ。2026-09-21）——
+    /// 中で何かが走っていると Terminal.app は<b>「実行中のプロセスを終了しますか？」を出して止まる</b>。
+    /// **同じスクリプトの中で見るのが肝**で、別呼び出しにすると、その間に走り出せる。
+    /// </para>
+    /// <para>
+    /// 見つからなければ <c>1730</c>、タブが他にもあれば <c>1731</c>、
+    /// 中で動いていれば <c>1732</c> で返す —— **番号で見分ける**（文言は OS の言語で変わる。§27-2）。
     /// </para>
     /// </remarks>
     public static string CloseScript(TerminalHandle handle)
@@ -72,6 +77,7 @@ public static class MacTerminalScript
             return $"""
                 tell application "Terminal"
                     if (count of tabs of window id {handle.WindowId}) > 1 then error "other tabs" number 1731
+                    if busy of selected tab of window id {handle.WindowId} then error "busy" number 1732
                     close window id {handle.WindowId} saving no
                 end tell
                 """;
@@ -83,6 +89,7 @@ public static class MacTerminalScript
                     repeat with t in tabs of w
                         if tty of t is "{EscapeForAppleScriptString(tty)}" then
                             if (count of tabs of w) > 1 then error "other tabs" number 1731
+                            if busy of t then error "busy" number 1732
                             close w saving no
                             return "closed"
                         end if

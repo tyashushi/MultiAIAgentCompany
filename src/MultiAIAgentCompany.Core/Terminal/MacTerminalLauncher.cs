@@ -176,6 +176,11 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
         if (text.Contains("1731", StringComparison.Ordinal))
             return new TerminalCloseResult.Kept("その窓には他のタブもある");
 
+        // **中で動いていたら閉じない**（人間が実機で踏んだ）。閉じにいくと
+        // Terminal.app が「実行中のプロセスを終了しますか？」を出して止まる。
+        if (text.Contains("1732", StringComparison.Ordinal))
+            return new TerminalCloseResult.Kept("その窓では何かが動いている");
+
         return new TerminalCloseResult.Failed(text.Trim());
     }
 
@@ -305,10 +310,25 @@ public sealed class MacTerminalLauncher : ITerminalLauncher
                 return (-1, string.Empty, $"{fileName} を起動できません");
             }
 
-            var stdout = process.StandardOutput.ReadToEndAsync(ct);
-            var stderr = process.StandardError.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
-            return (process.ExitCode, await stdout, await stderr);
+            // **待ち続けない**（人間が実機で踏んだ。2026-09-21）。Terminal.app が
+            // 「実行中のプロセスを終了しますか？」のような**人間待ちのダイアログ**を出すと、
+            // `osascript` は答えが出るまで返らない —— **アプリがそこで固まる。**
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(20));
+
+            var stdout = process.StandardOutput.ReadToEndAsync(deadline.Token);
+            var stderr = process.StandardError.ReadToEndAsync(deadline.Token);
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token);
+                return (process.ExitCode, await stdout, await stderr);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // **置き去りにしない。** 返事待ちの osascript は、こちらで終わらせる。
+                try { process.Kill(entireProcessTree: true); } catch (Exception) { /* もう終わっている */ }
+                return (-1, string.Empty, "osascript が 20 秒で返らなかった（人間待ちのダイアログが出ているかもしれない）");
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

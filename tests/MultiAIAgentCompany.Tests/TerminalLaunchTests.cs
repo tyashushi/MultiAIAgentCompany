@@ -112,7 +112,17 @@ public sealed class TerminalLaunchTests
 
         Assert.Contains("tty of t is \"/dev/ttys013\"", script);
         Assert.Contains("(count of tabs of w) > 1 then error \"other tabs\" number 1731", script);
+
+        // **閉じる直前に busy を見る**（人間が実機で踏んだ）。中で動いていると
+        // Terminal.app が「実行中のプロセスを終了しますか？」を出して止まる。
+        // **同じスクリプトの中で見る** —— 別呼び出しだと、その間に走り出せる。
+        Assert.Contains("if busy of t then error \"busy\" number 1732", script);
         Assert.Contains("close w saving no", script);
+
+        // 順番も見る: busy の検査は close より前。
+        Assert.True(
+            script.IndexOf("number 1732", StringComparison.Ordinal)
+                < script.IndexOf("close w saving no", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -122,6 +132,7 @@ public sealed class TerminalLaunchTests
 
         Assert.Contains("close window id 43990 saving no", script);
         Assert.Contains("number 1731", script);
+        Assert.Contains("number 1732", script);
     }
 
     [Fact]
