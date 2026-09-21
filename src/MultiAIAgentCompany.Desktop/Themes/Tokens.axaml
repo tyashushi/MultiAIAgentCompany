@@ -30,6 +30,11 @@
             <SolidColorBrush x:Key="NeedsHumanBrush" Color="#B8791F" />
             <SolidColorBrush x:Key="NeedsHumanSoftBrush" Color="#FCF3E3" />
 
+            <!-- 稼働中のタイル（設計 §62-27、人間の要望）。**人間の出番の色とは別にする** ——
+                 あちらは「あなたの番」、こちらは「動いている」。青系にして役割を分ける。 -->
+            <SolidColorBrush x:Key="RunningBrush" Color="#3A6FF8" />
+            <SolidColorBrush x:Key="RunningSoftBrush" Color="#EDF2FE" />
+
             <!-- 報告の Markdown 表示（LiveMarkdown.Avalonia の鍵。§62-9）。
                  **ライブラリの既定はダーク向けの固定値**なので、ライトでは地が濃い灰色になる。 -->
             <Color x:Key="BorderColor">#E3E3E6</Color>
@@ -57,6 +62,9 @@
 
             <SolidColorBrush x:Key="NeedsHumanBrush" Color="#E0A44A" />
             <SolidColorBrush x:Key="NeedsHumanSoftBrush" Color="#3A2E1A" />
+
+            <SolidColorBrush x:Key="RunningBrush" Color="#6C95FF" />
+            <SolidColorBrush x:Key="RunningSoftBrush" Color="#1B2440" />
 
             <Color x:Key="BorderColor">#3A3A3E</Color>
             <Color x:Key="ForegroundColor">#F2F2F7</Color>

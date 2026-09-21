@@ -197,6 +197,30 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// <summary>止めていない＝走っている。<b>「続ける」と「止める」は同時に出さない。</b></summary>
     public bool PlanRunning => !PlanStopped;
 
+    /// <summary>
+    /// 計画の工程の一覧（設計 §62-27、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>帯の1行では、どこで止まったのか分からなかった</b>（実機で踏んだ）——
+    /// 8工程の計画で「工程 7 が partial」とだけ出ても、**全体のどこなのかが見えない**。
+    /// <b>状態は持たない</b>（§31-1）。毎周、仕事の状態から作り直す。
+    /// </remarks>
+    public ObservableCollection<PlanStepRow> PlanSteps { get; } = [];
+
+    public bool HasPlanSteps => PlanSteps.Count > 0;
+
+    /// <summary>工程の一覧を作り直す。<b>選択も何も持たないので、丸ごと入れ替えてよい。</b></summary>
+    public void SetPlanSteps(IReadOnlyList<PlanStepRow> rows)
+    {
+        PlanSteps.Clear();
+        foreach (var row in rows)
+        {
+            PlanSteps.Add(row);
+        }
+
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPlanSteps)));
+    }
+
     public bool HasRecovery => Recovery.Count > 0;
 
     /// <summary>
@@ -937,6 +961,23 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
             WorkspaceTrustState.NoRecord => "その CLI をこのフォルダで一度起動すれば分かる。信頼を聞かれたら与える（戻ってくると表示が更新される）",
             _ => "設定ファイルを読めなかった。未 trust とは限らない（ターミナルで開いて確かめられる）",
         };
+}
+
+/// <summary>
+/// 計画の工程1つ（設計 §62-27）。<b>見せるためだけの行</b>で、状態は持たない。
+/// </summary>
+/// <param name="Number">工程の番号（1 から）。</param>
+/// <param name="Name">部門の表示名。</param>
+/// <param name="Mark">進み具合の印（✓ / ▶ / ■ / －）。</param>
+/// <param name="Detail">その工程で分かっていること（判定・止まった理由など）。</param>
+/// <param name="IsCurrent">いま人間の出番がある工程か。<b>ここだけ強調する。</b></param>
+public sealed record PlanStepRow(int Number, string Name, string Mark, string Detail, bool IsCurrent)
+{
+    public string Head => $"{Number}. {Name}";
+
+    /// <summary><b>変換器を作らずに済ませる</b>（行の側が持つ）。いまの工程だけ太字。</summary>
+    public Avalonia.Media.FontWeight Weight =>
+        IsCurrent ? Avalonia.Media.FontWeight.Bold : Avalonia.Media.FontWeight.Normal;
 }
 
 /// <summary>

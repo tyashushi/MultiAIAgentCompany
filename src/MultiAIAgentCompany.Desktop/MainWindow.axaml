@@ -275,7 +275,7 @@
                 <Border IsVisible="{Binding HasPlan}" Margin="0,0,0,6" Padding="8" CornerRadius="4"
                         BorderThickness="1"
                         BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}">
-                    <Grid ColumnDefinitions="*,Auto">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                         <!-- **選んでコピーできるようにする**（人間の要望、2026-09-12）——
                              ここに出るのは**渡せなかった理由**で、人間はそれを人に見せたり
                              調べたりする。読めるだけでは足りない（作業ログは §34-4 で既にそう）。 -->
@@ -287,6 +287,26 @@
                             <Button Content="計画を続ける" Margin="8,0,0,0"
                                     IsVisible="{Binding PlanStopped}" Click="OnResumePlan" />
                         </StackPanel>
+
+                        <!-- **工程の一覧**（設計 §62-27、人間の要望）。1行だけでは
+                             「8工程のどこで止まったのか」が分からなかった（実機で踏んだ）。 -->
+                        <ItemsControl Grid.Row="1" Grid.ColumnSpan="2" ItemsSource="{Binding PlanSteps}"
+                                      IsVisible="{Binding HasPlanSteps}" Margin="0,6,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:PlanStepRow">
+                                    <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,1,0,1">
+                                        <TextBlock Grid.Column="0" Text="{Binding Mark}" Width="18"
+                                                   FontSize="{DynamicResource FontSizeSmall}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Head}" Margin="0,0,8,0"
+                                                   FontSize="{DynamicResource FontSizeSmall}"
+                                                   FontWeight="{Binding Weight}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Detail}" TextWrapping="Wrap"
+                                                   FontSize="{DynamicResource FontSizeSmall}"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </Grid>
                 </Border>
 
@@ -557,7 +577,8 @@
                         <Button Click="OnDepartmentClick" Classes="bare" Margin="0,0,0,8">
                         <!-- **人間の出番があるタイルにだけ色が付く**（設計 §44）。
                              全部が同じ灰色の箱だと、どれを見ればよいかが絵から分からない。 -->
-                        <Border Classes="card" Classes.needs-human="{Binding NeedsHuman}">
+                        <Border Classes="card" Classes.needs-human="{Binding NeedsHuman}"
+                                Classes.running="{Binding SessionRunning}">
                             <Grid ColumnDefinitions="Auto,*">
                                 <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
                                 <!-- **選んでいる部門だけ大きく出す**（設計 §52-5）。一覧の並びは 40px のまま。 -->

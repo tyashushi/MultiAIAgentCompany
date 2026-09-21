@@ -19,6 +19,19 @@
         <Setter Property="Background" Value="{DynamicResource NeedsHumanSoftBrush}" />
     </Style>
 
+    <!-- 動いているタイル（設計 §62-27、人間の要望）。**人間の出番より弱く出す** ——
+         色が2つ並ぶので、強いのは「あなたの番」の側でなければならない。 -->
+    <Style Selector="Border.card.running">
+        <Setter Property="BorderBrush" Value="{DynamicResource RunningBrush}" />
+        <Setter Property="Background" Value="{DynamicResource RunningSoftBrush}" />
+    </Style>
+
+    <!-- **人間の出番が勝つ**（両方立つことがある）。後に置いた側が効く。 -->
+    <Style Selector="Border.card.running.needs-human">
+        <Setter Property="BorderBrush" Value="{DynamicResource NeedsHumanBrush}" />
+        <Setter Property="Background" Value="{DynamicResource NeedsHumanSoftBrush}" />
+    </Style>
+
     <!-- 一覧の行。**枠を持たない** —— ホバーと選択のときだけ面が付く。 -->
     <Style Selector="Button.row">
         <Setter Property="Background" Value="Transparent" />

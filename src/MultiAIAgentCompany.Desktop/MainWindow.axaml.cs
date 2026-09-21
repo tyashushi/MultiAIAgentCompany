@@ -651,6 +651,16 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 中央の会話に置く上限（設計 §17-5 / §62-27）。
+    /// </summary>
+    /// <remarks>
+    /// <b>2000 行にした</b>（人間の要望、2026-09-21）。500 行では、8工程の計画に
+    /// 差し戻しが数周入っただけで**会話の頭が消えた**。正本は `.company/` なので
+    /// 上限そのものは要るが、**1回の作業を見返せるだけの長さ**は要る。
+    /// </remarks>
+    private const int TranscriptLimit = 2000;
+
     private void Say(string line)
     {
         if (DataContext is ShellViewModel shell)
@@ -658,9 +668,21 @@ public partial class MainWindow : Window
             // 会話は正本ではない（§17-3）。落ちたら失われてよい。
             // ただし**上限を置く** —— 永続しなくても長時間起動で膨らむ（§17-5）。
             shell.SecretaryTranscript.Add(line);
-            while (shell.SecretaryTranscript.Count > 500)
+
+            // **黙って消さない**（設計 §62-27、人間が実機で踏んだ）。8工程＋差し戻し3周で
+            // 上限に達し、**会話が途中から消えたように見えた**。記録は `.company/` に残っているので、
+            // 消えたのは画面の写しだけだと分かるように言う。
+            var dropped = 0;
+            while (shell.SecretaryTranscript.Count > TranscriptLimit)
             {
                 shell.SecretaryTranscript.RemoveAt(0);
+                dropped++;
+            }
+
+            if (dropped > 0)
+            {
+                shell.SecretaryTranscript.Insert(
+                    0, $"（古い発言を {dropped} 件片付けました。記録は .company/secretary/threads/ に残っています）");
             }
 
             // 新しい発言まで追う（設計 §25-1）。**描画のあとに動かす** ——
@@ -1582,6 +1604,7 @@ public partial class MainWindow : Window
 
             var tick = await runner.StepAsync(found.Plan, hands, CancellationToken.None);
             ShowPlan(shell, found.Plan, tick);
+            await ShowPlanStepsAsync(shell, found.Plan, tick);
 
             if (tick is PlanTick.Acted acted)
             {
@@ -1611,6 +1634,79 @@ public partial class MainWindow : Window
             PlanTick.Acted acted => $"計画「{plan.Goal}」: {acted.Note}",
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// 計画の工程の一覧を作る（設計 §62-27、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>正本は各仕事の <c>state.json</c></b>（§31-1）。ここでは毎周読み直して印に直すだけで、
+    /// 進み具合をどこにも覚えない。
+    /// <para>
+    /// <b>「いま人間の出番がある工程」を1つだけ強調する</b> —— 帯の1行では、
+    /// 8工程のどこで止まっているのかが分からなかった（実機で踏んだ）。
+    /// </para>
+    /// </remarks>
+    private async Task ShowPlanStepsAsync(ShellViewModel shell, Plan plan, PlanTick tick)
+    {
+        if (_composer?.Tasks is not { } tasks)
+        {
+            return;
+        }
+
+        var stoppedAt = tick is PlanTick.Stopped ? StoppedStepNumber(plan, tick) : null;
+        var rows = new List<PlanStepRow>();
+
+        for (var index = 0; index < plan.Steps.Count; index++)
+        {
+            var step = plan.Steps[index];
+            var name = _composer.KnowsDepartment(step.DepartmentId)
+                ? _composer.DefinitionOf(step.DepartmentId).DisplayName
+                : step.DepartmentId;
+            if (step.IsReview) name += $"（工程 {step.ReviewsStep + 1} を見る）";
+
+            var state = step.TaskSlug is { Length: > 0 } slug
+                && await tasks.ReadAsync(slug, CancellationToken.None) is TaskReadResult.Found found
+                    ? found.State
+                    : null;
+
+            var verdict = step.Verdict is { } v ? $"／判定 {(v is ReviewVerdict.Ok ? "ok" : "revise")}" : string.Empty;
+            var attempt = state is { AttemptId: > 0 } ? $"／{state.AttemptId + 1} 周目" : string.Empty;
+
+            var (mark, detail) = state?.Status switch
+            {
+                null => ("－", "まだ渡していない"),
+                CoreTaskStatus.Accepted => ("✓", $"受理した{verdict}"),
+                CoreTaskStatus.Reported => ("■", $"報告が届いている{verdict}{attempt}"),
+                CoreTaskStatus.AwaitingAnswer => ("■", "質問が出ている（答えるまで進まない）"),
+                CoreTaskStatus.Rejected => ("▶", $"差し戻した{attempt}"),
+                CoreTaskStatus.Cancelled => ("－", "取り消した"),
+                CoreTaskStatus.Failed => ("■", "失敗として記録した"),
+                _ => ("▶", $"動いている{attempt}"),
+            };
+
+            var current = stoppedAt == index + 1
+                || state?.Status is CoreTaskStatus.Reported or CoreTaskStatus.AwaitingAnswer;
+
+            rows.Add(new PlanStepRow(index + 1, name, mark, detail, current));
+        }
+
+        shell.SetPlanSteps(rows);
+    }
+
+    /// <summary>止まった工程の番号を、理由の文から読む（設計 §62-27）。</summary>
+    /// <remarks>
+    /// <b>文言に頼らない形が良いが、いまの <c>PlanTick.Stopped</c> は理由の文しか持たない。</b>
+    /// 読めなければ番号を出さないだけで、一覧そのものは出す（§7）。
+    /// </remarks>
+    private static int? StoppedStepNumber(Plan plan, PlanTick tick)
+    {
+        if (tick is not PlanTick.Stopped stopped) return null;
+        var match = System.Text.RegularExpressions.Regex.Match(stopped.Reason, @"工程\s*(\d+)");
+        return match.Success && int.TryParse(match.Groups[1].Value, out var number)
+            && number >= 1 && number <= plan.Steps.Count
+                ? number
+                : null;
     }
 
     /// <summary>計画を止める・続ける（設計 §37-3）。</summary>
