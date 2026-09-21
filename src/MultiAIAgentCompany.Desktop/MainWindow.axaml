@@ -308,6 +308,13 @@
                                      FontSize="{DynamicResource FontSizeSmall}"
                                      Foreground="{DynamicResource TextSecondaryBrush}"
                                      TextWrapping="Wrap" Margin="0,0,0,6" />
+
+                <!-- **考えている印**（設計 §62-26、人間の要望）。観測した turn をそのまま出す。 -->
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,6"
+                            IsVisible="{Binding SecretaryThinking}">
+                    <ProgressBar IsIndeterminate="True" Width="120" Height="4" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding SecretaryThinkingText}" Classes="caption" VerticalAlignment="Center" />
+                </StackPanel>
                 <!-- 送る前の添付（設計 §58-6）。**外せるようにする** —— 落とし間違いを送らない。 -->
                 <ItemsControl ItemsSource="{Binding PendingAttachments}" IsVisible="{Binding HasPendingAttachments}"
                               Margin="0,0,0,6">

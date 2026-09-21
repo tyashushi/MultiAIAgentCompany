@@ -1513,6 +1513,10 @@ public partial class MainWindow : Window
 
         var outcome = await _secretary.SendAsync(toSend, CancellationToken.None);
 
+        // **押した直後に印を出す**（設計 §62-26）。定期処理は5秒おきなので、
+        // ここで更新しないと「押したのに何も起きない」時間ができる。
+        UpdateSecretaryTurnWatch();
+
         // **積まれたことを黙らない**（設計 §32-12）。走っている turn があると
         // その場では書かれない —— 言わないと「送ったのに何も起きない」になる（§7）。
         if (!outcome.Written)
@@ -1669,6 +1673,18 @@ public partial class MainWindow : Window
 
         var now = TimeProvider.System.GetUtcNow();
         var activity = _secretary.Activity;
+
+        // **考えている印**（設計 §62-26、人間の要望）。観測した turn をそのまま出す ——
+        // 「止まった」（下の期限超え）より前に、押した直後から見える。
+        shell.SecretaryThinking = activity.InFlight;
+        if (activity.InFlight)
+        {
+            var elapsed = activity.Since is { } since ? now - since : TimeSpan.Zero;
+            var queued = activity.Queued > 0 ? $"／あと {activity.Queued} 件待っている" : string.Empty;
+            shell.SecretaryThinkingText = elapsed.TotalSeconds < 60
+                ? $"秘書が考えています（{Math.Max(1, (int)elapsed.TotalSeconds)} 秒）{queued}"
+                : $"秘書が考えています（{(int)elapsed.TotalMinutes} 分{elapsed.Seconds:00} 秒）{queued}";
+        }
 
         var silence = TurnWatch.Of(
             activity, awaitingHuman, TurnWatch.DefaultDeadline, now);

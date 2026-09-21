@@ -104,6 +104,40 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     } = "（ワークスペース未選択）";
 
     /// <summary>
+    /// 秘書がいま考えているか（設計 §62-26、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>観測した turn の有無をそのまま出す</b>（`TurnActivity.InFlight`）。
+    /// 推測ではないので、**返事が来ないまま黙っている時間**も、ここで見える。
+    /// <para>
+    /// <b>「止まった」とは別</b>（<see cref="SecretaryStalledText"/> は期限を過ぎてから出る）。
+    /// こちらは押した直後から出る、ただの「動いている」印。
+    /// </para>
+    /// </remarks>
+    public bool SecretaryThinking
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SecretaryThinking)));
+        }
+    }
+
+    /// <summary>考え中の脇に出す一言。<b>経過と、待たせている数</b>（設計 §62-26）。</summary>
+    public string SecretaryThinkingText
+    {
+        get;
+        set
+        {
+            if (string.Equals(field, value, StringComparison.Ordinal)) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SecretaryThinkingText)));
+        }
+    } = "秘書が考えています";
+
+    /// <summary>
     /// 秘書へ送った turn の終わりを、期限までに観測していない（設計 §36）。
     /// </summary>
     /// <remarks>
@@ -859,13 +893,19 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
     public string AgentText => Agent.ToString();
 
     /// <summary>
-    /// 「ターミナルで開く」を出すか（設計 §54）。<b>未 trust と分かっているか、記録がまだ無いとき。</b>
+    /// 「ターミナルで開く」を出すか（設計 §54）。<b>CLI が見つかっていて、信頼済みでないとき。</b>
     /// </summary>
     /// <remarks>
-    /// 「判定できない」（壊れていて読めない）には出さない —— 未 trust とは限らないのに、操作を促すことになる（§13-9）。
-    /// 記録がまだ無いなら、一度起動すれば分かる（§55-5）。
+    /// <b>「判定できない」にも出す</b>（2026-09-21、人間の要望）。それまでは
+    /// 「未 trust とは限らないのに操作を促すことになる」として出していなかったが、
+    /// **判定できないときこそ、人間が自分の目で確かめに行ける口が要る** ——
+    /// 行った先で聞かれなければ、それは信頼済みだったと分かる。
+    /// <para>
+    /// <b>アプリが trust を書くわけではない</b>（§13-9 規則2）。連れて行くだけなので、
+    /// 「未 trust だ」と言い切ることにはならない。
+    /// </para>
     /// </remarks>
-    public bool CanOpenTerminal => ExecutablePath is not null && State is WorkspaceTrustState.NotTrusted or WorkspaceTrustState.NoRecord;
+    public bool CanOpenTerminal => ExecutablePath is not null && State is not WorkspaceTrustState.Trusted;
 
     /// <summary>
     /// <b>そもそも CLI があるか</b>を、trust より先に言う（設計 §28-1）。
@@ -895,7 +935,7 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
             WorkspaceTrustState.Trusted => "そのまま使える",
             WorkspaceTrustState.NotTrusted => "その CLI をこのフォルダで一度起動して信頼を与える（戻ってくると表示が更新される）",
             WorkspaceTrustState.NoRecord => "その CLI をこのフォルダで一度起動すれば分かる。信頼を聞かれたら与える（戻ってくると表示が更新される）",
-            _ => "設定ファイルを読めなかった。未 trust とは限らない",
+            _ => "設定ファイルを読めなかった。未 trust とは限らない（ターミナルで開いて確かめられる）",
         };
 }
 
