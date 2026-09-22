@@ -34,6 +34,65 @@ public sealed class DepartmentStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 既定の並びは保存され読み戻せる()
+    {
+        // 設計 §62-34、人間の要望。
+        var design = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
+        var review = new DepartmentDefinition(
+            "review", "レビュー", "見る", AgentKind.CodexCli, DriveMode.ExternalTerminal, ReadsOnly: true);
+        PipelineStep[] pipeline = [new("design"), new("review", RunsWithPrevious: true)];
+
+        Assert.IsType<DefinitionWriteResult.Written>(await _store.SaveAsync(
+            new(0, []), [design, review], secretary: null, CancellationToken.None, pipeline));
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        Assert.Equal(pipeline, read.Definition.PipelineOrEmpty);
+    }
+
+    [Fact]
+    public async Task 並びを渡さない保存では_いまの並びを保つ()
+    {
+        // 部門だけを直す呼び出しで、**決めた並びを黙って捨てない**。
+        var design = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
+        var saved = Assert.IsType<DefinitionWriteResult.Written>(await _store.SaveAsync(
+            new(0, []), [design], secretary: null, CancellationToken.None, [new PipelineStep("design")]));
+
+        Assert.IsType<DefinitionWriteResult.Written>(
+            await _store.SaveAsync(saved.Definition, [design], CancellationToken.None));
+
+        var read = Assert.IsType<DefinitionReadResult.Found>(await _store.ReadAsync(CancellationToken.None));
+        Assert.Equal([new PipelineStep("design")], read.Definition.PipelineOrEmpty);
+    }
+
+    [Fact]
+    public async Task 居ない部門を並びに入れた保存は断る()
+    {
+        var design = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
+
+        var result = Assert.IsType<DefinitionWriteResult.Rejected>(await _store.SaveAsync(
+            new(0, []), [design], secretary: null, CancellationToken.None, [new PipelineStep("testing")]));
+
+        Assert.Contains("testing", result.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 並びの最初に同時の印は付けさせない()
+    {
+        // 前の工程が無いので意味を持たない。**黙って落とさずに断る**（§28-1）。
+        var design = new DepartmentDefinition(
+            "design", "設計", "設計する", AgentKind.ClaudeCode, DriveMode.ExternalTerminal);
+
+        var result = Assert.IsType<DefinitionWriteResult.Rejected>(await _store.SaveAsync(
+            new(0, []), [design], secretary: null, CancellationToken.None,
+            [new PipelineStep("design", RunsWithPrevious: true)]));
+
+        Assert.Contains("最初", result.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task 秘書にその_CLI_が持たない権限モードは保存させない()
     {
         // Codex が構造化で持つのは「自動」だけ（設計 §51-2）。

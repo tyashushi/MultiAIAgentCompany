@@ -1739,7 +1739,12 @@ public partial class MainWindow : Window
             var current = stoppedAt == index
                 || state?.Status is CoreTaskStatus.Reported or CoreTaskStatus.AwaitingAnswer;
 
-            rows.Add(new PlanStepRow(index + 1, name, mark, detail, current));
+            // **渡した工程は動かせない**（設計 §62-35）。仕事になった時点で、位置の意味が確定する。
+            var canEdit = step.TaskSlug is not { Length: > 0 };
+
+            rows.Add(new PlanStepRow(
+                index + 1, name, mark, detail, current,
+                canEdit, step.RunsWithPrevious, CanRunWithPrevious: canEdit && index > 0));
         }
 
         shell.SetPlanSteps(rows);
@@ -1820,6 +1825,66 @@ public partial class MainWindow : Window
         _bandPlanId = null;
         await ScanAsync(CompanyScanKind.Periodic);
     }
+
+    /// <summary>
+    /// 帯の工程を人間が並べ替える（設計 §62-35、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>判断は Core（<see cref="PlanEdit"/>）が持つ。</b> ここは押された行を渡して、
+    /// 結果を作業ログに出すだけ —— 断られた理由も出す（§28-1）。
+    /// <para>
+    /// <b>書けたら走査を回す。</b> 帯は走査が作り直すので、押した直後に新しい並びが出る。
+    /// </para>
+    /// </remarks>
+    private async Task EditPlanAsync(object? sender, Func<Plan, PlanEditResult> edit)
+    {
+        if (_composer?.Plans is not { } store || _bandPlanId is not { } id
+            || (sender as Control)?.DataContext is not PlanStepRow row
+            || Busy("計画の並べ替え"))
+        {
+            return;
+        }
+
+        if (await store.ReadAsync(id, CancellationToken.None) is not PlanReadResult.Found found)
+        {
+            Note($"計画を読めなかったので並べ替えられない: {id}");
+            return;
+        }
+
+        switch (edit(found.Plan))
+        {
+            case PlanEditResult.Rejected rejected:
+                Note($"工程 {row.Number} を動かせない: {rejected.Reason}");
+                return;
+
+            case PlanEditResult.Edited edited:
+                Note(await store.WriteAsync(found.Plan, edited.Plan, CancellationToken.None) switch
+                {
+                    PlanWriteResult.Written => $"計画の工程を並べ替えた（工程 {row.Number}）",
+                    PlanWriteResult.Conflicted conflicted => $"計画を並べ替えられなかった: {conflicted.Reason}",
+                    PlanWriteResult.Rejected write => $"計画を並べ替えられなかった: {write.Reason}",
+                    _ => "計画を並べ替えられなかった",
+                });
+                break;
+        }
+
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    private async void OnPlanStepUp(object? sender, RoutedEventArgs e) =>
+        await EditPlanAsync(sender, plan => PlanEdit.Move(plan, Row(sender), Row(sender) - 1));
+
+    private async void OnPlanStepDown(object? sender, RoutedEventArgs e) =>
+        await EditPlanAsync(sender, plan => PlanEdit.Move(plan, Row(sender), Row(sender) + 1));
+
+    /// <summary>「同時に走る」を切り替える（設計 §62-33）。<b>押すたびに反転する。</b></summary>
+    private async void OnPlanStepWave(object? sender, RoutedEventArgs e) =>
+        await EditPlanAsync(sender, plan => PlanEdit.SetRunsWithPrevious(
+            plan, Row(sender), (sender as Control)?.DataContext is PlanStepRow row && !row.RunsWithPrevious));
+
+    /// <summary>押されたボタンの行が指す工程（0 起点）。</summary>
+    private static int Row(object? sender) =>
+        (sender as Control)?.DataContext is PlanStepRow row ? row.Index : -1;
 
     private async void OnStopPlan(object? sender, RoutedEventArgs e) => await SetPlanStoppedAsync(true);
 

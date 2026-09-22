@@ -94,12 +94,31 @@ public sealed record SecretaryDefinition(
     AgentKind Agent = AgentKind.ClaudeCode, string? Model = null, string? ReasoningEffort = null,
     AgentPermissionMode? PermissionMode = null);
 
+/// <summary>
+/// このフォルダの<b>既定の並び</b>の1工程（設計 §62-34、人間の要望）。
+/// </summary>
+/// <remarks>
+/// <b>計画そのものではない。</b> 秘書が計画を立てるときに従う<b>雛形</b>で、
+/// 依頼によっては使わない工程もある。強制はしない —— 決めるのは秘書（§37-7）。
+/// </remarks>
+/// <param name="DepartmentId">部門 ID。<b>このフォルダに居る部門だけ。</b></param>
+/// <param name="RunsWithPrevious">前の工程と同時に走らせる（<see cref="PlanStep.RunsWithPrevious"/> と同じ意味）。</param>
+public sealed record PipelineStep(string DepartmentId, bool RunsWithPrevious = false);
+
 /// <param name="Secretary">
 /// 秘書の設定（設計 §46）。<b>古いファイルには無い</b>ので、null なら既定を使う。
 /// </param>
+/// <param name="Pipeline">
+/// 既定の並び（設計 §62-34）。<b>空なら決めていない</b> —— 秘書がその都度並べる。
+/// </param>
 public sealed record CompanyDefinition(
-    long Revision, IReadOnlyList<DepartmentDefinition> Departments, SecretaryDefinition? Secretary = null)
+    long Revision, IReadOnlyList<DepartmentDefinition> Departments, SecretaryDefinition? Secretary = null,
+    IReadOnlyList<PipelineStep>? Pipeline = null)
 {
+    /// <summary>既定の並び。<b>無ければ空</b>（決めていない）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<PipelineStep> PipelineOrEmpty => Pipeline ?? [];
+
     /// <summary>秘書の設定。<b>無ければ既定</b>（Claude Code、モデルと強さは CLI 任せ）。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public SecretaryDefinition SecretaryOrDefault => Secretary ?? new SecretaryDefinition();
@@ -230,15 +249,20 @@ public sealed class DepartmentStore
     /// 秘書の設定（設計 §46-3）。null なら**いまの値を保つ** ——
     /// 部門だけを直す呼び出しで、秘書の設定を黙って既定へ戻さないため。
     /// </param>
+    /// <param name="pipeline">
+    /// 既定の並び（設計 §62-34）。null なら<b>いまの値を保つ</b>。空の列なら「決めていない」に戻す。
+    /// </param>
     public async Task<DefinitionWriteResult> SaveAsync(
         CompanyDefinition expected, IReadOnlyList<DepartmentDefinition> departments,
-        SecretaryDefinition? secretary, CancellationToken ct)
+        SecretaryDefinition? secretary, CancellationToken ct,
+        IReadOnlyList<PipelineStep>? pipeline = null)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(departments);
         ct.ThrowIfCancellationRequested();
 
-        var validation = Validate(departments) ?? ValidateSecretary(secretary);
+        var validation = Validate(departments) ?? ValidateSecretary(secretary)
+            ?? ValidatePipeline(pipeline, departments);
         if (validation is not null) return new DefinitionWriteResult.Rejected(validation);
 
         var read = await ReadAsync(ct);
@@ -253,9 +277,11 @@ public sealed class DepartmentStore
         if (currentRevision != expected.Revision)
             return new DefinitionWriteResult.Rejected($"Revision が一致しません（expected: {expected.Revision}, actual: {currentRevision}）");
 
+        var current = read as DefinitionReadResult.Found;
         var next = new CompanyDefinition(
             checked(currentRevision + 1), departments.ToArray(),
-            secretary ?? (read as DefinitionReadResult.Found)?.Definition.Secretary);
+            secretary ?? current?.Definition.Secretary,
+            pipeline?.ToArray() ?? current?.Definition.Pipeline);
         await WriteAtomicallyAsync(_paths.Departments, next, ct);
         return new DefinitionWriteResult.Written(next);
     }
@@ -324,6 +350,40 @@ public sealed class DepartmentStore
     /// <b>その CLI が持たないモードは通さない。</b> 通すと、渡しても効かない設定が残り
     /// 「選べたのに効かない」になる（§51-2 と同じ姿勢）。Antigravity は秘書にできない（§30-1）。
     /// </remarks>
+    /// <summary>既定の並びの検証（設計 §62-34）。</summary>
+    /// <remarks>
+    /// <b>居ない部門を並びに残さない。</b> 残すと、秘書に「解決できない計画」を書けと言うことになる。
+    /// 先頭の工程の「同時」は<b>意味を持たない</b>ので、印が付いていたら断る —— 黙って落とさない（§28-1）。
+    /// </remarks>
+    private static string? ValidatePipeline(
+        IReadOnlyList<PipelineStep>? pipeline, IReadOnlyList<DepartmentDefinition> departments)
+    {
+        if (pipeline is null or { Count: 0 })
+        {
+            return null;
+        }
+
+        if (pipeline[0].RunsWithPrevious)
+        {
+            return "並びの最初の工程には「同時に走る」を付けられません（前の工程がありません）";
+        }
+
+        foreach (var step in pipeline)
+        {
+            if (step.DepartmentId is not { Length: > 0 })
+            {
+                return "並びに部門 ID の無い工程があります";
+            }
+
+            if (!departments.Any(d => string.Equals(d.Id, step.DepartmentId, StringComparison.Ordinal)))
+            {
+                return $"並びにこのフォルダに無い部門があります: {step.DepartmentId}";
+            }
+        }
+
+        return null;
+    }
+
     private static string? ValidateSecretary(SecretaryDefinition? secretary)
     {
         if (secretary is null) return null;

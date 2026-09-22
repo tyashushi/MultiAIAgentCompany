@@ -200,6 +200,12 @@ public sealed class ShellComposer
     /// </summary>
     public SecretaryDefinition Secretary { get; private set; } = new();
 
+    /// <summary>
+    /// このフォルダの既定の並び（設計 §62-34）。<b>秘書の手引きに書いて渡す</b> ——
+    /// アプリはこれで計画を作らない。計画を立てるのは秘書（§37-7）。
+    /// </summary>
+    public IReadOnlyList<PipelineStep> Pipeline { get; private set; } = [];
+
     /// <summary>まだ人間に見せていない沈黙の1行。<see cref="DrainSilenceNotices"/> で取り出す。</summary>
     private readonly List<string> _pendingSilenceNotices = [];
 
@@ -219,8 +225,9 @@ public sealed class ShellComposer
         // `departments.json` を編集しても効かなかった（レビューで発覚、2026-09-08）。
         // **読めなかったら開かない** —— 既定に落とすと、人間が書いた設定を
         // 黙って無視したまま動く（§7）。
-        var (departments, secretary) = await ReadDefinitionAsync(workspace, ct);
+        var (departments, secretary, pipeline) = await ReadDefinitionAsync(workspace, ct);
         Secretary = secretary;
+        Pipeline = pipeline;
 
         Workspace = workspace;
         var paths = workspace.Company;
@@ -282,7 +289,8 @@ public sealed class ShellComposer
     /// 動き続ける —— 特に危険モード（§30-4）が「設定したのに効かない」形になる。
     /// 呼び出し元は開くのをやめて、理由を人間に出すこと（§21-1 の「開かずに聞く」）。
     /// </remarks>
-    private async Task<(IReadOnlyList<DepartmentDefinition> Departments, SecretaryDefinition Secretary)>
+    private async Task<(IReadOnlyList<DepartmentDefinition> Departments, SecretaryDefinition Secretary,
+        IReadOnlyList<PipelineStep> Pipeline)>
         ReadDefinitionAsync(WorkspaceRef workspace, CancellationToken ct)
     {
         var store = new DepartmentStore(workspace.Company);
@@ -290,7 +298,8 @@ public sealed class ShellComposer
         {
             case DefinitionReadResult.Found found:
                 // **秘書の設定が無い古いファイルは、既定（Claude Code）**（設計 §46）。
-                return (found.Definition.Departments, found.Definition.SecretaryOrDefault);
+                return (found.Definition.Departments, found.Definition.SecretaryOrDefault,
+                    found.Definition.PipelineOrEmpty);
 
             case DefinitionReadResult.Unreadable broken:
                 throw new InvalidOperationException($"departments.json を読めません: {broken.Reason}");
@@ -305,7 +314,7 @@ public sealed class ShellComposer
                     throw new InvalidOperationException($"departments.json を作れません: {rejected.Reason}");
                 }
 
-                return (defaults, new SecretaryDefinition());
+                return (defaults, new SecretaryDefinition(), []);
         }
     }
 
@@ -721,7 +730,8 @@ public sealed class ShellComposer
                 _definitions.ContainsKey(DepartmentStore.AuditDepartmentId)
                     ? new AuditRule(DepartmentStore.AuditDepartmentId,
                         [.. _definitions.Values.Where(d => !d.ReadsOnly).Select(d => d.Id)])
-                    : null)
+                    : null,
+                Pipeline)
             : Task.CompletedTask;
 
     /// <summary>

@@ -90,6 +90,54 @@
             </StackPanel>
         </Border>
 
+        <!-- **仕事が流れる順**（設計 §62-34、人間の要望）。部門の一覧の並び（＝タイルの順）とは別物で、
+             秘書が計画を立てるときの雛形になる。「同時」を付けた工程は前の工程と並行に走る。 -->
+        <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,10,0,0">
+            <StackPanel Spacing="6">
+                <TextBlock Text="実行の並び（計画の雛形）" Classes="title" />
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="秘書が計画を立てるときに、この順で工程を並べます。依頼に要らない工程は飛ばされます。「同時」を付けた工程は、前の工程と並行に走ります（その組が全部終わるまで次へ進みません）。空なら、秘書がその都度決めます。" />
+
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <ComboBox ItemsSource="{Binding PipelineCandidates}" SelectedItem="{Binding PipelineCandidate}"
+                              Width="220">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="vm:DepartmentEdit">
+                                <TextBlock Text="{Binding DisplayName}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Content="＋ 並びに足す" Classes="quiet" Click="OnPipelineAdd" />
+                    <Button Content="↑" Classes="quiet" Click="OnPipelineUp" ToolTip.Tip="上へ"
+                            IsVisible="{Binding HasPipelineSelection}" />
+                    <Button Content="↓" Classes="quiet" Click="OnPipelineDown" ToolTip.Tip="下へ"
+                            IsVisible="{Binding HasPipelineSelection}" />
+                    <Button Content="外す" Classes="quiet" Click="OnPipelineRemove"
+                            IsVisible="{Binding HasPipelineSelection}" />
+                </StackPanel>
+
+                <TextBlock Classes="caption" IsVisible="{Binding !HasPipeline}"
+                           Text="（並びを決めていません。秘書が依頼ごとに工程を並べます）" />
+
+                <ListBox ItemsSource="{Binding Pipeline}" SelectedItem="{Binding SelectedPipelineStep}"
+                         IsVisible="{Binding HasPipeline}" MaxHeight="160"
+                         Background="{DynamicResource PaneBackgroundBrush}"
+                         BorderThickness="0" CornerRadius="{StaticResource CardRadius}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:PipelineEdit">
+                            <Grid ColumnDefinitions="*,Auto" Margin="2,2">
+                                <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center" />
+                                <!-- 先頭の行には出さない —— 前の工程が無いので意味を持たない。 -->
+                                <CheckBox Grid.Column="1" Content="前の工程と同時"
+                                          IsVisible="{Binding CanRunWithPrevious}"
+                                          IsChecked="{Binding RunsWithPrevious}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </StackPanel>
+        </Border>
+
         <!-- 左: 部門の一覧。右: 中身。 -->
         <Grid ColumnDefinitions="240,12,*">
             <DockPanel Grid.Column="0">

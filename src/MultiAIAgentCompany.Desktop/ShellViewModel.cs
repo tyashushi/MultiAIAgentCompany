@@ -986,13 +986,30 @@ public sealed record TrustRow(AgentKind Agent, WorkspaceTrustState State, string
 /// <param name="Mark">進み具合の印（✓ / ▶ / ■ / －）。</param>
 /// <param name="Detail">その工程で分かっていること（判定・止まった理由など）。</param>
 /// <param name="IsCurrent">いま人間の出番がある工程か。<b>ここだけ強調する。</b></param>
-public sealed record PlanStepRow(int Number, string Name, string Mark, string Detail, bool IsCurrent)
+/// <param name="CanEdit">
+/// まだ部門に渡していないので、人間が動かせるか（設計 §62-35）。
+/// <b>渡した工程は動かせない</b> —— もう終わった工程を「これから」の位置に置くことになる。
+/// </param>
+/// <param name="RunsWithPrevious">前の工程と同時に走る（設計 §62-33）。</param>
+/// <param name="CanRunWithPrevious">「同時」を切り替えられるか。<b>最初の工程には前が無い。</b></param>
+public sealed record PlanStepRow(
+    int Number, string Name, string Mark, string Detail, bool IsCurrent,
+    bool CanEdit = false, bool RunsWithPrevious = false, bool CanRunWithPrevious = false)
 {
     public string Head => $"{Number}. {Name}";
 
     /// <summary><b>変換器を作らずに済ませる</b>（行の側が持つ）。いまの工程だけ太字。</summary>
     public Avalonia.Media.FontWeight Weight =>
         IsCurrent ? Avalonia.Media.FontWeight.Bold : Avalonia.Media.FontWeight.Normal;
+
+    /// <summary>0 起点の位置。<b>計画の工程の並びと同じ数え方</b>（画面の番号は1起点）。</summary>
+    public int Index => Number - 1;
+
+    /// <summary>「同時」の印。<b>組になっていることを絵で見せる</b> —— 文字で書くと行が伸びる。</summary>
+    public string WaveMark => RunsWithPrevious ? "┃" : " ";
+
+    public string RunsWithPreviousTip =>
+        RunsWithPrevious ? "前の工程と同時に走る（押すと解く）" : "前の工程と同時に走らせる";
 }
 
 /// <summary>

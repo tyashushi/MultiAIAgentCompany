@@ -1,3 +1,4 @@
+using MultiAIAgentCompany.Core.Workspace;
 namespace MultiAIAgentCompany.Core.Coordination;
 
 /// <summary>
@@ -57,15 +58,45 @@ public static class SecretaryReadme
               """;
     }
 
+    /// <summary>既定の並びを、計画の書式と同じ見た目の行にする（設計 §62-34）。</summary>
+    /// <remarks>
+    /// <b>`step:` の形で見せる。</b> 別の書き方で見せると、秘書がその書き方を真似る。
+    /// 一言（`/` の右）は計画ごとに違うので、ここでは書かない。
+    /// </remarks>
+    private static IEnumerable<string> PipelineLines(IReadOnlyList<PipelineStep> pipeline) =>
+        pipeline.Select(step =>
+            $"step: {step.DepartmentId}{(step.RunsWithPrevious ? " " + SecretaryOutbox.WithPreviousKeyword : "")} / <次の工程への一言>");
+
     /// <summary>protocol を書き出す。既にあれば上書きする（形式が変わることがあるため）。</summary>
     /// <param name="audit">
     /// 監査部門があるときだけ渡す（設計 §59）。<b>無い部門を足せと言わない</b> —— 解決できない計画になる。
     /// </param>
+    /// <param name="pipeline">
+    /// このフォルダの既定の並び（設計 §62-34、人間が設定画面で決める）。
+    /// <b>空なら何も書かない</b> —— 決めていないものを、それらしく書かない（§7）。
+    /// </param>
     public static async Task WriteAsync(
-        CompanyPaths paths, IReadOnlyList<string> departmentLines, CancellationToken ct, AuditRule? audit = null)
+        CompanyPaths paths, IReadOnlyList<string> departmentLines, CancellationToken ct, AuditRule? audit = null,
+        IReadOnlyList<PipelineStep>? pipeline = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(departmentLines);
+
+        var pipelineSection = pipeline is not { Count: > 0 } ? "" : $"""
+
+            ### このフォルダの既定の並び（設計 §62-34）
+
+            人間がこのフォルダで決めた、工程の**既定の並び**です。計画を立てるときは、
+            **依頼に要る工程だけをこの順で**並べてください。要らない工程は飛ばして構いませんが、
+            **順番と「同時に走る組」は変えません。**
+
+            ```
+            {string.Join("\n", PipelineLines(pipeline))}
+            ```
+
+            この並びに無い部門が要るときは、要る場所に足して構いません。
+            人間が「この順で」と言ったときは、**人間の言う順が勝ちます。**
+            """;
 
         var auditSection = audit is null ? "" : $"""
 
@@ -154,6 +185,8 @@ public static class SecretaryReadme
             小さな変更でも省きません。無い計画は受け取られず、人間に返ります。
             間に置いてよいのは、同じ工程を見る別のレビューだけです。間に別の工程がある計画は受け取られず、人間に返ります。
             解決できない計画は自動にせず、人間に見えるところへ残します。
+
+            {pipelineSection}
 
             #### 計画の共有文書（設計 §62-4）
 

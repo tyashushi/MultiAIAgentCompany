@@ -107,8 +107,108 @@ public partial class DepartmentSettingsWindow : Window
         _model.SecretaryPermissionMode = secretary.PermissionMode;
         _model.SecretaryAgentChanged = kind => _ = ApplySecretaryChoicesAsync(kind);
 
+        ApplyPipeline(definition.PipelineOrEmpty);
+
         _ = LoadModelChoicesAsync();
         _model.Selected = _model.Departments.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// 既定の並び（設計 §62-34）を窓に入れる。
+    /// </summary>
+    /// <remarks>
+    /// <b>居ない部門の行は出さない。</b> 部門を消したあとの並びに残っていることがある ——
+    /// 保存で弾かれるだけなので、画面から黙って落とす……のではなく、
+    /// <b>落としたことを言う</b>（§28-1）。
+    /// </remarks>
+    private void ApplyPipeline(IReadOnlyList<PipelineStep> pipeline)
+    {
+        _model.Pipeline.Clear();
+        var dropped = new List<string>();
+        foreach (var step in pipeline)
+        {
+            var department = _model.Departments.FirstOrDefault(
+                d => string.Equals(d.Id, step.DepartmentId, StringComparison.Ordinal));
+            if (department is null)
+            {
+                dropped.Add(step.DepartmentId);
+                continue;
+            }
+
+            _model.Pipeline.Add(new PipelineEdit(department.Id, department.DisplayName, step.RunsWithPrevious));
+        }
+
+        if (dropped.Count > 0)
+        {
+            _model.Message = $"既定の並びから、このフォルダに無い部門を外しました: {string.Join(" / ", dropped)}";
+        }
+
+        RefreshPipeline();
+    }
+
+    /// <summary>並びの見た目を整える。<b>先頭の行には「同時」を出さない</b>（前が無い）。</summary>
+    private void RefreshPipeline()
+    {
+        for (var index = 0; index < _model.Pipeline.Count; index++)
+        {
+            _model.Pipeline[index].CanRunWithPrevious = index > 0;
+        }
+
+        _model.PipelineCandidates.Clear();
+        foreach (var department in _model.Departments)
+        {
+            _model.PipelineCandidates.Add(department);
+        }
+
+        _model.PipelineCandidate ??= _model.PipelineCandidates.FirstOrDefault();
+        _model.RaisePipeline();
+    }
+
+    private void OnPipelineAdd(object? sender, RoutedEventArgs e)
+    {
+        if (_model.PipelineCandidate is not { } department)
+        {
+            return;
+        }
+
+        // **同じ部門を2度入れてよい**（調査 → 実装 → 調査のような計画がある）。
+        _model.Pipeline.Add(new PipelineEdit(department.Id, department.DisplayName, runsWithPrevious: false));
+        RefreshPipeline();
+    }
+
+    private void OnPipelineRemove(object? sender, RoutedEventArgs e)
+    {
+        if (_model.SelectedPipelineStep is not { } selected)
+        {
+            return;
+        }
+
+        _model.Pipeline.Remove(selected);
+        _model.SelectedPipelineStep = null;
+        RefreshPipeline();
+    }
+
+    private void OnPipelineUp(object? sender, RoutedEventArgs e) => MovePipeline(-1);
+
+    private void OnPipelineDown(object? sender, RoutedEventArgs e) => MovePipeline(+1);
+
+    private void MovePipeline(int offset)
+    {
+        if (_model.SelectedPipelineStep is not { } selected)
+        {
+            return;
+        }
+
+        var from = _model.Pipeline.IndexOf(selected);
+        var to = from + offset;
+        if (from < 0 || to < 0 || to >= _model.Pipeline.Count)
+        {
+            return;
+        }
+
+        _model.Pipeline.Move(from, to);
+        _model.SelectedPipelineStep = selected;
+        RefreshPipeline();
     }
 
     /// <summary>
@@ -302,7 +402,9 @@ public partial class DepartmentSettingsWindow : Window
             Blank(_model.SecretaryEffort),
             _model.SecretaryPermissionMode);
 
-        var result = await _store.SaveAsync(_loaded, departments, secretary, CancellationToken.None);
+        var result = await _store.SaveAsync(
+            _loaded, departments, secretary, CancellationToken.None,
+            [.. _model.Pipeline.Select(step => step.ToStep())]);
         switch (result)
         {
             case DefinitionWriteResult.Written written:

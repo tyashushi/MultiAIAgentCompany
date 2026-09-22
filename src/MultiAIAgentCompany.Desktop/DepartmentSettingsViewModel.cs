@@ -402,6 +402,37 @@ public sealed class DepartmentSettingsViewModel : INotifyPropertyChanged
 
     public bool HasSelection => Selected is not null;
 
+    /// <summary>
+    /// このフォルダの既定の並び（設計 §62-34、人間の要望）。
+    /// </summary>
+    /// <remarks>
+    /// <b>部門の一覧（<see cref="Departments"/>）とは別物。</b> あちらは画面のタイルの順で、
+    /// ここは<b>仕事が流れる順</b>。同じ部門が2度出てもよいし、出ない部門があってもよい。
+    /// </remarks>
+    public ObservableCollection<PipelineEdit> Pipeline { get; } = [];
+
+    public bool HasPipeline => Pipeline.Count > 0;
+
+    public PipelineEdit? SelectedPipelineStep
+    {
+        get => field;
+        set { field = value; Raise(); Raise(nameof(HasPipelineSelection)); }
+    }
+
+    public bool HasPipelineSelection => SelectedPipelineStep is not null;
+
+    /// <summary>並びに足せる部門（いま一覧にあるもの）。</summary>
+    public ObservableCollection<DepartmentEdit> PipelineCandidates { get; } = [];
+
+    public DepartmentEdit? PipelineCandidate { get => field; set { field = value; Raise(); } }
+
+    /// <summary>並びを作り直したことを画面へ伝える（丸ごと入れ替えるので細かく通知しない）。</summary>
+    public void RaisePipeline()
+    {
+        Raise(nameof(HasPipeline));
+        Raise(nameof(HasPipelineSelection));
+    }
+
     /// <summary>秘書の設定（設計 §46-3）。</summary>
     public AgentKind SecretaryAgent
     {
@@ -629,4 +660,43 @@ public sealed class DepartmentSettingsViewModel : INotifyPropertyChanged
 
     private void Raise([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+
+/// <summary>
+/// 既定の並びの1行（設計 §62-34）。
+/// </summary>
+/// <remarks>
+/// <b>保存するまでディスクに触らない</b>（§47）—— 窓の中の下書きである。
+/// </remarks>
+public sealed class PipelineEdit(string departmentId, string displayName, bool runsWithPrevious)
+    : INotifyPropertyChanged
+{
+    public string DepartmentId { get; } = departmentId;
+
+    public string DisplayName { get; } = displayName;
+
+    /// <summary>前の工程と同時に走らせる。<b>先頭の行では意味を持たない</b>ので出さない。</summary>
+    public bool RunsWithPrevious
+    {
+        get => field;
+        set { field = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RunsWithPrevious))); }
+    } = runsWithPrevious;
+
+    /// <summary>この行が先頭か。<b>先頭には「同時」を出さない</b>（前が無い）。</summary>
+    public bool CanRunWithPrevious
+    {
+        get => field;
+        set
+        {
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRunWithPrevious)));
+        }
+    } = true;
+
+    public string Label => $"{DisplayName}（{DepartmentId}）";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public PipelineStep ToStep() => new(DepartmentId, CanRunWithPrevious && RunsWithPrevious);
 }
