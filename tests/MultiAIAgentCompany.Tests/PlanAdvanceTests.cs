@@ -55,6 +55,68 @@ public sealed class PlanAdvanceTests
         Assert.Equal("人間が止めた", next.Reason);
     }
 
+
+    [Fact]
+    public void 同じ波の工程は_兄弟が動いていても渡す()
+    {
+        // 設計 §62-33、人間の要望。設計レビュー2つを同時に走らせる形。
+        var plan = Plan(
+            Step("design", slug: "t1"),
+            Step("review-a", reviews: 0, slug: "t2"),
+            Step("review-b", reviews: 0, withPrevious: true));
+
+        // t2 が動いていても、待たずに review-b を渡す。**これが並行。**
+        var next = Assert.IsType<PlanNext.Dispatch>(
+            Decide(plan, ("t1", CoreTaskStatus.Reported), ("t2", CoreTaskStatus.Dispatched)));
+
+        Assert.Equal(2, next.Index);
+    }
+
+    [Fact]
+    public void 波が終わるまで_次の波へ進まない()
+    {
+        var plan = Plan(
+            Step("design", slug: "t1"),
+            Step("review-a", reviews: 0, slug: "t2", verdict: ReviewVerdict.Ok),
+            Step("review-b", reviews: 0, slug: "t3", withPrevious: true),
+            Step("implementation"));
+
+        // review-b がまだ動いている。実装は渡さない。
+        var wait = Assert.IsType<PlanNext.Wait>(Decide(plan,
+            ("t1", CoreTaskStatus.Reported),
+            ("t2", CoreTaskStatus.Accepted),
+            ("t3", CoreTaskStatus.Dispatched)));
+
+        Assert.Equal(2, wait.Index);
+    }
+
+    [Fact]
+    public void 波の中で_止まる条件は兄弟を渡すより先()
+    {
+        // **飛ばして進めない**（§37-6）。片方が失敗しているのに、もう片方を渡さない。
+        var plan = Plan(
+            Step("design", slug: "t1"),
+            Step("review-a", reviews: 0, slug: "t2"),
+            Step("review-b", reviews: 0, withPrevious: true));
+
+        var next = Assert.IsType<PlanNext.NeedsHuman>(
+            Decide(plan, ("t1", CoreTaskStatus.Accepted), ("t2", CoreTaskStatus.Failed)));
+
+        Assert.Contains("失敗", next.Reason);
+        Assert.Equal(1, next.Index);
+    }
+
+    [Fact]
+    public void 見る相手と同じ波のレビューは_進める前に止める()
+    {
+        var plan = Plan(
+            Step("design", slug: "t1"),
+            Step("review", reviews: 0, withPrevious: true));
+
+        var next = Assert.IsType<PlanNext.NeedsHuman>(Decide(plan, ("t1", CoreTaskStatus.Reported)));
+        Assert.Contains("同時に走る組", next.Reason);
+    }
+
     [Fact]
     public void 工程が1つも無ければ止まる()
     {
@@ -400,8 +462,9 @@ public sealed class PlanAdvanceTests
                 StringComparer.Ordinal));
 
     private static PlanStep Step(
-        string departmentId, int? reviews = null, string? slug = null, ReviewVerdict? verdict = null) =>
-        new(departmentId, "次へ", reviews, slug, verdict);
+        string departmentId, int? reviews = null, string? slug = null, ReviewVerdict? verdict = null,
+        bool withPrevious = false) =>
+        new(departmentId, "次へ", reviews, slug, verdict, withPrevious);
 
     private static Plan Plan(params PlanStep[] steps) =>
         new("plan-1", "ログイン画面を作りたい", steps, 0, false, 1, At, At);

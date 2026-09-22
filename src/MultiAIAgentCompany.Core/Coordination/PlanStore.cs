@@ -163,6 +163,59 @@ public sealed class PlanStore
         return new PlanWriteResult.Written(updated);
     }
 
+    /// <summary>
+    /// 計画を片付ける（設計 §62-32）。
+    /// </summary>
+    /// <remarks>
+    /// <b>消さずに移す</b>（§16-4）—— <c>archive/plans/&lt;id&gt;/</c> へ丸ごと動かす。
+    /// 行き止まりの計画（取り消された工程を抱えている等）を画面から降ろすための口で、
+    /// **記録は残す**。人間が中身を読み返せるし、間違えたら手で戻せる。
+    /// <para>
+    /// <b>仕事は触らない。</b> 計画が渡した仕事の <c>state.json</c> はそのまま ——
+    /// 正本は仕事の側にある（§7）。計画を片付けても、やったことは消えない。
+    /// </para>
+    /// <para>
+    /// <b>同じ名前が既にあれば失敗させる。</b> 上書きで片付けると、前に片付けた記録が消える。
+    /// </para>
+    /// </remarks>
+    public Task<PlanArchiveResult> ArchiveAsync(string id, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        string from, to;
+        try
+        {
+            from = _paths.PlanDirectory(id);
+            to = _paths.ArchivedPlanDirectory(id);
+        }
+        catch (ArgumentException exception)
+        {
+            return Task.FromResult<PlanArchiveResult>(new PlanArchiveResult.Failed(exception.Message));
+        }
+
+        if (!Directory.Exists(from))
+        {
+            return Task.FromResult<PlanArchiveResult>(new PlanArchiveResult.Missing());
+        }
+
+        if (Directory.Exists(to))
+        {
+            return Task.FromResult<PlanArchiveResult>(
+                new PlanArchiveResult.Failed($"片付け先に同じ名前がもうある: {to}"));
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_paths.ArchivedPlans);
+            Directory.Move(from, to);
+            return Task.FromResult<PlanArchiveResult>(new PlanArchiveResult.Archived(to));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return Task.FromResult<PlanArchiveResult>(new PlanArchiveResult.Failed(exception.Message));
+        }
+    }
+
     private static async Task WritePlanAtomicallyAsync(string planPath, Plan plan, bool overwrite, CancellationToken ct)
     {
         var directory = Path.GetDirectoryName(planPath)!;
@@ -200,4 +253,13 @@ public abstract record PlanWriteResult
     public sealed record Written(Plan Plan) : PlanWriteResult;
     public sealed record Rejected(string Reason) : PlanWriteResult;
     public sealed record Conflicted(string Reason) : PlanWriteResult;
+}
+
+/// <summary>計画を片付けた結果（設計 §62-32）。</summary>
+public abstract record PlanArchiveResult
+{
+    /// <param name="Path">片付け先。<b>人間に見せる</b> —— 消したのではなく移したので。</param>
+    public sealed record Archived(string Path) : PlanArchiveResult;
+    public sealed record Missing : PlanArchiveResult;
+    public sealed record Failed(string Reason) : PlanArchiveResult;
 }

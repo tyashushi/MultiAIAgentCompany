@@ -249,6 +249,7 @@ public sealed class PlanRunnerTests : IDisposable
 
         var stopped = Assert.IsType<PlanTick.Stopped>(await StepAsync(plan));
         Assert.Contains("受理", stopped.Reason);
+        Assert.Equal(0, stopped.Index);
     }
 
     [Theory]
@@ -264,6 +265,9 @@ public sealed class PlanRunnerTests : IDisposable
         var stopped = Assert.IsType<PlanTick.Stopped>(await StepAsync(plan));
         Assert.Contains($"{ReportOutcomes.Key}: {value}", stopped.Reason);
         Assert.Contains("工程 1（design）", stopped.Reason);
+
+        // **工程は値で持つ**（設計 §62-31）。画面は理由の文を読まない。
+        Assert.Equal(0, stopped.Index);
 
         // **止まり続ける。** 次の周でも勝手に進まない。
         Assert.IsType<PlanTick.Stopped>(await StepAsync(await ReadPlanAsync()));

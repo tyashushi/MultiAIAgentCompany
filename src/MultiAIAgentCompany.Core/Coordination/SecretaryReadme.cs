@@ -135,8 +135,20 @@ public static class SecretaryReadme
             ```
 
             `plan:` は人間の目的を言い換えずに書きます。
-            各 `step:` は `<部門ID> [reviews=<部門ID>] / <次の工程への一言>` です。
+            各 `step:` は `<部門ID> [reviews=<部門ID>] [with-previous] / <次の工程への一言>` です。
             `reviews=<部門ID>` は、それより前にある同じ部門の最後の工程を指します。
+            `with-previous` を付けた工程は、**前の工程と同時に走ります**（設計 §62-33）。
+            続けて付ければ3つ以上も同時になります。同時に走る組が全部終わるまで、次の工程へは進みません。
+            先頭の工程には付けられません。**レビューは、見る相手と同時に走らせません**（まだ出来ていないものを見ることになります）。
+
+            ```
+            plan: ログイン画面を作る
+            step: design / 画面を設計する
+            step: design-review-outside reviews=design / 設計を外から見る
+            step: design-review-consistency reviews=design with-previous / 設計の整合を見る
+            step: implementation / 設計どおりに実装する
+            ```
+
             **レビューは、見る相手の工程のすぐ後に置きます**（例: 設計 → 設計のレビュー → 実装）。
             **実装（`implementation`）の工程を含む計画には、その前に必ず設計（`design`）の工程を置きます。**
             小さな変更でも省きません。無い計画は受け取られず、人間に返ります。

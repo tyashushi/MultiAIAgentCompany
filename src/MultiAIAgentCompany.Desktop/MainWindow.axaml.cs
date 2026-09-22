@@ -1701,7 +1701,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        var stoppedAt = tick is PlanTick.Stopped ? StoppedStepNumber(plan, tick) : null;
+        // **止まった工程は、計画の実行が値で教えてくれる**（設計 §62-31）。
+        // 前は理由の文から正規表現で拾っていた —— 文言を変えると黙って番号が出なくなる形だった。
+        var stoppedAt = tick is PlanTick.Stopped { Index: { } at } && at >= 0 && at < plan.Steps.Count
+            ? at
+            : (int?)null;
         var rows = new List<PlanStepRow>();
 
         for (var index = 0; index < plan.Steps.Count; index++)
@@ -1732,7 +1736,7 @@ public partial class MainWindow : Window
                 _ => ("▶", $"動いている{attempt}"),
             };
 
-            var current = stoppedAt == index + 1
+            var current = stoppedAt == index
                 || state?.Status is CoreTaskStatus.Reported or CoreTaskStatus.AwaitingAnswer;
 
             rows.Add(new PlanStepRow(index + 1, name, mark, detail, current));
@@ -1741,20 +1745,6 @@ public partial class MainWindow : Window
         shell.SetPlanSteps(rows);
     }
 
-    /// <summary>止まった工程の番号を、理由の文から読む（設計 §62-27）。</summary>
-    /// <remarks>
-    /// <b>文言に頼らない形が良いが、いまの <c>PlanTick.Stopped</c> は理由の文しか持たない。</b>
-    /// 読めなければ番号を出さないだけで、一覧そのものは出す（§7）。
-    /// </remarks>
-    private static int? StoppedStepNumber(Plan plan, PlanTick tick)
-    {
-        if (tick is not PlanTick.Stopped stopped) return null;
-        var match = System.Text.RegularExpressions.Regex.Match(stopped.Reason, @"工程\s*(\d+)");
-        return match.Success && int.TryParse(match.Groups[1].Value, out var number)
-            && number >= 1 && number <= plan.Steps.Count
-                ? number
-                : null;
-    }
 
     /// <summary>計画を止める・続ける（設計 §37-3）。</summary>
     /// <remarks>
@@ -1793,6 +1783,41 @@ public partial class MainWindow : Window
                 : $"計画を書き換えられなかった: {id}");
         }
 
+        await ScanAsync(CompanyScanKind.Periodic);
+    }
+
+    /// <summary>
+    /// 帯に出ている計画を片付ける（設計 §62-32）。
+    /// </summary>
+    /// <remarks>
+    /// <b>行き止まりの計画に出口を作る。</b> 取り消された工程を抱えた計画は、続けても
+    /// その場でまた止まる —— それまでは <c>plan.json</c> を手で移すしか無かった。
+    /// <para>
+    /// <b>止めている計画だけ</b>（ボタンをそう出している）。動いている計画は、まず止めてから ——
+    /// 渡した先が動いている最中に計画だけ消えると、**戻る場所の無い報告**が出る。
+    /// </para>
+    /// </remarks>
+    private async void OnArchivePlan(object? sender, RoutedEventArgs e)
+    {
+        if (_composer?.Plans is not { } store || _bandPlanId is not { } id || Busy("計画の操作"))
+        {
+            return;
+        }
+
+        var goal = await store.ReadAsync(id, CancellationToken.None) is PlanReadResult.Found found
+            ? found.Plan.Goal
+            : id;
+
+        Note(await store.ArchiveAsync(id, CancellationToken.None) switch
+        {
+            PlanArchiveResult.Archived archived => $"計画「{goal}」を片付けた（{archived.Path} へ移した。消していない）",
+            PlanArchiveResult.Missing => $"片付ける計画が見つからなかった: {id}",
+            PlanArchiveResult.Failed failed => $"計画を片付けられなかった: {failed.Reason}",
+            _ => $"計画を片付けられなかった: {id}",
+        });
+
+        // **帯の宛先を手放す。** 走査が次の計画を選び直す。
+        _bandPlanId = null;
         await ScanAsync(CompanyScanKind.Periodic);
     }
 

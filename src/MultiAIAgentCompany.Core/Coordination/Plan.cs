@@ -40,12 +40,25 @@ public enum ReviewVerdict
 /// レビュー工程の判定。<b>観測して書き込む</b>（報告を読んだ結果）——
 /// 計算では出せないので、<see cref="TaskSlug"/> と同じく記録する。
 /// </param>
+/// <param name="RunsWithPrevious">
+/// <b>前の工程と同時に走る</b>（設計 §62-33、人間が決めた）。
+/// <para>
+/// 連なった <c>true</c> が1つの<b>波</b>（同時に走る組）になる。波の中の工程は
+/// どれから渡してもよく、<b>波が全部終わるまで次の波へ進まない</b>。
+/// 最初の工程では意味を持たない（前が無い）。
+/// </para>
+/// <para>
+/// <b>番号ではなく「前と同時」で持つ。</b> 波番号を別に持つと、工程を1つ足したときに
+/// 番号の振り直しが要り、**列と番号の2つが正本になる**（§31-1）。
+/// </para>
+/// </param>
 public sealed record PlanStep(
     string DepartmentId,
     string Handover,
     int? ReviewsStep = null,
     string? TaskSlug = null,
-    ReviewVerdict? Verdict = null)
+    ReviewVerdict? Verdict = null,
+    bool RunsWithPrevious = false)
 {
     public bool IsReview => ReviewsStep is not null;
 }

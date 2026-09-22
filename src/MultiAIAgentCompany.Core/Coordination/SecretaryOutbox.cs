@@ -116,6 +116,9 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
     private static string? ShapeProblem(IReadOnlyList<PlanStep> steps) =>
         PlanAdvance.OrderProblem(steps) ?? PlanAdvance.DesignProblem(steps);
 
+    /// <summary>「前の工程と同時に走る」を表す印（設計 §62-33）。秘書の手引きと揃える。</summary>
+    internal const string WithPreviousKeyword = "with-previous";
+
     private static SecretaryPlanProposal? ParsePlanCore(string id, string content)
     {
         var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n').Split('\n');
@@ -170,20 +173,34 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
 
             var destination = step[..separator].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var handover = step[(separator + 1)..].Trim();
-            if (destination.Length is < 1 or > 2 || handover.Length is 0)
+            if (destination.Length is < 1 or > 3 || handover.Length is 0)
             {
                 return null;
             }
 
             int? reviewsStep = null;
-            if (destination.Length is 2)
+            var runsWithPrevious = false;
+            foreach (var option in destination.Skip(1))
             {
-                if (!destination[1].StartsWith("reviews=", StringComparison.Ordinal))
+                // **`with-previous` は「前の工程と同時に走る」**（設計 §62-33）。
+                if (string.Equals(option, WithPreviousKeyword, StringComparison.Ordinal))
+                {
+                    if (runsWithPrevious || steps.Count is 0)
+                    {
+                        // 二度書き・先頭の工程に付いているものは読まない（前が無い）。
+                        return null;
+                    }
+
+                    runsWithPrevious = true;
+                    continue;
+                }
+
+                if (!option.StartsWith("reviews=", StringComparison.Ordinal) || reviewsStep is not null)
                 {
                     return null;
                 }
 
-                var reviewedDepartment = destination[1]["reviews=".Length..];
+                var reviewedDepartment = option["reviews=".Length..];
                 var index = steps.FindLastIndex(s => string.Equals(s.DepartmentId, reviewedDepartment, StringComparison.Ordinal));
                 if (index < 0)
                 {
@@ -194,7 +211,7 @@ public sealed class SecretaryOutbox(CompanyPaths paths)
                 reviewsStep = index;
             }
 
-            steps.Add(new PlanStep(destination[0], handover, reviewsStep));
+            steps.Add(new PlanStep(destination[0], handover, reviewsStep, RunsWithPrevious: runsWithPrevious));
         }
 
         // **工程が1つも無い計画は計画ではない。** 空のまま受け取ると、

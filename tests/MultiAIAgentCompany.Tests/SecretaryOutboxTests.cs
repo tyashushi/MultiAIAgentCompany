@@ -71,6 +71,41 @@ public sealed class SecretaryOutboxTests : IDisposable
     }
 
     [Fact]
+    public void 同時に走る工程を読む()
+    {
+        // 設計 §62-33、人間の要望。設計レビュー2つを同時に走らせる。
+        Publish("login", """
+            plan: ログイン画面を作る
+            step: design / 画面を設計する
+            step: review-a reviews=design / 外から見る
+            step: review-b reviews=design with-previous / 整合を見る
+            step: implementation / 実装する
+            """);
+
+        var plan = Assert.Single(Outbox.ReadPlans());
+
+        Assert.False(plan.Steps[1].RunsWithPrevious);
+        Assert.True(plan.Steps[2].RunsWithPrevious);
+        Assert.Equal(0, plan.Steps[2].ReviewsStep);
+        Assert.False(plan.Steps[3].RunsWithPrevious);
+    }
+
+    [Theory]
+    // 先頭の工程には前が無い。
+    [InlineData("step: design with-previous / 設計する")]
+    // 二度書きは読まない（意味が増えていないのに形が揺れる）。
+    [InlineData("step: design / 設計する\nstep: review with-previous with-previous / 見る")]
+    // 見る相手と同時には走らせない（まだ出来ていないものを見ることになる）。
+    [InlineData("step: design / 設計する\nstep: review reviews=design with-previous / 見る")]
+    public void 同時の印がおかしい計画は_自動にせず人間へ返す(string body)
+    {
+        Publish("p1", $"plan: 目的\n{body}\n");
+
+        Assert.Empty(Outbox.ReadPlans());
+        Assert.NotEmpty(Outbox.Read());
+    }
+
+    [Fact]
     public void レビュー先は前にある同じ部門の最後の工程になる()
     {
         Publish("p1", "plan: 目的\nstep: design / 最初\nstep: design / 次\nstep: review reviews=design / 確認\n");

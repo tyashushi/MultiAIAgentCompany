@@ -37,6 +37,42 @@ public sealed class PlanStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 片付けるとarchiveへ移り_一覧から消える()
+    {
+        await CreateAsync();
+
+        var archived = Assert.IsType<PlanArchiveResult.Archived>(
+            await _store.ArchiveAsync("login", CancellationToken.None));
+
+        // **消さずに移す**（§16-4）。中身は読み返せる。
+        Assert.True(Directory.Exists(archived.Path));
+        Assert.True(File.Exists(Path.Combine(archived.Path, "plan.json")));
+        Assert.Empty(await _store.ListIdsAsync(CancellationToken.None));
+        Assert.IsType<PlanReadResult.Missing>(await _store.ReadAsync("login", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 無い計画を片付けても_黙って成功しない()
+    {
+        Assert.IsType<PlanArchiveResult.Missing>(await _store.ArchiveAsync("login", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task 片付け先に同じ名前があれば_上書きしない()
+    {
+        await CreateAsync();
+        Assert.IsType<PlanArchiveResult.Archived>(await _store.ArchiveAsync("login", CancellationToken.None));
+
+        // 同じ ID の計画をもう一度作って片付けると、前に片付けた記録を消してしまう。
+        await CreateAsync();
+        var failed = Assert.IsType<PlanArchiveResult.Failed>(
+            await _store.ArchiveAsync("login", CancellationToken.None));
+
+        Assert.Contains("同じ名前", failed.Reason);
+        Assert.Single(await _store.ListIdsAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task 更新はRevisionと時刻を保存口で入れる()
     {
         var created = Assert.IsType<PlanWriteResult.Written>(await CreateAsync()).Plan;

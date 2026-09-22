@@ -15,7 +15,16 @@ public abstract record PlanTick
     public sealed record Acted(Plan Plan, string Note) : PlanTick;
 
     /// <summary>止まった。<b>飛ばして次へ進めない</b>（§37-6）。</summary>
-    public sealed record Stopped(string Reason) : PlanTick;
+    /// <param name="Reason">人間に見せる理由。</param>
+    /// <param name="Index">
+    /// どの工程で止まったか（0 起点。設計 §62-31）。<b>分からなければ null</b> ——
+    /// 計画そのものが止まっている（人間が止めた・工程が無い）ときは工程に紐づかない。
+    /// <para>
+    /// <b>理由の文から読ませない。</b> 画面は前ここを正規表現で拾っていた（§62-27）——
+    /// 文言を変えると黙って番号が出なくなる形だったので、値として持たせる。
+    /// </para>
+    /// </param>
+    public sealed record Stopped(string Reason, int? Index = null) : PlanTick;
 
     /// <summary>全部の工程が終わった。</summary>
     public sealed record Done : PlanTick;
@@ -92,7 +101,7 @@ public sealed class PlanRunner(
         {
             PlanNext.Done => new PlanTick.Done(),
             PlanNext.Wait wait => new PlanTick.Idle($"{wait.Step.DepartmentId} が動いている"),
-            PlanNext.NeedsHuman human => new PlanTick.Stopped(human.Reason),
+            PlanNext.NeedsHuman human => new PlanTick.Stopped(human.Reason, human.Index),
             PlanNext.Dispatch dispatch => await DispatchAsync(plan, dispatch, states, hands, ct),
             PlanNext.Deliver deliver => await DeliverAsync(plan, deliver, states, hands, ct),
             PlanNext.AcceptStep accept => await AcceptAsync(plan, accept, states, hands, ct),
@@ -217,7 +226,8 @@ public sealed class PlanRunner(
             {
                 return new PlanTick.Stopped(
                     $"工程 {index + 1}（{step.DepartmentId}）の報告が {ReportOutcomes.Key}: {ReportOutcomes.Describe(outcome)}。"
-                    + "やり終えていないので次へ進めない。報告を読んで、受理か差し戻しを決める");
+                    + "やり終えていないので次へ進めない。報告を読んで、受理か差し戻しを決める",
+                    index);
             }
         }
 
@@ -251,7 +261,8 @@ public sealed class PlanRunner(
                 return new PlanTick.Stopped(
                     $"工程 {index + 1}（{step.DepartmentId}、読むだけ）のあいだに作業ツリーが変わった: "
                     + $"{WorktreeSnapshot.Describe(changed.Paths)}。読むだけの部門が書いたか、同時に動いた別の部門が書いた。"
-                    + "変わったものを確かめてから、受理か差し戻しを決める");
+                    + "変わったものを確かめてから、受理か差し戻しを決める",
+                    index);
             }
         }
 
@@ -285,7 +296,7 @@ public sealed class PlanRunner(
     {
         if (hands.DepartmentOf(next.Step.DepartmentId) is not { } department)
         {
-            return new PlanTick.Stopped($"{next.Step.DepartmentId} という部門がこのフォルダに無い");
+            return new PlanTick.Stopped($"{next.Step.DepartmentId} という部門がこのフォルダに無い", next.Index);
         }
 
         // **レビューを渡す前に、見てもらう工程の書き込み権を返す**（設計 §37-4b）。
@@ -302,7 +313,7 @@ public sealed class PlanRunner(
         var slug = NewSlug();
         if (await tasks.CreateAsync(slug, department.Id, ct) is not TaskWriteResult.Written created)
         {
-            return new PlanTick.Stopped($"{slug} を作れなかった");
+            return new PlanTick.Stopped($"{slug} を作れなかった", next.Index);
         }
 
         await File.WriteAllTextAsync(
@@ -315,7 +326,7 @@ public sealed class PlanRunner(
         var recorded = await plans.WriteAsync(plan, WithStep(plan, next.Index, step => step with { TaskSlug = slug }), ct);
         if (recorded is not PlanWriteResult.Written written)
         {
-            return new PlanTick.Stopped($"計画を書けなかった（{Reason(recorded)}）");
+            return new PlanTick.Stopped($"計画を書けなかった（{Reason(recorded)}）", next.Index);
         }
 
         var result = await hands.DeliverAsync(
@@ -328,7 +339,7 @@ public sealed class PlanRunner(
         // 人間が直したあと、次の周で `Dispatched` として拾える。
         return result is DispatchResult.Dispatched or DispatchResult.QueuedForNextTurn or DispatchResult.SentUncertain
             ? new PlanTick.Acted(written.Plan, $"{department.DisplayName} に {slug} を渡した（工程 {next.Index + 1}）")
-            : new PlanTick.Stopped($"{department.DisplayName} に渡せなかった: {Describe(result)}");
+            : NotDelivered(result, $"{department.DisplayName} に渡せなかった", next.Index);
     }
 
     /// <summary>
@@ -344,12 +355,12 @@ public sealed class PlanRunner(
     {
         if (hands.DepartmentOf(next.Step.DepartmentId) is not { } department)
         {
-            return new PlanTick.Stopped($"{next.Step.DepartmentId} という部門がこのフォルダに無い");
+            return new PlanTick.Stopped($"{next.Step.DepartmentId} という部門がこのフォルダに無い", next.Index);
         }
 
         if (!states.TryGetValue(next.Slug, out var state))
         {
-            return new PlanTick.Stopped($"{next.Slug} の状態を読めない");
+            return new PlanTick.Stopped($"{next.Slug} の状態を読めない", next.Index);
         }
 
         var result = await hands.DeliverAsync(
@@ -359,7 +370,7 @@ public sealed class PlanRunner(
 
         return result is DispatchResult.Dispatched or DispatchResult.QueuedForNextTurn or DispatchResult.SentUncertain
             ? new PlanTick.Acted(plan, $"{department.DisplayName} に {next.Slug} を渡した（工程 {next.Index + 1}）")
-            : new PlanTick.Stopped($"{department.DisplayName} に渡せなかった: {Describe(result)}");
+            : NotDelivered(result, $"{department.DisplayName} に渡せなかった", next.Index);
     }
 
     private async Task<PlanTick> AcceptAsync(
@@ -368,14 +379,14 @@ public sealed class PlanRunner(
     {
         if (next.Step.TaskSlug is not { } slug || !states.TryGetValue(slug, out var state))
         {
-            return new PlanTick.Stopped($"工程 {next.Index + 1} の状態を読めない");
+            return new PlanTick.Stopped($"工程 {next.Index + 1} の状態を読めない", next.Index);
         }
 
         var write = await tasks.TransitionAsync(
             state, TaskStatus.Accepted, TransitionOrigin.Plan, "計画が受理した", ct);
         if (write is not TaskWriteResult.Written)
         {
-            return new PlanTick.Stopped($"{slug} を受理できなかった（{Reason(write)}）");
+            return new PlanTick.Stopped($"{slug} を受理できなかった（{Reason(write)}）", next.Index);
         }
 
         // **書き込み権を返す**（設計 §37-4）。**ここは人間の確認より1段弱い** ——
@@ -423,17 +434,17 @@ public sealed class PlanRunner(
         var review = plan.Steps[next.ReviewIndex];
         if (review.TaskSlug is not { } reviewSlug || !states.TryGetValue(reviewSlug, out var reviewState))
         {
-            return new PlanTick.Stopped($"レビュー工程 {next.ReviewIndex + 1} の状態を読めない");
+            return new PlanTick.Stopped($"レビュー工程 {next.ReviewIndex + 1} の状態を読めない", next.ReviewIndex);
         }
 
         if (next.Target.TaskSlug is not { } targetSlug || !states.TryGetValue(targetSlug, out var targetState))
         {
-            return new PlanTick.Stopped($"戻す先の工程 {next.TargetIndex + 1} の状態を読めない");
+            return new PlanTick.Stopped($"戻す先の工程 {next.TargetIndex + 1} の状態を読めない", next.TargetIndex);
         }
 
         if (hands.DepartmentOf(next.Target.DepartmentId) is not { } department)
         {
-            return new PlanTick.Stopped($"{next.Target.DepartmentId} という部門がこのフォルダに無い");
+            return new PlanTick.Stopped($"{next.Target.DepartmentId} という部門がこのフォルダに無い", next.TargetIndex);
         }
 
         // **差し戻しの理由は、レビューの報告そのもの**（§37-7）——
@@ -445,7 +456,7 @@ public sealed class PlanRunner(
             targetState, TaskStatus.Rejected, TransitionOrigin.Plan, "レビューが直しを求めた", ct);
         if (rejected is not TaskWriteResult.Written written)
         {
-            return new PlanTick.Stopped($"{targetSlug} を差し戻せなかった（{Reason(rejected)}）");
+            return new PlanTick.Stopped($"{targetSlug} を差し戻せなかった（{Reason(rejected)}）", next.TargetIndex);
         }
 
         // ここから落ちても、仕事は `Rejected` として残る（§19-1 の不変条件）。
@@ -477,7 +488,7 @@ public sealed class PlanRunner(
         var recorded = await plans.WriteAsync(plan, next2, ct);
         if (recorded is not PlanWriteResult.Written planWritten)
         {
-            return new PlanTick.Stopped($"計画を書けなかった（{Reason(recorded)}）");
+            return new PlanTick.Stopped($"計画を書けなかった（{Reason(recorded)}）", next.TargetIndex);
         }
 
         var result = await hands.DeliverAsync(
@@ -490,7 +501,7 @@ public sealed class PlanRunner(
         return result is DispatchResult.Dispatched or DispatchResult.QueuedForNextTurn or DispatchResult.SentUncertain
             ? new PlanTick.Acted(planWritten.Plan,
                 $"レビューが直しを求めたので {targetSlug} を送り直した（{planWritten.Plan.Revisions} 回目）")
-            : new PlanTick.Stopped($"{department.DisplayName} に送り直せなかった: {Describe(result)}");
+            : NotDelivered(result, $"{department.DisplayName} に送り直せなかった", next.TargetIndex);
     }
 
     /// <summary>
@@ -601,6 +612,23 @@ public sealed class PlanRunner(
         PlanWriteResult.Rejected rejected => rejected.Reason,
         _ => result.GetType().Name,
     };
+
+    /// <summary>
+    /// 渡せなかった結果を、止まりとして扱うか待ちとして扱うか（設計 §62-33）。
+    /// </summary>
+    /// <remarks>
+    /// <b>書き込み権の取り合いは、止まりではない。</b> 同じ波の兄弟が先に借りているだけなら、
+    /// 返ってくれば渡せる —— ここで止めると、並行に走らせた瞬間に計画が人間を呼ぶ。
+    /// <para>
+    /// <b>待てるのは「有効な保持者が居る」ときだけ。</b> 失効した lease（§24）と、
+    /// 保持者の仕事がもう終端のとき（<see cref="DispatchResult.Blocked.HolderWorkIsOver"/>）は
+    /// <b>待っても空かない</b>ので、これまでどおり止まって人間を呼ぶ。
+    /// </para>
+    /// </remarks>
+    private static PlanTick NotDelivered(DispatchResult result, string what, int? index) =>
+        result is DispatchResult.Blocked { HolderWorkIsOver: false } blocked
+            ? new PlanTick.Idle($"{what} は書き込み権が空くのを待っている（{blocked.Reason}）")
+            : new PlanTick.Stopped($"{what}: {Describe(result)}", index);
 
     private static string Describe(DispatchResult result) => result switch
     {

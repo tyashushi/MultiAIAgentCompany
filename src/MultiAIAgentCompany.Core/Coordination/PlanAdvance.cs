@@ -104,69 +104,39 @@ public static class PlanAdvance
 
         int? unaccepted = null;
 
-        for (var index = 0; index < plan.Steps.Count; index++)
+        // **波（同時に走る組）ごとに見る**（設計 §62-33）。
+        // 波の中はどの工程から渡してもよく、**波が全部片付くまで次の波へ行かない**。
+        // 波が1工程だけなら、これまでと同じ一直線になる。
+        for (var start = 0; start < plan.Steps.Count; start = WaveEnd(plan.Steps, start))
         {
-            var step = plan.Steps[index];
+            var end = WaveEnd(plan.Steps, start);
+            PlanNext? stop = null, act = null, hold = null;
 
-            // まだ渡していない工程。**ここまでの工程は全部終わっている**（下で continue した）。
-            if (step.TaskSlug is not { Length: > 0 } slug)
+            for (var index = start; index < end; index++)
             {
-                return new PlanNext.Dispatch(index, step);
+                // **波を最後まで見てから決める。** 途中で返すと、
+                // 止まる条件を抱えた工程を飛ばして兄弟を渡してしまう。
+                switch (AtStep(plan, index, states, revisionLimit, ref unaccepted))
+                {
+                    case null:
+                        continue;
+                    case PlanNext.NeedsHuman human:
+                        stop ??= human;
+                        break;
+                    case PlanNext.Wait wait:
+                        hold ??= wait;
+                        break;
+                    case { } action:
+                        act ??= action;
+                        break;
+                }
             }
 
-            if (!states.TryGetValue(slug, out var state))
-            {
-                // **無いものを「たぶん終わった」にしない**（§7）。
-                return new PlanNext.NeedsHuman($"{slug} の状態を読めない", index);
-            }
-
-            switch (state.Status)
-            {
-                case TaskStatus.Accepted:
-                    continue;
-
-
-                // **渡っていない。こちらの番である**（設計 §37-6b、レビュー2周目で発覚）。
-                // ここを「動いている」に混ぜると、渡せなかった計画が**永久に待ち続け**、
-                // 画面は「進めている」と出しながら何も起きない。
-                case TaskStatus.Drafted:
-                    return new PlanNext.Deliver(index, step, slug);
-
-                case TaskStatus.Dispatched:
-                case TaskStatus.InProgress:
-                    return new PlanNext.Wait(index, step);
-
-                // **人間の番**（§31-2 と同じ扱い）。部門は止まっていない。
-                case TaskStatus.AwaitingAnswer:
-                    return new PlanNext.NeedsHuman($"{slug} が質問している", index);
-
-                case TaskStatus.Failed:
-                    return new PlanNext.NeedsHuman($"{slug} が失敗した", index);
-
-                case TaskStatus.Cancelled:
-                    return new PlanNext.NeedsHuman($"{slug} は取り消された", index);
-
-                // 差し戻したまま止まっている。**計画は送り直しまでを1つの操作でやる**ので、
-                // ここに居るのは送り直しが通らなかったときだけ。
-                case TaskStatus.Rejected:
-                    return new PlanNext.NeedsHuman($"{slug} が差し戻されたまま止まっている", index);
-
-                case TaskStatus.Reported:
-                    // **null は「この工程はもう動かないが、まだ受理しない」** ——
-                    // レビュー待ちの工程がこれに当たる。次の工程へ進む。
-                    if (AtReport(plan, index, step, slug, states, revisionLimit) is { } action)
-                    {
-                        return action;
-                    }
-
-                    // **飛ばしたことを覚えておく**（レビュー2周目で発覚）——
-                    // 覚えないと、**受理していない工程を残したまま「終わった」**になる。
-                    unaccepted ??= index;
-                    continue;
-
-                default:
-                    return new PlanNext.NeedsHuman($"{slug} の状態が分からない", index);
-            }
+            // **止まる条件が勝つ**（§37-6）。次に「こちらの番」、最後に「待つ」。
+            // 待っている兄弟が居ても、渡せる工程があるなら渡す —— それが並行。
+            if (stop is not null) return stop;
+            if (act is not null) return act;
+            if (hold is not null) return hold;
         }
 
         return unaccepted is { } pending
@@ -188,6 +158,99 @@ public static class PlanAdvance
             step.TaskSlug is { Length: > 0 } slug
             && states.TryGetValue(slug, out var state)
             && state.Status is TaskStatus.Accepted);
+
+
+    /// <summary>
+    /// <paramref name="start"/> から始まる波の終わり（その次の工程の位置。設計 §62-33）。
+    /// </summary>
+    /// <remarks>
+    /// 波は<b>連なった <see cref="PlanStep.RunsWithPrevious"/></b> で決まる。
+    /// 先頭の工程の印は見ない —— 前が無いので、波の始まりでしかない。
+    /// </remarks>
+    public static int WaveEnd(IReadOnlyList<PlanStep> steps, int start)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        var end = start + 1;
+        while (end < steps.Count && steps[end].RunsWithPrevious)
+        {
+            end++;
+        }
+
+        return end;
+    }
+
+    /// <summary>
+    /// 1工程について、いま取るべき行動（設計 §62-33）。
+    /// </summary>
+    /// <returns>
+    /// <b>null は「この工程は先へ進んでよい」</b> —— 受理済みか、レビュー待ちのまま次へ行くもの。
+    /// </returns>
+    private static PlanNext? AtStep(
+        Plan plan, int index,
+        IReadOnlyDictionary<string, TaskState> states, int revisionLimit, ref int? unaccepted)
+    {
+        var step = plan.Steps[index];
+
+        // まだ渡していない工程。
+        if (step.TaskSlug is not { Length: > 0 } slug)
+        {
+            return new PlanNext.Dispatch(index, step);
+        }
+
+        if (!states.TryGetValue(slug, out var state))
+        {
+            // **無いものを「たぶん終わった」にしない**（§7）。
+            return new PlanNext.NeedsHuman($"{slug} の状態を読めない", index);
+        }
+
+        switch (state.Status)
+        {
+            case TaskStatus.Accepted:
+                return null;
+
+            // **渡っていない。こちらの番である**（設計 §37-6b、レビュー2周目で発覚）。
+            // ここを「動いている」に混ぜると、渡せなかった計画が**永久に待ち続け**、
+            // 画面は「進めている」と出しながら何も起きない。
+            case TaskStatus.Drafted:
+                return new PlanNext.Deliver(index, step, slug);
+
+            case TaskStatus.Dispatched:
+            case TaskStatus.InProgress:
+                return new PlanNext.Wait(index, step);
+
+            // **人間の番**（§31-2 と同じ扱い）。部門は止まっていない。
+            case TaskStatus.AwaitingAnswer:
+                return new PlanNext.NeedsHuman($"{slug} が質問している", index);
+
+            case TaskStatus.Failed:
+                return new PlanNext.NeedsHuman($"{slug} が失敗した", index);
+
+            case TaskStatus.Cancelled:
+                return new PlanNext.NeedsHuman($"{slug} は取り消された", index);
+
+            // 差し戻したまま止まっている。**計画は送り直しまでを1つの操作でやる**ので、
+            // ここに居るのは送り直しが通らなかったときだけ。
+            case TaskStatus.Rejected:
+                return new PlanNext.NeedsHuman($"{slug} が差し戻されたまま止まっている", index);
+
+            case TaskStatus.Reported:
+                // **null は「この工程はもう動かないが、まだ受理しない」** ——
+                // レビュー待ちの工程がこれに当たる。次の工程へ進む。
+                if (AtReport(plan, index, step, slug, states, revisionLimit) is { } action)
+                {
+                    return action;
+                }
+
+                // **飛ばしたことを覚えておく**（レビュー2周目で発覚）——
+                // 覚えないと、**受理していない工程を残したまま「終わった」**になる。
+                unaccepted ??= index;
+                return null;
+
+            default:
+                return new PlanNext.NeedsHuman($"{slug} の状態が分からない", index);
+        }
+    }
 
     /// <returns>
     /// 取るべき行動。<b>null は「まだ受理しないまま、次の工程へ進む」</b> ——
@@ -292,6 +355,15 @@ public static class PlanAdvance
             if (steps[index].ReviewsStep is not { } reviewed || reviewed < 0 || reviewed >= index)
             {
                 continue;
+            }
+
+            // **見る相手と同時に走らせない**（設計 §62-33）。同じ波に入れると、
+            // レビューは**まだ出来ていないもの**を見に行く。
+            if (WaveEnd(steps, reviewed) > index)
+            {
+                return $"工程 {index + 1}（{steps[index].DepartmentId}）は工程 {reviewed + 1}"
+                    + $"（{steps[reviewed].DepartmentId}）を見るのに、同時に走る組に入っている。"
+                    + "レビューは見る相手が終わってから";
             }
 
             for (var between = reviewed + 1; between < index; between++)

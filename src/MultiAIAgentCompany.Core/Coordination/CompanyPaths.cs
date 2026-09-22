@@ -69,6 +69,11 @@ public sealed class CompanyPaths
     /// </remarks>
     public string ArchivedThreads => Path.Combine(ArchiveRoot, "threads");
 
+    /// <summary>片付けた計画の置き場所（設計 §62-32）。<b>相談と同じく、消さずに移す</b>（§16-4）。</summary>
+    public string ArchivedPlans => Path.Combine(ArchiveRoot, "plans");
+
+    public string ArchivedPlanDirectory(string id) => Path.Combine(ArchivedPlans, RequireSlug(id));
+
     public string ThreadMeta(string slug) => Path.Combine(ThreadDirectory(slug), "meta.json");
 
     public string ThreadTranscript(string slug) => Path.Combine(ThreadDirectory(slug), "transcript.jsonl");

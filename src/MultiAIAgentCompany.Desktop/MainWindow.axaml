@@ -286,6 +286,12 @@
                                     IsVisible="{Binding PlanRunning}" Click="OnStopPlan" />
                             <Button Content="計画を続ける" Margin="8,0,0,0"
                                     IsVisible="{Binding PlanStopped}" Click="OnResumePlan" />
+                            <!-- **行き止まりの計画を画面から降ろす**（設計 §62-32）。
+                                 止めているときだけ出す —— 動いている計画は、まず止めてから。
+                                 **消さずに archive へ移す**（§16-4）ので、押し間違えても戻せる。 -->
+                            <Button Content="計画を片付ける" Classes="quiet" Margin="8,0,0,0"
+                                    ToolTip.Tip="この計画を .company/archive/plans/ へ移す（仕事の記録は消えない）"
+                                    IsVisible="{Binding PlanStopped}" Click="OnArchivePlan" />
                         </StackPanel>
 
                         <!-- **工程の一覧**（設計 §62-27、人間の要望）。1行だけでは
