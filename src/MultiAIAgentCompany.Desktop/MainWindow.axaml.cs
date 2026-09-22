@@ -141,6 +141,9 @@ public partial class MainWindow : Window
     {
         AvaloniaXamlLoader.Load(this);
         this.FindControl<TranscriptLinkTextBlock>("TranscriptLinks")!.LinkClicked += OnTranscriptImageLink;
+
+        // **送信キーは TextBox より先に受ける**（設計 §62-28。理由は IsSubmitEnter の注記）。
+        WireSubmit(this.FindControl<TextBox>("MessageBox"), OnMessageKeyDown);
         // **窓のどこに落としても添付にする**（設計 §58-6）。
         AddHandler(DragDrop.DragOverEvent, OnDragOverAttachment);
         AddHandler(DragDrop.DropEvent, OnDropAttachment);
@@ -1595,6 +1598,13 @@ public partial class MainWindow : Window
             SessionOf,
             async (result, departmentId, ct) => await LaunchIfTerminalAsync(result, departmentId));
 
+        // **止まっている計画は、後ろの計画をせき止めない**（設計 §62-30、実機で踏んだ）。
+        // 取り消された工程を抱えた計画が1つ居るだけで、そのあとに立てた計画が
+        // **永久に順番待ち**になっていた。止まった計画は次を渡さない ——
+        // 渡さないものは書き込み権を取り合わないので、飛ばして次を見てよい。
+        // 帯に出すのは**いちばん新しく止まっているもの**（動いているものが居ればそちらが勝つ）。
+        (string Id, Plan Plan, PlanTick Tick)? stopped = null;
+
         foreach (var id in await store.ListIdsAsync(CancellationToken.None))
         {
             if (await store.ReadAsync(id, CancellationToken.None) is not PlanReadResult.Found found)
@@ -1603,8 +1613,17 @@ public partial class MainWindow : Window
             }
 
             var tick = await runner.StepAsync(found.Plan, hands, CancellationToken.None);
-            ShowPlan(shell, found.Plan, tick);
-            await ShowPlanStepsAsync(shell, found.Plan, tick);
+
+            if (tick is PlanTick.Stopped)
+            {
+                // **止まっているものが複数あれば、いちばん新しいものを出す。**
+                // ID は作った順（`plan-<日時>-…`）で、一覧もその順。
+                // 古いものを出すと、**そのあとに立てた計画へ辿り着けない** ——
+                // 画面から動かせるのは帯に出ている計画だけなので、行き止まりの古い計画が
+                // 新しい計画を隠してしまう（実機で踏んだ）。
+                stopped = (id, found.Plan, tick);
+                continue;
+            }
 
             if (tick is PlanTick.Acted acted)
             {
@@ -1615,10 +1634,38 @@ public partial class MainWindow : Window
             // 書き込み権を取り合って**どちらも進まない**（§14-2）。
             if (tick is not PlanTick.Done)
             {
+                _bandPlanId = id;
+                ShowPlan(shell, found.Plan, tick);
+                await ShowPlanStepsAsync(shell, found.Plan, tick);
                 return;
             }
         }
+
+        // 動いている計画が無かった。止まっているものがあればそれを出し、
+        // 無ければ帯を消す（`Done` は帯を消す）。
+        if (stopped is { } held)
+        {
+            _bandPlanId = held.Id;
+            ShowPlan(shell, held.Plan, held.Tick);
+            await ShowPlanStepsAsync(shell, held.Plan, held.Tick);
+            return;
+        }
+
+        _bandPlanId = null;
+        shell.PlanStatus = null;
+        shell.PlanStopped = false;
+        shell.SetPlanSteps([]);
     }
+
+    /// <summary>
+    /// いま帯に出している計画（設計 §62-30）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「止める」「続ける」の宛先。</b> 計画は同時に何本もあり得るので、
+    /// **画面に出ているものだけを動かす** —— 全部に効かせると、
+    /// 見えていない計画まで一緒に走り出す。
+    /// </remarks>
+    private string? _bandPlanId;
 
     /// <summary>計画の帯に出す1行（設計 §37-3）。<b>状態は動かさない。</b></summary>
     private void ShowPlan(ShellViewModel shell, Plan plan, PlanTick tick)
@@ -1725,7 +1772,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        foreach (var id in await store.ListIdsAsync(CancellationToken.None))
+        // **帯に出ている計画だけを動かす**（設計 §62-30）。見えていない計画まで
+        // 一緒に走り出すと、**押していないものが動く**（§7）。
+        var targets = _bandPlanId is { } shown
+            ? [shown]
+            : await store.ListIdsAsync(CancellationToken.None);
+
+        foreach (var id in targets)
         {
             if (await store.ReadAsync(id, CancellationToken.None) is not PlanReadResult.Found found
                 || found.Plan.StoppedByHuman == stopped)
@@ -3156,23 +3209,55 @@ public partial class MainWindow : Window
         this.FindControl<TextBox>("MessageBox")?.Focus();
 
     /// <summary>
-    /// 入力欄で Enter を押したら送る（設計 §13-7 / §28-6）。
+    /// 入力欄で Shift+Enter を押したら送る（設計 §62-28、人間が決めた）。
     /// </summary>
     /// <remarks>
-    /// <b>実測の上に立っている。</b> IME の変換確定 Enter は <c>KeyDown</c> として
-    /// 届かない（TextBox 経路、実測17件中16件）ので、**確定と送信は衝突しない**。
-    /// §13-7 でそう結論しておきながら、実装していなかった（§25-4）。
+    /// <b>素の Enter は改行に譲った。</b> 入力欄を複数行にしたので、
+    /// 書きながら改行する方が送るより多い —— 送信を修飾キーつきに寄せる
+    /// （§13-7 / §28-6 の「素の Enter で送る」を、ここで人間が引き取って覆した）。
     /// <para>
-    /// <b>修飾キーつきは通す。</b> Shift+Enter などを送信にすると、
-    /// 将来 複数行入力を足したときに衝突する。
+    /// <b>IME とは衝突しない。</b> 変換確定の Enter は <c>KeyDown</c> として届かない
+    /// （TextBox 経路、実測17件中16件）ので、確定で改行も送信も起きない。
+    /// </para>
+    /// <para>
+    /// <b>TextBox より先に受ける必要がある。</b> <c>AcceptsReturn</c> を立てた TextBox は
+    /// Enter を自分で処理して <c>Handled</c> を立てる（Shift つきも同じ）ので、
+    /// XAML の <c>KeyDown="…"</c>（Bubble）では呼ばれない ——
+    /// Avalonia は同じ要素で「クラスのハンドラ → 実体のハンドラ」の順に回し、
+    /// 処理済みの出来事は既定で飛ばす。だから <see cref="WireSubmit"/> で Tunnel に付ける。
     /// </para>
     /// </remarks>
-    private static bool IsPlainEnter(KeyEventArgs e) =>
-        e.Key is Key.Enter or Key.Return && e.KeyModifiers is KeyModifiers.None;
+    private static bool IsSubmitEnter(KeyEventArgs e) =>
+        e.Key is Key.Enter or Key.Return && e.KeyModifiers is KeyModifiers.Shift;
+
+    /// <summary>
+    /// 入力欄の送信キーを、TextBox より先に受けるよう繋ぐ（設計 §62-28）。
+    /// </summary>
+    /// <remarks>
+    /// <b>付け直しで二重にしない。</b> 一覧の中の入力欄は、表示から外れて戻ると
+    /// もう一度 <c>AttachedToVisualTree</c> が来るので、そのたびに足すと
+    /// 1回の Shift+Enter で2通送ることになる。
+    /// </remarks>
+    private static void WireSubmit(object? sender, EventHandler<KeyEventArgs> handler)
+    {
+        if (sender is not TextBox box)
+        {
+            return;
+        }
+
+        box.RemoveHandler(KeyDownEvent, handler);
+        box.AddHandler(KeyDownEvent, handler, RoutingStrategies.Tunnel);
+    }
+
+    private void OnRejectionBoxAttached(object? sender, VisualTreeAttachmentEventArgs e) =>
+        WireSubmit(sender, OnRejectionKeyDown);
+
+    private void OnTaskDraftBoxAttached(object? sender, VisualTreeAttachmentEventArgs e) =>
+        WireSubmit(sender, OnTaskDraftKeyDown);
 
     private void OnMessageKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!IsPlainEnter(e))
+        if (!IsSubmitEnter(e))
         {
             return;
         }
@@ -3183,7 +3268,7 @@ public partial class MainWindow : Window
 
     private void OnTaskDraftKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!IsPlainEnter(e))
+        if (!IsSubmitEnter(e))
         {
             return;
         }
@@ -3194,7 +3279,7 @@ public partial class MainWindow : Window
 
     private void OnRejectionKeyDown(object? sender, KeyEventArgs e)
     {
-        if (!IsPlainEnter(e))
+        if (!IsSubmitEnter(e))
         {
             return;
         }

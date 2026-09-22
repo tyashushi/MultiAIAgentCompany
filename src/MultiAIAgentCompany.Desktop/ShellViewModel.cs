@@ -515,6 +515,21 @@ public sealed class DepartmentTile : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// タイルに色を付けるか（設計 §62-29）。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="SessionRunning"/> だけでは足りない</b> —— CLI は仕事を終えても窓の中で
+    /// 生きているので、動いている事実だけで色を付けると、手が空いたタイルが青のまま残る。
+    /// <para>
+    /// <b>観測できないとき（<see cref="ActivityState.Unknown"/>）は色を残す。</b>
+    /// 活動の観測は macOS のフックだけで、最初のフックが来るまでは Unknown なので、
+    /// ここで白に戻すと「起動したのに何も変わらない」になる。<b>白に戻すのは
+    /// 手が空いたと分かったときだけ。</b>
+    /// </para>
+    /// </remarks>
+    public bool SessionBusy => SessionRunning && Status.Activity.Value is not ActivityState.Resting;
+
+    /// <summary>
     /// ボタンの文言（設計 §15-6）。<b>押す前に何が起きるか分かるようにする。</b>
     /// </summary>
     public string ActionLabel => Call.Action switch

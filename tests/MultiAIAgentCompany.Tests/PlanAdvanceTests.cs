@@ -32,6 +32,30 @@ public sealed class PlanAdvanceTests
     }
 
     [Fact]
+    public void 止めていても_全工程を受理し終えていれば終わり()
+    {
+        // 実機で踏んだ形（§62-29）: 止めたあと残りを人間が受理して回すと、
+        // 8工程すべて `✓ 受理した` なのに帯は「止めている」のままで、
+        // 出口が「計画を続ける」しか無かった。
+        var plan = Plan(Step("research", slug: "t1"), Step("design", slug: "t2"))
+            with { StoppedByHuman = true };
+
+        Assert.IsType<PlanNext.Done>(
+            Decide(plan, ("t1", CoreTaskStatus.Accepted), ("t2", CoreTaskStatus.Accepted)));
+    }
+
+    [Fact]
+    public void 止めた計画で_状態を読めない工程があれば_終わりにしない()
+    {
+        // **読めないものを「たぶん終わった」にしない**（§7）。止まったままで良い。
+        var plan = Plan(Step("research", slug: "t1"), Step("design", slug: "t2"))
+            with { StoppedByHuman = true };
+
+        var next = Assert.IsType<PlanNext.NeedsHuman>(Decide(plan, ("t1", CoreTaskStatus.Accepted)));
+        Assert.Equal("人間が止めた", next.Reason);
+    }
+
+    [Fact]
     public void 工程が1つも無ければ止まる()
     {
         Assert.IsType<PlanNext.NeedsHuman>(Decide(Plan()));

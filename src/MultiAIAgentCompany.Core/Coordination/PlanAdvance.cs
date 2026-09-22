@@ -74,6 +74,16 @@ public static class PlanAdvance
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(states);
 
+        // **止めていても、終わったものは終わっている**（設計 §62-29、実機で踏んだ）。
+        // 「止める」は<b>次を渡さない</b>ことなので（§32-8）、渡すものが残っていなければ
+        // 止めているものも無い。ここを飛ばすと、全工程を受理し終えた計画が
+        // **「止めている」のまま帯に残り**、出口が「計画を続ける」しか無くなる。
+        // <b>読むだけで、何も渡さない</b>ので、止めた直後に走っても次は渡らない。
+        if (AllAccepted(plan, states))
+        {
+            return new PlanNext.Done();
+        }
+
         // **人間が止めたなら、それが最優先。** 他の条件を先に見ると、
         // 止めた直後の1周で次を渡してしまう。
         if (plan.StoppedByHuman)
@@ -163,6 +173,21 @@ public static class PlanAdvance
             ? new PlanNext.NeedsHuman("レビューが通っていない工程が残っている", pending)
             : new PlanNext.Done();
     }
+
+    /// <summary>
+    /// 全工程が受理済みか（設計 §62-29）。
+    /// </summary>
+    /// <remarks>
+    /// <b>「状態を読めない」は受理ではない。</b> 読めない工程が1つでもあれば false にして、
+    /// 通常の判断（人間を呼ぶ）に落とす —— ここで甘く見ると、**読めない工程を
+    /// 終わったことにして計画を閉じる**（§7）。
+    /// </remarks>
+    private static bool AllAccepted(Plan plan, IReadOnlyDictionary<string, TaskState> states) =>
+        plan.Steps.Count > 0
+        && plan.Steps.All(step =>
+            step.TaskSlug is { Length: > 0 } slug
+            && states.TryGetValue(slug, out var state)
+            && state.Status is TaskStatus.Accepted);
 
     /// <returns>
     /// 取るべき行動。<b>null は「まだ受理しないまま、次の工程へ進む」</b> ——

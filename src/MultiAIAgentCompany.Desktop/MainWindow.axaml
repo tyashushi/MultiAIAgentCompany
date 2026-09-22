@@ -363,14 +363,23 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <Grid ColumnDefinitions="*,Auto">
-                    <!-- **素の Enter で送る**（設計 §13-7 の実測）。IME の確定 Enter は
-                         KeyDown として届かないので、確定と送信は衝突しない。 -->
-                    <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="False"
-                             KeyDown="OnMessageKeyDown" Classes="input"
-                             PlaceholderText="秘書に相談する（Enter で送る。ファイルは窓に落とすと添付）" />
+                    <!-- **複数行を書ける**（設計 §62-28）。`AcceptsReturn="False"` の TextBox は
+                         **貼り付けを最初の改行で切り捨てる**（Avalonia の `SanitizeInputText`）ので、
+                         箇条書きの依頼を貼ると1行しか入らなかった。
+                         **Enter は改行、Shift+Enter で送る**（人間が決めた）。IME の確定 Enter は
+                         KeyDown として届かないので、確定で改行も送信も起きない。
+                         送信は Tunnel で先に取る（code-behind を見よ）ので、
+                         ここに `KeyDown="..."` は書かない —— 書くと TextBox が先に食う。 -->
+                    <TextBox Grid.Column="0" x:Name="MessageBox" AcceptsReturn="True"
+                             TextWrapping="Wrap" MaxHeight="160" VerticalContentAlignment="Top"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto" Classes="input"
+                             PlaceholderText="秘書に相談する（Shift+Enter で送る。ファイルは窓に落とすと添付）" />
                     <!-- 未起動なら、その副作用として起動する（§17-4）。
                          **画面でいちばん強い操作はこれ1つ**（設計 §44）。 -->
+                    <!-- **入力欄が伸びてもボタンは伸ばさない**（§62-28）。
+                         下端に揃えておくと、何行書いても押す場所が動かない。 -->
                     <Button Grid.Column="1" Content="秘書に送る" Classes="primary"
+                            VerticalAlignment="Bottom"
                             Margin="8,0,0,0" Click="OnSendToSecretary" />
                 </Grid>
             </StackPanel>
@@ -578,7 +587,7 @@
                         <!-- **人間の出番があるタイルにだけ色が付く**（設計 §44）。
                              全部が同じ灰色の箱だと、どれを見ればよいかが絵から分からない。 -->
                         <Border Classes="card" Classes.needs-human="{Binding NeedsHuman}"
-                                Classes.running="{Binding SessionRunning}">
+                                Classes.running="{Binding SessionBusy}">
                             <Grid ColumnDefinitions="Auto,*">
                                 <!-- 3軸を混ぜず層にする（設計 §15-1）。ポーズ＝活動、バッジ＝仕事、印＝稼働。 -->
                                 <!-- **選んでいる部門だけ大きく出す**（設計 §52-5）。一覧の並びは 40px のまま。 -->
@@ -677,12 +686,16 @@
                                                Classes="meta" TextWrapping="Wrap" Margin="0,4,0,0" />
                                     <Button Content="受理する" IsVisible="{Binding CanJudgeReport}"
                                             Click="OnAcceptReport" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
+                                    <!-- 理由も複数行で書ける（設計 §62-28）。送信は Tunnel（code-behind）。 -->
                                     <TextBox Text="{Binding RejectionDraft, Mode=TwoWay}"
                                              IsVisible="{Binding CanJudgeReport}"
-                                             KeyDown="OnRejectionKeyDown" Classes="input"
-                                             PlaceholderText="差し戻す理由（Enter で差し戻す）"
+                                             AttachedToVisualTree="OnRejectionBoxAttached" Classes="input"
+                                             PlaceholderText="差し戻す理由（Shift+Enter で差し戻す）"
                                              FontSize="{DynamicResource FontSizeSmall}"
-                                             AcceptsReturn="False" Margin="0,4,0,0" />
+                                             AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"
+                                             VerticalContentAlignment="Top"
+                                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                             Margin="0,4,0,0" />
                                     <Button Content="差し戻して送り直す" IsVisible="{Binding CanJudgeReport}"
                                             Click="OnRejectReport" Classes="quiet" HorizontalAlignment="Left" Margin="0,4,0,0" />
 
@@ -691,9 +704,12 @@
                                     <!-- 部門への指示は**中央の入力欄と別**（設計 §17-4）。
                                          秘書が outbox に publish する経路が入るまでの暫定。 -->
                                     <TextBox Text="{Binding TaskDraft, Mode=TwoWay}" IsVisible="{Binding IsSelected}"
-                                             KeyDown="OnTaskDraftKeyDown"
-                                             PlaceholderText="この部門への指示（Enter で仕事にする）" FontSize="{DynamicResource FontSizeSmall}"
-                                             AcceptsReturn="False" Margin="0,4,0,0" />
+                                             AttachedToVisualTree="OnTaskDraftBoxAttached"
+                                             PlaceholderText="この部門への指示（Shift+Enter で仕事にする）" FontSize="{DynamicResource FontSizeSmall}"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"
+                                             VerticalContentAlignment="Top"
+                                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                             Margin="0,4,0,0" />
                                     <Button Content="この部門に仕事を作る" IsVisible="{Binding IsSelected}"
                                             Click="OnMakeTask" FontSize="{DynamicResource FontSizeSmall}" Margin="0,4,0,0"
                                             HorizontalAlignment="Stretch"
